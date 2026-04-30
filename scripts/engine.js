@@ -87,7 +87,7 @@ const SNV = {
 };
 
 function createPlayerNames(playerCount) {
-  return Array.from({ length: playerCount }, (_, idx) => (idx === 0 ? HUMAN_NAME : `鐜╁${idx}`));
+  return Array.from({ length: playerCount }, (_, idx) => (idx === 0 ? HUMAN_NAME : `${idx + 1}号`));
 }
 
 function applySeatNames(players) {
@@ -677,7 +677,7 @@ export function getHumanNightActionState(state) {
   const options = playerTargetOptions(state, human, rule);
 
   if (options.length === 0) {
-    return { available: false, reason: "褰撳墠娌℃湁鍙€夋嫨鐨勭洰鏍囥。" };
+    return { available: false, reason: "当前没有可选择的目标。" };
   }
 
   const selected =
@@ -876,12 +876,12 @@ export function getGrimoireNote(state, playerId) {
 export function setGrimoireMarkedRole(state, { playerId, roleId }) {
   const player = getPlayerById(state, playerId);
   if (!player) {
-    return { ok: false, reason: "鐩爣鐜╁涓嶅瓨鍦ㄣ。" };
+    return { ok: false, reason: "目标玩家不存在。" };
   }
   ensureGrimoireNotes(state);
   const safeRoleId = roleId ? `${roleId}` : "";
   if (safeRoleId && !getRoleById(state.scriptId, safeRoleId)) {
-    return { ok: false, reason: "鏍囪瑙掕壊涓嶅睘浜庡綋鍓嶅墽鏈。" };
+    return { ok: false, reason: "标记角色不属于当前剧本。" };
   }
   const note = state.grimoireNotes[player.id];
   note.markedRoleId = safeRoleId;
@@ -891,11 +891,11 @@ export function setGrimoireMarkedRole(state, { playerId, roleId }) {
 export function addGrimoireReminder(state, { playerId, reminder }) {
   const player = getPlayerById(state, playerId);
   if (!player) {
-    return { ok: false, reason: "鐩爣鐜╁涓嶅瓨鍦ㄣ。" };
+    return { ok: false, reason: "目标玩家不存在。" };
   }
   const text = `${reminder ?? ""}`.trim();
   if (!text) {
-    return { ok: false, reason: "鎻愰啋鍐呭涓嶈兘涓虹┖。" };
+    return { ok: false, reason: "提醒内容不能为空。" };
   }
   ensureGrimoireNotes(state);
   const note = state.grimoireNotes[player.id];
@@ -909,7 +909,7 @@ export function addGrimoireReminder(state, { playerId, reminder }) {
 export function removeGrimoireReminder(state, { playerId, reminder }) {
   const player = getPlayerById(state, playerId);
   if (!player) {
-    return { ok: false, reason: "鐩爣鐜╁涓嶅瓨鍦ㄣ。" };
+    return { ok: false, reason: "目标玩家不存在。" };
   }
   const text = `${reminder ?? ""}`.trim();
   ensureGrimoireNotes(state);
@@ -921,7 +921,7 @@ export function removeGrimoireReminder(state, { playerId, reminder }) {
 export function clearGrimoireNote(state, { playerId }) {
   const player = getPlayerById(state, playerId);
   if (!player) {
-    return { ok: false, reason: "鐩爣鐜╁涓嶅瓨鍦ㄣ。" };
+    return { ok: false, reason: "目标玩家不存在。" };
   }
   ensureGrimoireNotes(state);
   state.grimoireNotes[player.id] = {
@@ -1057,9 +1057,9 @@ export function publicRoleLabel(state, player, grimoireView) {
   }
   if (player.publicClaimRoleId) {
     const role = getAllRoles(state.scriptId).find((entry) => entry.id === player.publicClaimRoleId);
-    return role ? `${role.name} (澹版槑)` : "鏈煡澹版槑";
+    return role ? `${role.name} (声明)` : "未知声明";
   }
-  return "鏈煡";
+  return "未知";
 }
 
 function applyThreatHeuristic(state) {
@@ -1168,7 +1168,7 @@ function swapHumanToPreferredRole(players, preferredHumanRoleId) {
 export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = "" }, rng = Math.random) {
   const script = SCRIPT_MAP[scriptId];
   if (!script) {
-    throw new Error("scriptId 鏃犳晥");
+    throw new Error("scriptId 无效");
   }
 
   const names = createPlayerNames(playerCount);
@@ -1244,20 +1244,20 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
   addLog(
     state,
     "setup",
-    `鏂板眬宸插垱寤猴細${script.name}锛?{playerCount} 浜恒€傚綋鍓嶉厤缃?${state.setupCounts.townsfolk}/${state.setupCounts.outsider}/${state.setupCounts.minion}/${state.setupCounts.demon}。`
+    `新局已创建：${script.name}，${playerCount} 人。当前配置 ${state.setupCounts.townsfolk}/${state.setupCounts.outsider}/${state.setupCounts.minion}/${state.setupCounts.demon}。`
   );
 
   if (human) {
     const shownRole = getEffectiveRoleName(human) ?? human.roleName;
-    addLog(state, "setup", `浣犵殑韬唤鏄?${shownRole}。`, { private: true, playerId: human.id });
+    addLog(state, "setup", `你的身份是 ${shownRole}。`, { private: true, playerId: human.id });
   }
   if (preferredHumanRoleId) {
     addLog(
       state,
       "setup",
       preferredApplied
-        ? `娴嬭瘯妯″紡锛氬凡鎸囧畾浣犵殑韬唤涓?${getEffectiveRoleName(human) ?? human?.roleName ?? preferredHumanRoleId}。`
-        : "娴嬭瘯妯″紡锛氳嚜閫夎韩浠芥湭鍛戒腑锛屽凡鍥為€€闅忔満鍙戠墝。",
+        ? `测试模式：已指定你的身份为 ${getEffectiveRoleName(human) ?? human?.roleName ?? preferredHumanRoleId}。`
+        : "测试模式：自选身份未命中，已回退随机发牌。",
       { private: true, playerId: human?.id }
     );
   }
@@ -1351,7 +1351,7 @@ function markNightDeath(state, victim, reason, payload = {}) {
     reason,
     ...payload,
   });
-  addLog(state, "death", `${victim.name} 鍦ㄥ鏅氭浜°。`, { victimId: victim.id, reason });
+  addLog(state, "death", `${victim.name} 在夜晚死亡。`, { victimId: victim.id, reason });
   return true;
 }
 
@@ -1367,7 +1367,7 @@ function markExecutionDeath(state, victim, reason, payload = {}) {
     reason,
     ...payload,
   });
-  addLog(state, "execution", `${victim.name} 琚鍐炽。`, { nomineeId: victim.id, reason });
+  addLog(state, "execution", `${victim.name} 被处决。`, { nomineeId: victim.id, reason });
   if (state.tb) {
     state.tb.executionOccurredToday = true;
     state.tb.executionRoleByDay[state.day] = victim.roleId;
@@ -1455,7 +1455,7 @@ function startNightPhase(state) {
   state.dayStageMeta.publicRounds = 0;
   state.dayStageMeta.privateTargets = [];
   state.night += 1;
-  state.narration = `绗?{state.night}澶滈檷涓淬。`;
+  state.narration = `第${state.night}夜降临。`;
   addLog(state, "night-start", state.narration);
   deliverEvilRecognitionFirstNight(state);
 
@@ -1513,7 +1513,7 @@ function initDayStage(state) {
   state.dayStageMeta.privateLimit = privateLimit;
   state.dayStageMeta.publicRounds = 0;
   state.dayStageMeta.privateTargets = [];
-  addLog(state, "hint", `鐧藉ぉ娴佺▼锛氬厛绉佽亰锛?{privateLimit}娆★級-> 鍐嶅叕鑱?-> 鏈€鍚庢彁鍚嶃。`, {});
+  addLog(state, "hint", `白天流程：先私聊（${privateLimit}次）-> 再公聊 -> 最后提名。`, {});
 }
 
 function emitSavantInfoForDay(state, rng = Math.random) {
@@ -1531,18 +1531,18 @@ function emitSavantInfoForDay(state, rng = Math.random) {
       const aliveEvil = state.players.filter((entry) => entry.alive && entry.team === "evil").length;
       const statements = [
         {
-          text: `褰撳墠瀛樻椿鍠勮壇浜烘暟鏄?${aliveGood}。`,
+          text: `当前存活善良人数是 ${aliveGood}。`,
           truth: true,
         },
         {
-          text: `褰撳墠瀛樻椿閭伓浜烘暟鏄?${aliveEvil + 1}。`,
+          text: `当前存活邪恶人数是 ${aliveEvil + 1}。`,
           truth: false,
         },
       ];
       let pair = shuffle(statements, rng).slice(0, 2);
       if (vortoxAlive) {
         pair = pair.map((entry, idx) => ({
-          text: idx === 0 ? `褰撳墠瀛樻椿鍠勮壇浜烘暟鏄?${aliveGood + 1}。` : `褰撳墠瀛樻椿閭伓浜烘暟鏄?${Math.max(0, aliveEvil - 1)}。`,
+          text: idx === 0 ? `当前存活善良人数是 ${aliveGood + 1}。` : `当前存活邪恶人数是 ${Math.max(0, aliveEvil - 1)}。`,
           truth: false,
         }));
       }
@@ -1557,7 +1557,7 @@ function emitSavantInfoForDay(state, rng = Math.random) {
 function transitionToDayPhase(state) {
   state.phase = "day";
   state.day += 1;
-  state.narration = `澶╀寒浜嗐€傜 ${state.day} 澶╁紑濮嬨。`;
+  state.narration = `天亮了。第 ${state.day} 天开始。`;
 
   state.players.forEach((player) => {
     player.poisoned = !!player.poisonedTomorrowDay;
@@ -1577,13 +1577,13 @@ function transitionToDayPhase(state) {
 
 export function consumePrivateChat(state, targetId) {
   if (state.phase !== "day" || state.dayStage !== "private" || state.gameOver) {
-    return { ok: false, reason: "褰撳墠涓嶅湪绉佽亰闃舵。" };
+    return { ok: false, reason: "当前不在私聊阶段。" };
   }
 
   const limit = state.dayStageMeta.privateLimit ?? 0;
   const used = state.dayStageMeta.privateUsed ?? 0;
   if (used >= limit) {
-    return { ok: false, reason: `浠婃棩绉佽亰娆℃暟宸茬敤瀹岋紙${used}/${limit}锛夈。` };
+    return { ok: false, reason: `今日私聊次数已用完（${used}/${limit}）。` };
   }
 
   state.dayStageMeta.privateUsed += 1;
@@ -1610,7 +1610,7 @@ export function markPublicDiscussionRound(state) {
 
 export function advanceDayStage(state, targetStage = null) {
   if (state.phase !== "day" || state.gameOver) {
-    return { ok: false, reason: "褰撳墠涓嶅湪鐧藉ぉ娴佺▼。" };
+    return { ok: false, reason: "当前不在白天流程。" };
   }
 
   const order = ["private", "public", "nomination"];
@@ -1620,23 +1620,23 @@ export function advanceDayStage(state, targetStage = null) {
   const nextIdx = order.indexOf(next);
 
   if (nextIdx < 0) {
-    return { ok: false, reason: "鐩爣闃舵鏃犳晥。" };
+    return { ok: false, reason: "目标阶段无效。" };
   }
   if (nextIdx <= currentIdx) {
-    return { ok: false, reason: "鏃犳硶鍥為€€鎴栭噸澶嶈繘鍏ュ綋鍓嶉樁娈点。" };
+    return { ok: false, reason: "无法回退或重复进入当前阶段。" };
   }
   if (nextIdx - currentIdx > 1) {
-    return { ok: false, reason: "璇锋寜椤哄簭鎺ㄨ繘锛氱鑱?-> 鍏亰 -> 鎻愬悕。" };
+    return { ok: false, reason: "请按顺序推进：私聊 -> 公聊 -> 提名。" };
   }
   if (current === "public" && next === "nomination" && (state.dayStageMeta.publicRounds ?? 0) <= 0) {
-    return { ok: false, reason: "璇疯嚦灏戣繘琛屼竴杞叕鑱婏紝鍐嶈繘鍏ユ彁鍚嶃。" };
+    return { ok: false, reason: "请至少进行一轮公聊，再进入提名。" };
   }
 
   state.dayStage = next;
   if (next === "public") {
-    addLog(state, "phase", "绉佽亰闃舵缁撴潫锛岃繘鍏ュ叕鑱婇樁娈点。", {});
+    addLog(state, "phase", "私聊阶段结束，进入公聊阶段。", {});
   } else if (next === "nomination") {
-    addLog(state, "phase", "鍏亰闃舵缁撴潫锛岃繘鍏ユ彁鍚嶉樁娈点。", {});
+    addLog(state, "phase", "公聊阶段结束，进入提名阶段。", {});
   }
   return { ok: true, stage: next };
 }
@@ -1709,7 +1709,7 @@ function applyVigormortisNeighborPoison(state, minion, demonId = null) {
     addAbilityInterference(state, 1);
   });
   if (neighbors.length > 0) {
-    addLog(state, "night-effect", "Vigormortis 浣胯鍑绘潃鐖墮鐨勯偦杩戦晣姘戜腑姣掋。", {
+    addLog(state, "night-effect", "Vigormortis 使被击杀爪牙的邻近镇民中毒。", {
       demonId,
       minionId: minion.id,
       targetIds: neighbors.map((entry) => entry.id),
@@ -1859,7 +1859,7 @@ function createSNVRoleContext(state, rng = Math.random) {
 function runNightTB(state, rng = Math.random) {
   const runner = getNightRunner("tb");
   if (!runner) {
-    throw new Error("TB 澶滄櫄瑙掕壊妯″潡鏈敞鍐屻。");
+    throw new Error("TB 夜晚角色模块未注册。");
   }
   runner(createTBRoleContext(state, rng));
 }
@@ -1885,7 +1885,7 @@ function applyGoonReaction(state, actor, target) {
   if (actor.category === "demon") {
     state.bmr.exorcisedDemonId = actor.id;
   }
-  addLog(state, "night-effect", `Goon 琚?${actor.name} 閫変腑鍚庤浆鎹簡闃佃惀锛屽苟浣垮叾鑳藉姏澶辨晥。`, {
+  addLog(state, "night-effect", `Goon 被 ${actor.name} 选中后转换了阵营，并使其能力失效。`, {
     actorId: actor.id,
     goonId: target.id,
     team: target.team,
@@ -1981,7 +1981,7 @@ function choosePoisonTargetsSimplified(state, rng = Math.random) {
 
     target.poisoned = true;
     target.poisonedTomorrowDay = true;
-    addLog(state, "night-effect", "澶滈棿鍑虹幇涓瘨骞叉壈锛堢洰鏍囨湭鍏紑锛夈。", {
+    addLog(state, "night-effect", "夜间出现中毒干扰（目标未公开）。", {
       by: poisoner.id,
       targetId: target.id,
     });
@@ -2106,7 +2106,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth: shortest,
       reported,
       polluted: blocked || vortoxActive,
-      text: `浣犵湅鍒扮殑鎭堕瓟涓庣埅鐗欐渶鐭窛绂讳负 ${reported}。`,
+      text: `你看到的恶魔与爪牙最短距离为 ${reported}。`,
     };
   }
 
@@ -2119,7 +2119,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth,
       reported,
       polluted: blocked || vortoxActive,
-      text: `浠庝笂涓粠鏄庡埌鐜板湪锛屽叡鏈?${reported} 娆¤兘鍔涘彈澶栭儴褰卞搷鑰屽け鏁堛。`,
+      text: `从上一个黎明到现在，共有 ${reported} 次能力受外部影响而失效。`,
     };
   }
 
@@ -2155,7 +2155,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth: deadEvil,
       reported,
       polluted: blocked || vortoxActive,
-      text: `浣犵湅鍒板綋鍓嶆浜＄帺瀹朵腑鏈?${reported} 浜哄睘浜庨偑鎭堕樀钀ャ。`,
+      text: `你看到当前死亡玩家中有 ${reported} 人属于邪恶阵营。`,
     };
   }
 
@@ -2179,7 +2179,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth,
       reported,
       polluted: blocked || vortoxActive,
-      text: `浣犵殑 Juggler 鐚滄祴涓紝姝ｇ‘鏁伴噺涓?${reported}。`,
+      text: `你的 Juggler 猜测中，正确数量为 ${reported}。`,
     };
   }
 
@@ -2188,7 +2188,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
     const oppositePool = getAllRoles(state.scriptId).filter((entry) =>
       target.team === "evil" ? entry.team === "good" : entry.team === "evil"
     );
-    const fakeRole = chooseOne(oppositePool, rng)?.name ?? "鏈煡";
+    const fakeRole = chooseOne(oppositePool, rng)?.name ?? "未知";
     const pair = shuffle([truthRole, fakeRole], rng);
     let left = pair[0];
     let right = pair[1];
@@ -2204,7 +2204,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth: truthRole,
       reported: `${left}/${right}`,
       polluted: blocked || vortoxActive,
-      text: `${target.name} 鍦ㄤ綘姊﹀涓搴斾袱涓韩浠斤細${left} / ${right}。`,
+      text: `${target.name} 在你的梦境中对应两个身份：${left} / ${right}。`,
     };
   }
 
@@ -2328,7 +2328,7 @@ function runNightSimplified(state, rng = Math.random) {
           setRole(victim, fangGuRole);
           state.snv.fangGuJumpUsed = true;
           processNightDeath(state, demon, "fang-gu-jump", { by: victim.id }, rng);
-          addLog(state, "night-effect", "Fang Gu 鍛戒腑澶栨潵鑰呭苟瀹屾垚璺宠浆。", {
+          addLog(state, "night-effect", "Fang Gu 命中外来者并完成跳转。", {
             from: demon.id,
             to: victim.id,
           });
@@ -2352,12 +2352,12 @@ function runNightSimplified(state, rng = Math.random) {
           applyVigormortisNeighborPoison(state, victim, demon.id);
         }
       } else {
-        addLog(state, "night-effect", "澶滈棿浼间箮鍙戠敓浜嗕繚鎶ゆ晥鏋滐紝鏃犱汉姝讳骸。", { protectedId: victim.id });
+        addLog(state, "night-effect", "夜间似乎发生了保护效果，无人死亡。", { protectedId: victim.id });
       }
     });
   }
   if (state.events.nightDeaths.length === deathsBeforeDemon) {
-    addLog(state, "night-effect", "澶滄櫄娌℃湁鍙戠敓鍙姝讳骸。", {});
+    addLog(state, "night-effect", "夜晚没有发生可见死亡。", {});
   }
 
   const infoActors = state.players
@@ -2420,7 +2420,7 @@ function runNightSimplified(state, rng = Math.random) {
     }
 
     state.events.infoPings.push({ ...clue, night: state.night });
-    addPrivateInfo(state, actor, `[绗?{state.night}澶淽 ${clue.text}`);
+    addPrivateInfo(state, actor, `[第${state.night}夜] ${clue.text}`);
   });
 
   const human = getHumanPlayer(state);
@@ -2459,7 +2459,7 @@ export function registerClaim(state, playerId, roleId) {
   player.publicClaimRoleId = roleId;
   const roleName = getRoleNameById(state, roleId);
   state.events.claims.push({ day: state.day, playerId, roleId });
-  addLog(state, "claim", `${player.name} 澹扮О鑷繁鏄?${roleName}。`, { playerId, roleId });
+  addLog(state, "claim", `${player.name} 声称自己是 ${roleName}。`, { playerId, roleId });
 
   getScriptRuleHandlers("snv").onRegisterClaim?.(createSNVRoleContext(state, Math.random), { player, roleId });
   return true;
@@ -2494,27 +2494,27 @@ export function resolveNominationAndVote(
   rng = Math.random
 ) {
   if (state.phase !== "day" || state.gameOver) {
-    return { accepted: false, reason: "褰撳墠涓嶅湪鐧藉ぉ娴佺▼。" };
+    return { accepted: false, reason: "当前不在白天流程。" };
   }
 
   if (state.dayStage && state.dayStage !== "nomination") {
-    return { accepted: false, reason: "褰撳墠灏氭湭杩涘叆鎻愬悕闃舵锛岃鍏堝畬鎴愮鑱婁笌鍏亰。" };
+    return { accepted: false, reason: "当前尚未进入提名阶段，请先完成私聊与公聊。" };
   }
 
   const nominator = getPlayerById(state, nominatorId);
   const nominee = getPlayerById(state, nomineeId);
 
   if (!nominator || !nominee) {
-    return { accepted: false, reason: "鎻愬悕鑰呮垨琚彁鍚嶇帺瀹朵笉瀛樺湪。" };
+    return { accepted: false, reason: "提名者或被提名玩家不存在。" };
   }
   if (!nominator.alive) {
-    return { accepted: false, reason: "姝讳骸鐜╁鏃犳硶鍙戣捣鎻愬悕。" };
+    return { accepted: false, reason: "死亡玩家无法发起提名。" };
   }
   if (nominator.nominatedToday) {
-    return { accepted: false, reason: `${nominator.name} 浠婂ぉ宸叉彁鍚嶈繃。` };
+    return { accepted: false, reason: `${nominator.name} 今天已提名过。` };
   }
   if (nominee.beenNominatedToday) {
-    return { accepted: false, reason: `${nominee.name} 浠婂ぉ宸茶鎻愬悕杩囥。` };
+    return { accepted: false, reason: `${nominee.name} 今天已被提名过。` };
   }
 
   const snvNomination = getScriptRuleHandlers("snv").onNomination?.(createSNVRoleContext(state, rng), {
@@ -2530,11 +2530,11 @@ export function resolveNominationAndVote(
 
   getScriptRuleHandlers("snv").onNominationAccepted?.(createSNVRoleContext(state, rng), { nominator, nominee });
 
-  addLog(state, "nomination", `${nominator.name} 鎻愬悕浜?${nominee.name}。`, { nominatorId, nomineeId });
+  addLog(state, "nomination", `${nominator.name} 提名了 ${nominee.name}。`, { nominatorId, nomineeId });
 
   if (isVirginTrigger(state, nominator, nominee, rng)) {
     processExecutionDeath(state, nominator, "virgin-trigger", { nomineeId: nominee.id }, rng);
-    addLog(state, "day-skill", "Virgin 瑙﹀彂锛氭彁鍚嶈€呰绔嬪嵆澶勫喅。", {
+    addLog(state, "day-skill", "Virgin 触发：提名者被立即处决。", {
       nominatorId: nominator.id,
       nomineeId: nominee.id,
     });
@@ -2614,7 +2614,7 @@ export function resolveNominationAndVote(
   addLog(
     state,
     "vote",
-    `鎶曠エ缁撴灉锛?{yesVotes} 绁ㄨ禐鎴愶紙闃堝€?${threshold}锛夈€?{passed ? "鎻愬悕閫氳繃" : "鎻愬悕鏈€氳繃"}。`,
+    `投票结果：${yesVotes} 票赞成（阈值 ${threshold}）。${passed ? "提名通过" : "提名未通过"}。`,
     { nomineeId, yesVotes, threshold, passed }
   );
 
@@ -2637,25 +2637,25 @@ export function resolveNominationAndVote(
 
 export function useSlayerAbility(state, { shooterId, targetId }, rng = Math.random) {
   if (state.phase !== "day" || state.gameOver) {
-    return { ok: false, reason: "褰撳墠涓嶈兘鍙戝姩 Slayer 鎶€鑳姐。" };
+    return { ok: false, reason: "当前不能发动 Slayer 技能。" };
   }
 
   if (state.dayStage === "private") {
-    return { ok: false, reason: "绉佽亰闃舵涓嶈兘鍙戝姩 Slayer锛岃鍏堣繘鍏ュ叕鑱婃垨鎻愬悕闃舵。" };
+    return { ok: false, reason: "私聊阶段不能发动 Slayer，请先进入公聊或提名阶段。" };
   }
 
   const shooter = getPlayerById(state, shooterId);
   const target = getPlayerById(state, targetId);
   if (!shooter || !target) {
-    return { ok: false, reason: "鐩爣涓嶅瓨鍦ㄣ。" };
+    return { ok: false, reason: "目标不存在。" };
   }
   if (!state.tb) {
-    return { ok: false, reason: "褰撳墠鍓ф湰娌℃湁 Slayer 鎶€鑳姐。" };
+    return { ok: false, reason: "当前剧本没有 Slayer 技能。" };
   }
   const result =
     getScriptRuleHandlers("tb").useSlayerAbility?.(createTBRoleContext(state, rng), { shooter, target }) ?? {
       ok: false,
-      reason: "Slayer 鎶€鑳芥ā鍧楁湭娉ㄥ唽。",
+      reason: "Slayer 技能模块未注册。",
     };
   if (result.ok && shooter.isHuman) {
     markHumanAbilityUsed(state, getEffectiveRoleId(shooter));
@@ -2686,7 +2686,7 @@ export function skipDay(state) {
   if (state.dayStage && state.dayStage !== "nomination") {
     return false;
   }
-  addLog(state, "day-skip", "浠婂ぉ鏃犱汉澶勫喅锛岃繘鍏ュ鏅氥。", {});
+  addLog(state, "day-skip", "今天无人处决，进入夜晚。", {});
   evaluateNoExecutionOutcomes(state);
   checkWin(state);
   return true;

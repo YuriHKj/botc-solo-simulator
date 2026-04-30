@@ -235,7 +235,7 @@ export function runBadMoonRisingNight(ctx) {
     if (revived) {
       revived.alive = true;
       revived.ghostVoteAvailable = true;
-      addLog(state, "night-effect", "Shabaloth 鍙嶅垗浣夸竴鍚嶇帺瀹跺娲汇。", { targetId: revived.id });
+      addLog(state, "night-effect", "Shabaloth 反刍使一名玩家复活。", { targetId: revived.id });
     }
   }
 
@@ -264,7 +264,7 @@ export function runBadMoonRisingNight(ctx) {
       drunkTarget.poisonedTomorrowDay = true;
       bmr.sailorDrunkIds.push(drunkTarget.id);
       addAbilityInterference(state, 1);
-      addLog(state, "night-effect", "Sailor 鐢熸晥锛氫竴鍚嶇帺瀹惰閱夐厭。", {
+      addLog(state, "night-effect", "Sailor 生效：一名玩家被醉酒。", {
         by: sailor.id,
         targetId: drunkTarget.id,
       });
@@ -295,7 +295,7 @@ export function runBadMoonRisingNight(ctx) {
       bmr.exorcistLastTargetById[exorcist.id] = target.id;
       if (target.category === "demon") {
         bmr.exorcisedDemonId = target.id;
-        addLog(state, "night-effect", "Exorcist 鍘嬪埗浜嗘伓榄旀湰澶滆鍔ㄣ。", { by: exorcist.id, targetId: target.id });
+        addLog(state, "night-effect", "Exorcist 压制了恶魔本夜行动。", { by: exorcist.id, targetId: target.id });
       }
     });
 
@@ -353,7 +353,7 @@ export function runBadMoonRisingNight(ctx) {
       bmr.courtierUsedByIds.push(courtier.id);
       bmr.suppressedByRoleId[roleId] = Math.max(Number(bmr.suppressedByRoleId[roleId] ?? 0), state.night + 2);
       addAbilityInterference(state, state.players.filter((entry) => getEffectiveRoleId(entry) === roleId).length);
-      addLog(state, "night-effect", `Courtier 鍘嬪埗浜嗚鑹?${target.roleName}。`, {
+      addLog(state, "night-effect", `Courtier 压制了角色 ${target.roleName}。`, {
         by: courtier.id,
         targetRoleId: roleId,
       });
@@ -414,7 +414,7 @@ export function runBadMoonRisingNight(ctx) {
         }
         return entry.alive || roleId === BMR.LUNATIC;
       }).length;
-      addPrivateInfo(state, maid, `[绗?{state.night}澶淽 浣犻€夋嫨鐨勪袱鍚嶇帺瀹朵腑鏈?${count} 浜哄湪澶滈棿鍥犺嚜韬兘鍔涢啋鏉ャ。`);
+      addPrivateInfo(state, maid, `[第${state.night}夜] 你选择的两名玩家中有 ${count} 人在夜间因自身能力醒来。`);
     });
 
   state.players
@@ -447,7 +447,7 @@ export function runBadMoonRisingNight(ctx) {
       bmr.professorUsedByIds.push(professor.id);
       target.alive = true;
       target.ghostVoteAvailable = true;
-      addLog(state, "night-effect", "Professor 澶嶆椿浜嗕竴鍚嶉晣姘戙。", { by: professor.id, targetId: target.id });
+      addLog(state, "night-effect", "Professor 复活了一名镇民。", { by: professor.id, targetId: target.id });
     });
 
   state.players
@@ -553,7 +553,7 @@ export function runBadMoonRisingNight(ctx) {
         rng
       )[0];
       if (target) {
-        addPrivateInfo(state, lunatic, `[绗?{state.night}澶淽 浣犲皾璇曗€滄敾鍑烩€濅簡 ${target.name}锛堢柉瀛愬够瑙夎鍔級。`);
+        addPrivateInfo(state, lunatic, `[第${state.night}夜] 你尝试“攻击”了 ${target.name}（疯子幻觉行动）。`);
       }
     });
 
@@ -601,7 +601,7 @@ export function runBadMoonRisingNight(ctx) {
       target.poisonedTomorrowDay = true;
       bmr.pukkaPoisonedId = target.id;
       addAbilityInterference(state, 1);
-      addLog(state, "night-effect", "Pukka 鏈瀵逛竴鍚嶇帺瀹舵柦鍔犱簡寤惰繜鑷存姣掔礌。", {
+      addLog(state, "night-effect", "Pukka 本夜对一名玩家施加了延迟致死毒素。", {
         by: demon.id,
         targetId: target.id,
       });
@@ -638,7 +638,7 @@ export function runBadMoonRisingNight(ctx) {
       bmr.poCharged = false;
     } else if (!demon.isHuman && rng() < 0.28) {
       bmr.poCharged = true;
-      addLog(state, "night-effect", "Po 姝ｅ湪钃勫姏锛屼笅娆″皢閫犳垚涓夐噸鍑绘潃。", { demonId: demon.id });
+      addLog(state, "night-effect", "Po 正在蓄力，下次将造成三重击杀。", { demonId: demon.id });
       return;
     } else {
       targets = pickNightTargets(
@@ -669,7 +669,7 @@ function onSetup(ctx) {
     .forEach((godfather) => {
       state.bmr.godfatherOutsiderIds = aliveOutsiders.map((entry) => entry.id);
       const outsiderNames = aliveOutsiders.map((entry) => entry.roleName).join(" / ") || "无";
-      addPrivateInfo(state, godfather, `[寮€灞€] 浣犵湅鍒板湪鍦哄鏉ヨ€呬俊鎭細${outsiderNames}。`);
+      addPrivateInfo(state, godfather, `[开局] 你看到在场外来者信息：${outsiderNames}。`);
     });
 
   state.players
@@ -681,7 +681,7 @@ function onSetup(ctx) {
         return;
       }
       state.bmr.grandmotherChildById[grandmother.id] = child.id;
-      addPrivateInfo(state, grandmother, `[寮€灞€] 浣犵殑瀛欏瓙鏄?${child.name}锛屽叾韬唤涓?${child.roleName}。`);
+      addPrivateInfo(state, grandmother, `[开局] 你的孙子是 ${child.name}，其身份为 ${child.roleName}。`);
     });
 
   state.players
@@ -740,7 +740,7 @@ function maybeBlockDeathByTeaLady(ctx, victim, reason, logType) {
   if (!state.bmr.teaLadyProtectedIds.includes(victim.id)) {
     return false;
   }
-  addLog(state, logType, `${victim.name} 鍙楀埌 Tea Lady 淇濇姢锛屽厤浜庢浜°。`, {
+  addLog(state, logType, `${victim.name} 受到 Tea Lady 保护，免于死亡。`, {
     victimId: victim.id,
     reason,
   });
@@ -759,7 +759,7 @@ function maybeSaveByFool(ctx, victim, reason, logType) {
     return false;
   }
   state.bmr.foolSavedById[victim.id] = true;
-  addLog(state, logType, `${victim.name} 瑙﹀彂 Fool 淇濆懡鏁堟灉锛屾姷娑堜簡鏈姝讳骸。`, {
+  addLog(state, logType, `${victim.name} 触发 Fool 保命效果，抵消了本次死亡。`, {
     victimId: victim.id,
     reason,
   });
@@ -773,7 +773,7 @@ function maybeSaveByZombuul(ctx, victim, reason, logType) {
   }
   state.bmr.zombuulRevived = true;
   state.bmr.zombuulHiddenDead = true;
-  addLog(state, logType, `${victim.name} 瑙﹀彂 Zombuul 璇堟鏁堟灉锛屾殏鏈湡姝ｆ浜°。`, {
+  addLog(state, logType, `${victim.name} 触发 Zombuul 诈死效果，暂未真正死亡。`, {
     victimId: victim.id,
     reason,
   });
@@ -799,14 +799,14 @@ function onBeforeExecutionDeath(ctx, { victim, reason }) {
     rng() < 0.33
   ) {
     state.bmr.pacifistSavedToday = true;
-    addLog(state, "day-skill", `${victim.name} 鍙楀埌 Pacifist 褰卞搷锛屽厤浜庢湰娆″鍐炽。`, {
+    addLog(state, "day-skill", `${victim.name} 受到 Pacifist 影响，免于本次处决。`, {
       victimId: victim.id,
       reason,
     });
     return { prevented: true };
   }
   if (state.bmr.devilsAdvocateProtectedId === victim.id && victim.alive) {
-    addLog(state, "day-skill", `${victim.name} 鍙?Devil's Advocate 淇濇姢锛屽厤浜庢湰娆″鍐炽。`, {
+    addLog(state, "day-skill", `${victim.name} 受到 Devil's Advocate 保护，免于本次处决。`, {
       victimId: victim.id,
       reason,
     });
@@ -866,7 +866,7 @@ function triggerMoonchildChoice(ctx, victim) {
     return;
   }
   state.bmr.moonchildPendingById[victim.id] = target.id;
-  addLog(state, "death-trigger", `${victim.name} 瑙﹀彂 Moonchild 鎸囧畾浜?${target.name}。`, {
+  addLog(state, "death-trigger", `${victim.name} 触发 Moonchild，指定了 ${target.name}。`, {
     victimId: victim.id,
     targetId: target.id,
   });
@@ -880,7 +880,7 @@ function onAfterExecutionDeath(ctx, { victim }) {
 
   if (state.bmr.mastermindPendingDay === state.day && victim.category !== "demon") {
     state.bmr.mastermindPendingDay = null;
-    addLog(state, "day-skill", "Mastermind 棰濆鏃ュ嚭鐜板鍐筹紝寤惰繜缁撶畻缁撴潫。", { day: state.day });
+    addLog(state, "day-skill", "Mastermind 额外日出现处决，延迟结算结束。", { day: state.day });
   }
 
   if (victim.category === "outsider") {
@@ -899,7 +899,7 @@ function onAfterExecutionDeath(ctx, { victim }) {
     state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.MASTERMIND && !isAbilityBlocked(entry))
   ) {
     state.bmr.mastermindPendingDay = state.day + 1;
-    addLog(state, "day-skill", "Mastermind 鐢熸晥锛氭伓榄旇澶勫喅鍚庤繘鍏ラ澶栦竴澶╃粨绠椼。", {
+    addLog(state, "day-skill", "Mastermind 生效：恶魔被处决后进入额外一天结算。", {
       day: state.day,
       pendingDay: state.bmr.mastermindPendingDay,
     });
@@ -934,7 +934,7 @@ function onEndOfDay(ctx) {
   });
   if (addedKills > 0) {
     state.bmr.gossipPendingKills += addedKills;
-    addLog(state, "day-skill", `Gossip 鐨勫０鏄庝腑鏈?${addedKills} 鏉¤鍒ゅ畾涓虹湡锛屼粖鏅氬皢瑙﹀彂棰濆姝讳骸。`, {
+    addLog(state, "day-skill", `Gossip 的声明中有 ${addedKills} 条被判定为真，今晚将触发额外死亡。`, {
       day: state.day,
       kills: addedKills,
     });
@@ -944,7 +944,7 @@ function onEndOfDay(ctx) {
 function onNoExecution(ctx) {
   const { state, finalizeWinner } = ctx;
   if (state.bmr?.mastermindPendingDay === state.day) {
-    finalizeWinner(state, "evil", "Mastermind 棰濆鏃ユ棤浜哄鍐筹紝閭伓闃佃惀鑾疯儨。");
+    finalizeWinner(state, "evil", "Mastermind 额外日无人处决，邪恶阵营获胜。");
   }
 }
 

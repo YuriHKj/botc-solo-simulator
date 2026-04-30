@@ -251,7 +251,7 @@ export function runSectsAndVioletsNight(ctx) {
       snv.cerenovusForcedByPlayerId[target.id] = forcedRole.id;
       snv.cerenovusEnforceDayByPlayerId[target.id] = state.day + 1;
       if (target.isHuman) {
-        addPrivateInfo(state, target, `[绗?{state.night}澶淽 浣犲彈鍒?Cerenovus 褰卞搷锛屾槑澶╄浼樺厛澹扮О鈥?{forcedRole.name}鈥濄。`);
+        addPrivateInfo(state, target, `[第${state.night}夜] 你受到 Cerenovus 影响，明天请优先声称“${forcedRole.name}”。`);
       }
     });
 
@@ -281,7 +281,7 @@ export function runSectsAndVioletsNight(ctx) {
       const beforeRole = target.roleName;
       setRole(target, nextRole);
       snv.pitHagTransforms.push({ night: state.night, playerId: target.id, from: beforeRole, to: target.roleName });
-      addLog(state, "night-effect", "Pit-Hag 鏀瑰彉浜嗕竴鍚嶇帺瀹惰韩浠姐。", { by: pitHag.id, targetId: target.id });
+      addLog(state, "night-effect", "Pit-Hag 改变了一名玩家身份。", { by: pitHag.id, targetId: target.id });
     });
 
   const aliveDemonsAfterTransform = getAliveDemons(state);
@@ -299,7 +299,7 @@ export function runSectsAndVioletsNight(ctx) {
           { unstoppable: true }
         );
       });
-    addLog(state, "night-effect", "Pit-Hag 閫犳垚澶氭伓榄斿悗锛岀郴缁熶粎淇濈暀 1 鍚嶆伓榄斿瓨娲汇。", {
+    addLog(state, "night-effect", "Pit-Hag 造成多恶魔后，系统仅保留 1 名恶魔存活。", {
       survivorId: survivor?.id ?? null,
       demonIds: aliveDemonsAfterTransform.map((entry) => entry.id),
     });
@@ -325,7 +325,7 @@ export function runSectsAndVioletsNight(ctx) {
         return;
       }
       if (swapRolesByRoleId(state, charmer, target)) {
-        addLog(state, "night-effect", "Snake Charmer 鍛戒腑鎭堕瓟锛屽弻鏂硅韩浠藉凡浜ゆ崲。", {
+        addLog(state, "night-effect", "Snake Charmer 命中恶魔，双方身份已交换。", {
           charmerId: charmer.id,
           demonId: target.id,
         });
@@ -378,7 +378,7 @@ export function runSectsAndVioletsNight(ctx) {
         addAbilityInterference(state, 1);
       }
 
-      addLog(state, "night-effect", "Philosopher 鑾峰緱浜嗘柊鐨勮鑹茶兘鍔涖。", {
+      addLog(state, "night-effect", "Philosopher 获得了新的角色能力。", {
         philosopherId: philosopher.id,
         roleId: role.id,
         drunkTargetId: inPlayCarrier?.id ?? null,
@@ -417,7 +417,7 @@ export function runSectsAndVioletsNight(ctx) {
         rng
       );
       if (swapTargets.length === 2 && swapRolesByRoleId(state, swapTargets[0], swapTargets[1])) {
-        addLog(state, "night-effect", "Barber 姝讳骸鍚庯紝鎭堕瓟浜ゆ崲浜嗕袱鍚嶇帺瀹惰韩浠姐。", {
+        addLog(state, "night-effect", "Barber 死亡后，恶魔交换了两名玩家身份。", {
           demonId: demon.id,
           a: swapTargets[0].id,
           b: swapTargets[1].id,
@@ -446,8 +446,8 @@ function onSetup(ctx) {
     evilTwinId: evilTwin.id,
     goodTwinId: goodTwin.id,
   };
-  addPrivateInfo(state, evilTwin, `[寮€灞€] 浣犵粦瀹氱殑鍙︿竴鍚嶅弻瀛愭槸 ${goodTwin.name}。`);
-  addPrivateInfo(state, goodTwin, `[寮€灞€] 浣犵粦瀹氱殑鍙︿竴鍚嶅弻瀛愭槸 ${evilTwin.name}。`);
+  addPrivateInfo(state, evilTwin, `[开局] 你绑定的另一名双子是 ${goodTwin.name}。`);
+  addPrivateInfo(state, goodTwin, `[开局] 你绑定的另一名双子是 ${evilTwin.name}。`);
 }
 
 function triggerSweetheartDrunk(ctx, victim) {
@@ -463,7 +463,7 @@ function triggerSweetheartDrunk(ctx, victim) {
   target.poisoned = true;
   target.poisonedTomorrowDay = true;
   addAbilityInterference(state, 1);
-  addLog(state, "death-trigger", `${victim.name} 鐨?Sweetheart 鏁堟灉瑙﹀彂锛?{target.name} 鍙樹负閱夐厭。`, {
+  addLog(state, "death-trigger", `${victim.name} 的 Sweetheart 效果触发，${target.name} 变为醉酒。`, {
     victimId: victim.id,
     targetId: target.id,
   });
@@ -479,14 +479,14 @@ function triggerKlutzChoice(ctx, victim) {
     return;
   }
   if (target.team === "evil") {
-    addLog(state, "death-trigger", `${victim.name} 瑙﹀彂 Klutz 骞堕敊璇偣涓偑鎭剁帺瀹讹紝鍠勮壇闃佃惀绔嬪嵆澶辫触。`, {
+    addLog(state, "death-trigger", `${victim.name} 触发 Klutz 并错误点中邪恶玩家，善良阵营立即失败。`, {
       victimId: victim.id,
       targetId: target.id,
     });
-    finalizeWinner(state, "evil", "Klutz 鐐逛腑浜嗛偑鎭剁帺瀹讹紝鍠勮壇闃佃惀澶辫触。");
+    finalizeWinner(state, "evil", "Klutz 点中了邪恶玩家，善良阵营失败。");
     return;
   }
-  addLog(state, "death-trigger", `${victim.name} 瑙﹀彂 Klutz锛岀偣涓簡鍠勮壇鐜╁ ${target.name}锛屾湭瑙﹀彂澶辫触。`, {
+  addLog(state, "death-trigger", `${victim.name} 触发 Klutz，点中了善良玩家 ${target.name}，未触发失败。`, {
     victimId: victim.id,
     targetId: target.id,
   });
@@ -505,7 +505,7 @@ function triggerSageInfo(ctx, victim, killerDemonId) {
     return;
   }
   const shuffled = shuffle(pair);
-  addPrivateInfo(state, victim, `[绗?{state.night}澶淽 浣犱綔涓鸿搐鑰呯湅瑙佷袱浜轰腑鏈変竴鍚嶆伓榄旓細${shuffled[0].name} / ${shuffled[1].name}。`);
+  addPrivateInfo(state, victim, `[第${state.night}夜] 你作为贤者看见两人中有一名恶魔：${shuffled[0].name} / ${shuffled[1].name}。`);
 }
 
 function triggerEvilTwinExecutionOutcome(ctx, victim) {
@@ -514,11 +514,11 @@ function triggerEvilTwinExecutionOutcome(ctx, victim) {
     return;
   }
   if (victim.id === state.snv.evilTwinPair.goodTwinId) {
-    finalizeWinner(state, "evil", "濂藉弻瀛愯澶勫喅锛岄偑鎭堕樀钀ヨ幏鑳溿。");
+    finalizeWinner(state, "evil", "好双子被处决，邪恶阵营获胜。");
     return;
   }
   if (victim.id === state.snv.evilTwinPair.evilTwinId) {
-    finalizeWinner(state, "good", "閭伓鍙屽瓙琚鍐筹紝鍠勮壇闃佃惀鑾疯儨。");
+    finalizeWinner(state, "good", "邪恶双子被处决，善良阵营获胜。");
   }
 }
 
@@ -587,7 +587,7 @@ function onEndOfDay(ctx) {
     }
     if (player.publicClaimRoleId !== forcedRoleId) {
       processExecutionDeath(state, player, "cerenovus-break", { forcedRoleId }, rng);
-      addLog(state, "day-skill", "Cerenovus 澶勭綒瑙﹀彂锛氱洰鏍囨湭鎸夎姹傚彂瑷€鑰屾浜°。", {
+      addLog(state, "day-skill", "Cerenovus 惩罚触发：目标未按要求发言而死亡。", {
         playerId,
         forcedRoleId,
       });
@@ -608,7 +608,7 @@ function onEndOfDay(ctx) {
       }
       if (rng() < 0.7) {
         processExecutionDeath(state, mutant, "mutant-claim-break", { roleId: claimedRole.id }, rng);
-        addLog(state, "day-skill", "Mutant 鍏紑澹扮О澶栨潵鑰咃紝瑙﹀彂鍗虫椂澶勫喅。", {
+        addLog(state, "day-skill", "Mutant 公开声称外来者，触发即时处决。", {
           playerId: mutant.id,
           roleId: claimedRole.id,
         });
@@ -644,7 +644,7 @@ function onRegisterClaim(ctx, { player, roleId }) {
   const claimedRole = getRoleById(state.scriptId, roleId);
   if (claimedRole?.category === "outsider" && !isAbilityBlocked(player) && Math.random() < 0.7) {
     processExecutionDeath(state, player, "mutant-claim-break", { roleId }, Math.random);
-    addLog(state, "day-skill", "Mutant 鍏紑澹扮О澶栨潵鑰呭悗琚垽瀹氳繚瑙勫鍐炽。", {
+    addLog(state, "day-skill", "Mutant 公开声称外来者后被判定违规处决。", {
       playerId: player.id,
       roleId,
     });
@@ -659,12 +659,12 @@ function onNomination(ctx, { nominator, nominee }) {
   }
   delete state.snv.witchCurses[nominator.id];
   processExecutionDeath(state, nominator, "witch-curse", { nomineeId: nominee.id }, rng);
-  addLog(state, "day-skill", "Witch 璇呭拻瑙﹀彂锛氭彁鍚嶈€呭洜琛屽姩鑰屾浜°。", {
+  addLog(state, "day-skill", "Witch 诅咒触发：提名者因行动而死亡。", {
     nominatorId: nominator.id,
     nomineeId: nominee.id,
   });
   checkWin(state);
-  return { blocked: true, reason: `${nominator.name} 瑙﹀彂浜?Witch 璇呭拻。` };
+  return { blocked: true, reason: `${nominator.name} 触发了 Witch 诅咒。` };
 }
 
 function onNominationAccepted(ctx, { nominator }) {
@@ -698,7 +698,7 @@ function onNoExecution(ctx) {
   }
   const vortoxAlive = state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX);
   if (vortoxAlive) {
-    finalizeWinner(state, "evil", "Vortox 鍦ㄦ棤浜哄鍐崇殑鐧藉ぉ瑙﹀彂浜嗛偑鎭惰儨鍒┿。");
+    finalizeWinner(state, "evil", "Vortox 在无人处决的白天触发了邪恶胜利。");
   }
 }
 

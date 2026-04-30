@@ -1693,7 +1693,7 @@ function reminderOptionsFor(scriptId, selectedRoleName) {
   const roleRef = selectedRoleName ? getOfficialRoleReference(scriptId, selectedRoleName) : null;
   const roleSpecific = [...(roleRef?.reminders ?? []), ...(roleRef?.remindersGlobal ?? [])];
   const official = uniqueStrings([...roleSpecific, ...officialCatalog]).filter(
-    (entry) => entry.length <= 12 && !/[�?]/.test(entry)
+    (entry) => entry.length <= 12 && !/[\uFFFD?]/.test(entry)
   );
   const fallback = FALLBACK_REMINDERS[scriptId] ?? [];
   return uniqueStrings([...official, ...fallback]);
