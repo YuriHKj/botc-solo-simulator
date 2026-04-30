@@ -1,0 +1,40 @@
+{
+  "name": "botc-solo-simulator",
+  "version": "0.2.0",
+  "description": "Blood on the Clocktower single-player simulator",
+  "main": "electron/main.js",
+  "scripts": {
+    "electron:start": "electron .",
+    "electron:win": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.local.botc.solo",
+    "productName": "BOTC Solo Simulator",
+    "asar": true,
+    "files": [
+      "index.html",
+      "styles.css",
+      "assets/**/*",
+      "scripts/**/*",
+      "docs/research/UI_REFERENCE.md",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

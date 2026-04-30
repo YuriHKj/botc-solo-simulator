@@ -1,0 +1,646 @@
+{
+  "schema_name": "botc_label_schema_v1",
+  "version": "1.0.0",
+  "purpose": [
+    "Utterance-level annotation for Blood on the Clocktower and related social deduction corpora",
+    "Supports data labeling, retrieval, agent prompting, behavior analysis, and training set normalization",
+    "Designed to cover BOTC-specific mechanics while remaining compatible with Werewolf/Mafia/AIWolf style corpora"
+  ],
+  "annotation_unit": "one_utterance",
+  "design_principles": [
+    "Separate objective truth from speaker-believed truth",
+    "Preserve BOTC-specific state such as dead-speaking, drunk, poisoned, and madness",
+    "Represent both speech content and strategic function",
+    "Allow multi-label speech acts",
+    "Support public and private communication channels"
+  ],
+  "modes": {
+    "mvp": {
+      "description": "Minimum viable fields for quick bootstrapping",
+      "required_fields": [
+        "game_id",
+        "script",
+        "phase",
+        "day_index",
+        "speaker",
+        "audience",
+        "speaker_alive",
+        "speaker_public_claim",
+        "text",
+        "speech_acts",
+        "targets",
+        "vote_stance"
+      ]
+    },
+    "full": {
+      "description": "Recommended full annotation for training and agent simulation",
+      "required_fields": [
+        "game_id",
+        "script",
+        "phase",
+        "day_index",
+        "utterance_id",
+        "speaker",
+        "audience",
+        "speaker_alive",
+        "speaker_private_role",
+        "speaker_alignment",
+        "speaker_public_claim",
+        "speaker_state",
+        "text",
+        "speech_acts",
+        "targets",
+        "epistemic_strength",
+        "intent",
+        "truth_status_objective",
+        "truth_status_subjective",
+        "evidence_source",
+        "vote_stance",
+        "nomination_related"
+      ]
+    }
+  },
+  "enum_sets": {
+    "script": [
+      "Trouble Brewing",
+      "Bad Moon Rising",
+      "Sects & Violets",
+      "custom",
+      "unknown",
+      "werewolf_transfer",
+      "mafia_transfer",
+      "aiwolf_transfer"
+    ],
+    "phase": [
+      "setup",
+      "night",
+      "day",
+      "nomination",
+      "execution",
+      "endgame",
+      "postgame",
+      "unknown"
+    ],
+    "audience": [
+      "public",
+      "private",
+      "whisper",
+      "small_group",
+      "storyteller_only",
+      "unknown"
+    ],
+    "alignment": [
+      "good",
+      "evil",
+      "neutral",
+      "unknown"
+    ],
+    "alive_dead": [
+      "alive",
+      "dead",
+      "unknown"
+    ],
+    "sober_drunk": [
+      "sober",
+      "drunk",
+      "unknown"
+    ],
+    "healthy_poisoned": [
+      "healthy",
+      "poisoned",
+      "unknown"
+    ],
+    "sane_mad": [
+      "sane",
+      "mad",
+      "unknown"
+    ],
+    "epistemic_strength": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "intent": [
+      "share_information",
+      "hide_information",
+      "set_up_future_push",
+      "push_execution",
+      "prevent_execution",
+      "gain_trust",
+      "test_reaction",
+      "bait_response",
+      "protect_teammate",
+      "distance_teammate",
+      "survive_day",
+      "survive_endgame",
+      "coordinate_vote",
+      "create_confusion",
+      "repair_reputation",
+      "unknown"
+    ],
+    "truth_status_objective": [
+      "true",
+      "false",
+      "mixed",
+      "unverifiable",
+      "unknown"
+    ],
+    "truth_status_subjective": [
+      "believed_true",
+      "known_false",
+      "strategic_uncertain",
+      "unknown"
+    ],
+    "evidence_source": [
+      "night_info",
+      "public_claims",
+      "private_chat",
+      "vote_pattern",
+      "execution_result",
+      "storyteller_signal",
+      "social_read",
+      "mechanical_reasoning",
+      "memory_summary",
+      "none",
+      "unknown"
+    ],
+    "vote_stance": [
+      "support",
+      "oppose",
+      "abstain_signal",
+      "undecided",
+      "lean_execute_target",
+      "lean_do_not_execute_target",
+      "no_vote_context",
+      "unknown"
+    ],
+    "deception_type": [
+      "none",
+      "cover_true_role",
+      "fake_claim",
+      "fake_info",
+      "half_truth",
+      "baiting",
+      "frame_target",
+      "distance_teammate",
+      "pocket_target",
+      "madness_compliance",
+      "team_coordination_lie",
+      "unknown"
+    ],
+    "rhetorical_style": [
+      "calm",
+      "confident",
+      "hedged",
+      "evasive",
+      "aggressive",
+      "humorous",
+      "performative",
+      "emotional",
+      "panicked",
+      "analytical",
+      "unknown"
+    ],
+    "pressure_level": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "unknown"
+    ],
+    "execution_push_strength": [
+      "soft",
+      "medium",
+      "hard",
+      "none",
+      "unknown"
+    ],
+    "reason_type": [
+      "mechanical",
+      "social",
+      "survival",
+      "bluff",
+      "endgame",
+      "meta",
+      "unknown"
+    ],
+    "action_capability": [
+      "has_ability",
+      "ability_spent",
+      "cannot_nominate",
+      "dead_vote_available",
+      "dead_vote_spent",
+      "unknown"
+    ],
+    "speech_acts": [
+      "hard_claim",
+      "soft_claim",
+      "role_explain",
+      "info_dump",
+      "withhold_info",
+      "partial_reveal",
+      "mechanical_check",
+      "probe",
+      "cross_check",
+      "trap_question",
+      "consistency_check",
+      "private_pull",
+      "accuse",
+      "soft_accuse",
+      "defend",
+      "pressure",
+      "coordinate_vote",
+      "anti_execute",
+      "nominate",
+      "second_push",
+      "fake_claim",
+      "bait",
+      "frame",
+      "distance",
+      "pocket",
+      "hedge",
+      "mad_play",
+      "self_preservation",
+      "table_read",
+      "meta_comment",
+      "appeal_for_trust",
+      "appeal_to_logic",
+      "appeal_to_emotion",
+      "role_pairing",
+      "world_building",
+      "reputation_repair"
+    ]
+  },
+  "field_spec": {
+    "game_id": {
+      "type": "string",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Stable identifier for one game."
+    },
+    "script": {
+      "type": "enum",
+      "values_ref": "script",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "BOTC script or transfer-source corpus type."
+    },
+    "phase": {
+      "type": "enum",
+      "values_ref": "phase",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Broad game phase when the utterance occurred."
+    },
+    "day_index": {
+      "type": "integer",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Day count. Use 0 for setup or pregame."
+    },
+    "utterance_id": {
+      "type": "string",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Stable utterance identifier within a game."
+    },
+    "speaker": {
+      "type": "string",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Speaker identifier, such as P4 or player_name."
+    },
+    "audience": {
+      "type": "enum",
+      "values_ref": "audience",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Who the utterance was intended for."
+    },
+    "speaker_alive": {
+      "type": "boolean",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Whether the speaker was alive at utterance time."
+    },
+    "speaker_private_role": {
+      "type": "string",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "True role known from omniscient replay or annotation."
+    },
+    "speaker_alignment": {
+      "type": "enum",
+      "values_ref": "alignment",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Speaker alignment at utterance time."
+    },
+    "speaker_public_claim": {
+      "type": "string",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Current public-facing claim, role, or cover story."
+    },
+    "speaker_state": {
+      "type": "object",
+      "required_mvp": false,
+      "required_full": true,
+      "properties": {
+        "alive_dead": {
+          "type": "enum",
+          "values_ref": "alive_dead"
+        },
+        "sober_drunk": {
+          "type": "enum",
+          "values_ref": "sober_drunk"
+        },
+        "healthy_poisoned": {
+          "type": "enum",
+          "values_ref": "healthy_poisoned"
+        },
+        "sane_mad": {
+          "type": "enum",
+          "values_ref": "sane_mad"
+        }
+      },
+      "description": "BOTC-relevant state flags at utterance time."
+    },
+    "action_capability": {
+      "type": "array<enum>",
+      "values_ref": "action_capability",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Current action permissions or limits."
+    },
+    "text": {
+      "type": "string",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Verbatim or normalized utterance text."
+    },
+    "speech_acts": {
+      "type": "array<enum>",
+      "values_ref": "speech_acts",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "One or more functional labels for the utterance."
+    },
+    "targets": {
+      "type": "array<string>",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Players directly discussed, accused, defended, or pressured."
+    },
+    "epistemic_strength": {
+      "type": "enum",
+      "values_ref": "epistemic_strength",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Confidence strength from 0 to 3."
+    },
+    "intent": {
+      "type": "enum",
+      "values_ref": "intent",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Likely strategic intention behind the utterance."
+    },
+    "truth_status_objective": {
+      "type": "enum",
+      "values_ref": "truth_status_objective",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Truth status from omniscient replay perspective."
+    },
+    "truth_status_subjective": {
+      "type": "enum",
+      "values_ref": "truth_status_subjective",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "What the speaker likely believed about the utterance."
+    },
+    "deception_type": {
+      "type": "enum",
+      "values_ref": "deception_type",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Specific deception mode if present."
+    },
+    "evidence_source": {
+      "type": "enum",
+      "values_ref": "evidence_source",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Primary basis for the utterance."
+    },
+    "vote_stance": {
+      "type": "enum",
+      "values_ref": "vote_stance",
+      "required_mvp": true,
+      "required_full": true,
+      "description": "Speaker's current or implied vote preference."
+    },
+    "nomination_related": {
+      "type": "boolean",
+      "required_mvp": false,
+      "required_full": true,
+      "description": "Whether the utterance is tied to nomination or execution."
+    },
+    "nomination_target": {
+      "type": "string",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Player being nominated or pushed for execution."
+    },
+    "nomination_by": {
+      "type": "string",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Player making the nomination."
+    },
+    "execution_push_strength": {
+      "type": "enum",
+      "values_ref": "execution_push_strength",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Intensity of execution push."
+    },
+    "reason_type": {
+      "type": "enum",
+      "values_ref": "reason_type",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Primary type of justification used."
+    },
+    "rhetorical_style": {
+      "type": "enum",
+      "values_ref": "rhetorical_style",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Dominant surface rhetoric."
+    },
+    "pressure_level": {
+      "type": "enum",
+      "values_ref": "pressure_level",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "How pressured the speaker appears."
+    },
+    "belief_delta": {
+      "type": "object",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Optional per-player suspicion changes after this utterance."
+    },
+    "coalition_signal": {
+      "type": "string",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Optional note about implied alliances or distancing."
+    },
+    "contradiction_links": {
+      "type": "array<string>",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "List of prior utterance_ids contradicted or challenged."
+    },
+    "metadata": {
+      "type": "object",
+      "required_mvp": false,
+      "required_full": false,
+      "description": "Free-form source metadata such as timestamp, transcript origin, annotator id."
+    }
+  },
+  "annotation_rules": [
+    {
+      "rule": "multi_label_speech_acts",
+      "description": "An utterance may receive multiple speech act labels if it performs multiple functions."
+    },
+    {
+      "rule": "separate_objective_and_subjective_truth",
+      "description": "Always distinguish actual truth from speaker-believed truth, especially under drunk/poisoned/mad conditions."
+    },
+    {
+      "rule": "preserve_private_channel",
+      "description": "Do not merge public and private utterances. Keep channel information explicit."
+    },
+    {
+      "rule": "do_not_downweight_dead_utterances",
+      "description": "Dead-player speech remains strategically important in BOTC and should be fully annotated."
+    },
+    {
+      "rule": "unknown_is_valid",
+      "description": "Use unknown when source corpora do not expose BOTC-specific state or role information."
+    }
+  ],
+  "mapping_guidance": {
+    "werewolf_among_us": {
+      "fit": "high_for_speech_behavior",
+      "likely_missing": [
+        "speaker_state.drunk/poisoned/mad",
+        "dead_vote_available",
+        "storyteller_signal"
+      ],
+      "recommended_defaults": {
+        "script": "werewolf_transfer",
+        "speaker_state.sober_drunk": "unknown",
+        "speaker_state.healthy_poisoned": "unknown",
+        "speaker_state.sane_mad": "unknown",
+        "truth_status_subjective": "unknown"
+      }
+    },
+    "llmafia": {
+      "fit": "high_for_timing_and_phase_structure",
+      "likely_missing": [
+        "BOTC-specific status flags",
+        "nomination_target in BOTC sense"
+      ],
+      "recommended_defaults": {
+        "script": "mafia_transfer",
+        "audience": "private",
+        "nomination_related": false
+      }
+    },
+    "aiwolf": {
+      "fit": "high_for_vote_and_state_machine",
+      "likely_missing": [
+        "BOTC-specific storyteller interventions",
+        "public/private whisper structure"
+      ],
+      "recommended_defaults": {
+        "script": "aiwolf_transfer",
+        "speaker_state.sane_mad": "unknown",
+        "evidence_source": "unknown"
+      }
+    }
+  },
+  "examples": {
+    "mvp_example": {
+      "game_id": "botc_001",
+      "script": "Trouble Brewing",
+      "phase": "day",
+      "day_index": 2,
+      "speaker": "P4",
+      "audience": "public",
+      "speaker_alive": true,
+      "speaker_public_claim": "Empath",
+      "text": "我不想今天处决7号，但1号我觉得有点不对。",
+      "speech_acts": [
+        "anti_execute",
+        "soft_accuse"
+      ],
+      "targets": [
+        "P7",
+        "P1"
+      ],
+      "vote_stance": "lean_execute_target"
+    },
+    "full_example": {
+      "game_id": "botc_tb_001",
+      "script": "Trouble Brewing",
+      "phase": "day",
+      "day_index": 2,
+      "utterance_id": "d2_u17",
+      "speaker": "P4",
+      "audience": "public",
+      "speaker_alive": true,
+      "speaker_private_role": "Fortune Teller",
+      "speaker_alignment": "good",
+      "speaker_public_claim": "Empath",
+      "speaker_state": {
+        "alive_dead": "alive",
+        "sober_drunk": "sober",
+        "healthy_poisoned": "healthy",
+        "sane_mad": "sane"
+      },
+      "action_capability": [
+        "has_ability"
+      ],
+      "text": "我昨晚的信息不太像1号好人，但我现在还不想全报。",
+      "speech_acts": [
+        "soft_claim",
+        "withhold_info",
+        "soft_accuse"
+      ],
+      "targets": [
+        "P1"
+      ],
+      "epistemic_strength": 2,
+      "intent": "set_up_future_push",
+      "truth_status_objective": "mixed",
+      "truth_status_subjective": "believed_true",
+      "deception_type": "cover_true_role",
+      "evidence_source": "night_info",
+      "vote_stance": "lean_execute_target",
+      "nomination_related": false,
+      "rhetorical_style": "hedged",
+      "pressure_level": "low",
+      "metadata": {
+        "source_corpus": "manual_demo",
+        "timestamp": "00:18:21"
+      }
+    }
+  }
+}

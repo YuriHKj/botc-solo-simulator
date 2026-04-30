@@ -1,0 +1,252 @@
+{
+  "summary": {
+    "scenario_count": 8,
+    "schema_validity_rate": 1.0,
+    "contradiction_rate": 0.0,
+    "stance_consistency_rate": 1.0,
+    "target_consistency_rate": 1.0,
+    "plausibility_score": 1.0
+  },
+  "results": [
+    {
+      "scenario_id": "early_day_uncertainty",
+      "suite": "core",
+      "action": {
+        "speaker": "P2",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "我先不全报信息，但我会把票压在P1。 先给一个保守判断。",
+        "speech_acts": [
+          "coordinate_vote",
+          "table_read"
+        ],
+        "targets": [
+          "P1"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_001\n- day_index: 1\n- phase: day\n- speaker: P2\n- audience: public\n- action_type: public_statement\n- top_suspicion: P1:1.2, P3:0.8\n\nRole/claim context:\n{'alive': True}\n\nUser hint:\n先给一个保守判断。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "pressure_defense",
+      "suite": "core",
+      "action": {
+        "speaker": "P4",
+        "audience": "private",
+        "action_type": "private_statement",
+        "utterance": "先别公开站边，我觉得P5的行为很怪。 你先帮我看看5号。",
+        "speech_acts": [
+          "coordinate_vote",
+          "private_pull",
+          "table_read"
+        ],
+        "targets": [
+          "P5"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_002\n- day_index: 2\n- phase: day\n- speaker: P4\n- audience: private\n- action_type: private_statement\n- top_suspicion: P5:2.5, P6:0.5\n\nRole/claim context:\n{'alive': True}\n\nUser hint:\n你先帮我看看5号。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "soft_claim",
+      "suite": "core",
+      "action": {
+        "speaker": "P3",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "我目前最怀疑P7，建议今天重点盘他。 我不想全报信息。",
+        "speech_acts": [
+          "coordinate_vote",
+          "table_read"
+        ],
+        "targets": [
+          "P7"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_003\n- day_index: 2\n- phase: day\n- speaker: P3\n- audience: public\n- action_type: public_statement\n- top_suspicion: P7:1.8\n\nRole/claim context:\n{'alive': True}\n\nUser hint:\n我不想全报信息。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "vote_push",
+      "suite": "core",
+      "action": {
+        "speaker": "P1",
+        "audience": "public",
+        "action_type": "nomination_recommendation",
+        "utterance": "P8这轮发言与票型不一致，我倾向处决。 给出一个提名建议。",
+        "speech_acts": [
+          "coordinate_vote",
+          "table_read"
+        ],
+        "targets": [
+          "P8"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": "P8",
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_004\n- day_index: 2\n- phase: nomination\n- speaker: P1\n- audience: public\n- action_type: nomination_recommendation\n- top_suspicion: P8:3.1\n\nRole/claim context:\n{'alive': True}\n\nUser hint:\n给出一个提名建议。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "dead_player_contribution",
+      "suite": "botc_extension",
+      "action": {
+        "speaker": "P9",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "P2这轮发言与票型不一致，我倾向处决。 我还是会给你们线索。",
+        "speech_acts": [
+          "coordinate_vote",
+          "self_preservation",
+          "table_read"
+        ],
+        "targets": [
+          "P2"
+        ],
+        "vote_stance": "abstain_signal",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_005\n- day_index: 3\n- phase: day\n- speaker: P9\n- audience: public\n- action_type: public_statement\n- top_suspicion: P2:1.4\n\nRole/claim context:\n{'alive': False, 'dead_vote_available': False, 'dead_vote_spent': True}\n\nUser hint:\n我还是会给你们线索。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "misinformation_state",
+      "suite": "botc_extension",
+      "action": {
+        "speaker": "P6",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "也许我记错了，但我目前最怀疑P1，建议今天重点盘他。 分享昨晚信息。",
+        "speech_acts": [
+          "coordinate_vote",
+          "hedge",
+          "table_read"
+        ],
+        "targets": [
+          "P1"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 1,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_006\n- day_index: 2\n- phase: day\n- speaker: P6\n- audience: public\n- action_type: public_statement\n- top_suspicion: P1:1.0\n\nRole/claim context:\n{'alive': True, 'sober_drunk': 'drunk', 'healthy_poisoned': 'poisoned', 'sane_mad': 'sane'}\n\nUser hint:\n分享昨晚信息。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "madness_compliance",
+      "suite": "botc_extension",
+      "action": {
+        "speaker": "P5",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "我目前最怀疑P4，建议今天重点盘他。 继续按你公开身份发言。（继续坚持我的公开身份：贤者）",
+        "speech_acts": [
+          "coordinate_vote",
+          "mad_play",
+          "table_read"
+        ],
+        "targets": [
+          "P4"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_007\n- day_index: 2\n- phase: day\n- speaker: P5\n- audience: public\n- action_type: public_statement\n- top_suspicion: P4:1.2\n\nRole/claim context:\n{'alive': True, 'public_claim': '贤者', 'sane_mad': 'mad'}\n\nUser hint:\n继续按你公开身份发言。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": []
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    },
+    {
+      "scenario_id": "storyteller_uncertainty_hook",
+      "suite": "botc_extension",
+      "action": {
+        "speaker": "P2",
+        "audience": "public",
+        "action_type": "public_statement",
+        "utterance": "P3这轮发言与票型不一致，我倾向处决。 给出你的判断。",
+        "speech_acts": [
+          "coordinate_vote",
+          "meta_comment",
+          "table_read"
+        ],
+        "targets": [
+          "P3"
+        ],
+        "vote_stance": "lean_execute_target",
+        "nomination_target": null,
+        "epistemic_strength": 2,
+        "prompt_debug": "You are a BOTC-style social deduction player.\nReturn a structured output and keep statement strategically plausible.\n\nCurrent state:\n- game_id: eval_008\n- day_index: 2\n- phase: day\n- speaker: P2\n- audience: public\n- action_type: public_statement\n- top_suspicion: P3:1.5\n\nRole/claim context:\n{'alive': True}\n\nUser hint:\n给出你的判断。\n\nRetrieved reference utterances:\n(no examples)\n\nPlease produce:\n1) one utterance sentence/paragraph\n2) speech_acts list\n3) targets list\n4) vote_stance\n5) optional nomination_target\n",
+        "retrieval_hits": [],
+        "metadata": {
+          "storyteller_uncertainty": true
+        }
+      },
+      "schema_errors": [],
+      "scores": {
+        "contradiction": 0.0,
+        "stance_consistency": 1.0,
+        "target_consistency": 1.0,
+        "plausibility": 1.0
+      }
+    }
+  ]
+}

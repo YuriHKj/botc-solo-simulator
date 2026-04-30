@@ -1,0 +1,25 @@
+{
+  "check": "schema_validity_mvp",
+  "total_records": 145447,
+  "valid_records": 145447,
+  "validity_rate": 1.0,
+  "files": {
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\aiwolf.jsonl": {
+      "total": 1372,
+      "valid": 1372,
+      "validity_rate": 1.0
+    },
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\llmafia.jsonl": {
+      "total": 120002,
+      "valid": 120002,
+      "validity_rate": 1.0
+    },
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\werewolf_among_us.jsonl": {
+      "total": 24073,
+      "valid": 24073,
+      "validity_rate": 1.0
+    }
+  },
+  "error_counter": {},
+  "error_examples": []
+}

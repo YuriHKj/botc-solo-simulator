@@ -1,0 +1,93 @@
+{
+  "sources": [
+    "werewolf_among_us",
+    "llmafia",
+    "aiwolf"
+  ],
+  "record_count": 145447,
+  "vote_stance_model": {
+    "status": "ok",
+    "samples": 145446,
+    "labels": [
+      "abstain_signal",
+      "lean_do_not_execute_target",
+      "lean_execute_target",
+      "support",
+      "undecided"
+    ],
+    "weighted_f1": 0.9977929864843407,
+    "classification_report": {
+      "abstain_signal": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 1.0
+      },
+      "lean_do_not_execute_target": {
+        "precision": 0.6627906976744186,
+        "recall": 0.9827586206896551,
+        "f1-score": 0.7916666666666666,
+        "support": 58.0
+      },
+      "lean_execute_target": {
+        "precision": 0.9881305637982196,
+        "recall": 0.9642857142857143,
+        "f1-score": 0.9760625305324866,
+        "support": 1036.0
+      },
+      "support": {
+        "precision": 0.03571428571428571,
+        "recall": 0.3333333333333333,
+        "f1-score": 0.06451612903225806,
+        "support": 3.0
+      },
+      "undecided": {
+        "precision": 0.9997138872000286,
+        "recall": 0.9986067447842241,
+        "f1-score": 0.9991600092935142,
+        "support": 27992.0
+      },
+      "accuracy": 0.9972499140598143,
+      "macro avg": {
+        "precision": 0.5372698868773905,
+        "recall": 0.6557968826185854,
+        "f1-score": 0.566281067104985,
+        "support": 29090.0
+      },
+      "weighted avg": {
+        "precision": 0.9984958197978829,
+        "recall": 0.9972499140598143,
+        "f1-score": 0.9977929864843407,
+        "support": 29090.0
+      }
+    },
+    "model_path": "C:\\Users\\11507\\Documents\\Playground\\models\\vote_stance_model.joblib",
+    "dropped_singleton_labels": 1,
+    "label_counts": {
+      "undecided": 139958,
+      "lean_do_not_execute_target": 289,
+      "lean_execute_target": 5182,
+      "abstain_signal": 3,
+      "support": 14,
+      "oppose": 1
+    }
+  },
+  "speech_acts_model": {
+    "status": "ok",
+    "samples": 145447,
+    "label_count": 8,
+    "labels": [
+      "accuse",
+      "coordinate_vote",
+      "defend",
+      "hard_claim",
+      "probe",
+      "soft_claim",
+      "table_read",
+      "withhold_info"
+    ],
+    "micro_f1": 0.849933512794733,
+    "macro_f1": 0.7205251996166897,
+    "model_path": "C:\\Users\\11507\\Documents\\Playground\\models\\speech_acts_model.joblib"
+  }
+}
