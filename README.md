@@ -1,104 +1,162 @@
-﻿# BOTC 单机模拟器（v0.2）
+# BOTC Solo Simulator
 
-本项目是《血染钟楼》单机模拟原型。
+《血染钟楼》单机模拟器原型，目标是把“说书人魔典 + 电脑玩家推理 + 夜晚/白天流程”做成可独立运行的桌面游戏 Demo。
 
-## 已实现
+> 非官方项目：本项目与 The Pandemonium Institute、Blood on the Clocktower 官方团队无隶属关系。Blood on the Clocktower 及相关名称、角色、规则与视觉资产归其权利方所有。本仓库当前主要用于个人学习、研究和私有开发。
 
-- 三剧本开局：Trouble Brewing / Bad Moon Rising / Sects & Violets。
-- **暗流涌动（TB）完整技能结算**（包含 Baron 外来者修正、Imp 传位、Scarlet Woman 接任、Saint / Mayor 特殊胜负、Virgin / Slayer / Butler / Monk / Ravenkeeper 等机制）。
-- AI 推理与发言（非纯随机胡言）。
-- 魔典风 UI：环形座位、HUD 配比、恶魔伪装卡片、事件日志、夜间私有信息面板。
+## 当前状态
 
-## 运行（BOTC-Solo 桌面版）
+这是一个处于快速迭代中的原型，而不是完整商业级游戏。
 
-已提供并产出 BOTC-Solo 桌面版 EXE（目录版），详见：
-- `docs/packaging/WINDOWS_EXE.md`
+- 桌面版基于 Electron，可打包为 Windows `.exe`。
+- 局内 UI 以“魔典”为核心，支持座位环、角色 token、死亡帷幕、提醒物、恶魔伪装、事件日志和夜间行动弹窗。
+- 当前主要支持 3 个官方基础剧本：
+  - 暗流涌动 / Trouble Brewing
+  - 黯月初升 / Bad Moon Rising
+  - 梦殒春宵 / Sects & Violets
+- TB 规则实现相对完整；BMR / SnV 已有可玩流程和大量角色钩子，但仍有部分规则属于简化或近似实现。
+- AI 玩家目前是规则/语料/轻量模型混合驱动，用于模拟报身份、私聊、公聊、投票倾向和基础推理。
 
-已构建产物：
-- `dist/BOTC-Solo/`（目录版）
+## 功能概览
 
-快速命令（重建 EXE）：
+- 三剧本随机开局，支持选择测试用自身份。
+- 第一夜 / 第一日 / 后续夜晚和白天阶段推进。
+- 邪恶方首夜互认与恶魔伪装信息。
+- 夜间主动技能弹窗选择目标。
+- 私聊、公聊、提名、投票、处决与胜负判断。
+- 玩家可直接在魔典 token 上添加角色标记和 reminder。
+- 事件日志记录公开事件与主视角夜间信息。
+- 训练/语料管线可把外部狼人杀类语料映射成简化行为标签，用于改进 AI 表达和投票倾向。
+
+## 运行方式
+
+### 桌面开发启动
+
+```powershell
+npm install
+npm run electron:start
+```
+
+### Windows 打包
+
+```powershell
+npm run electron:win
+```
+
+或使用项目脚本：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
 ```
 
+更多说明见：
+
+- `docs/packaging/WINDOWS_EXE.md`
+- `docs/packaging/RELEASE_20260430.md`
+
+## 本地打包产物
+
+构建产物默认不会提交到 Git。
+
+近期本地构建目录示例：
+
+- `release-20260430-mojibake-fix/`
+- `release-20260430-portable/`
+- `release/`
+
+如果要给自己测试，可以在 GitHub private repository 中上传 Release 附件；如果仓库转为 public，不建议直接上传当前 exe，原因见下方“公开发布注意事项”。
+
 ## 项目结构
 
-- `index.html` / `styles.css`
-- `scripts/data.js`
-- `scripts/engine.js`
-- `scripts/ai.js`
-- `scripts/ui.js`
-- `scripts/app.js`
-- `docs/requirements/*`
-- `docs/design/*`
-- `docs/research/*`
+- `index.html`：Electron 渲染入口。
+- `styles.css`：主 UI、魔典、弹窗、菜单样式。
+- `electron/main.js`：Electron 主进程。
+- `scripts/app.js`：应用状态、事件绑定、流程入口。
+- `scripts/ui.js`：界面渲染与交互。
+- `scripts/engine.js`：核心游戏状态、阶段推进、胜负和通用规则。
+- `scripts/roles/`：按剧本拆分的角色规则模块。
+- `scripts/ai.js`：AI 对话、推理、投票和表达生成。
+- `scripts/ml_runtime*.js`：轻量模型运行时和导出权重。
+- `assets/`：本地素材、剧本 JSON、角色图标和 UI 图片。
+- `docs/`：需求、设计、打包、调研与 QA 文档。
+- `agent/`、`train/`、`eval/`：语料、训练和评测相关代码。
 
-## 语料与 Agent 管线（新增）
+## AI 与语料管线
 
-为对齐 `botc_implementation_plan_v1.md`，仓库新增了完整的数据到策略基线流程：
+仓库包含一个从公开狼人杀类语料到游戏内策略基线的实验管线：
 
-1. `scripts/acquisition/*`：采集/登记上游语料并写 provenance manifest  
-2. `scripts/mapping/parse_*.py`：将多源数据统一到 intermediate events  
-3. `scripts/mapping/map_*.py`：映射到 `schemas/botc_label_schema_v1.json`  
-4. `scripts/qa/*`：结构校验、枚举漂移、缺失率、时序检查  
-5. `agent/*`：state tracker / retriever / prompt builder / baseline policy  
-6. `eval/*`：离线场景评测与报告
+1. `scripts/acquisition/*`：采集或登记上游语料，并写入 provenance manifest。
+2. `scripts/mapping/parse_*.py`：将多源数据统一成 intermediate events。
+3. `scripts/mapping/map_*.py`：映射到 `schemas/botc_label_schema_v1.json`。
+4. `scripts/qa/*`：做结构校验、枚举漂移、缺失率、时序检查。
+5. `agent/*`：state tracker / retriever / prompt builder / baseline policy。
+6. `eval/*`：离线场景评测与报告。
 
-新增目录：
-- `data/raw/` / `data/interim/` / `data/processed/`
-- `schemas/`
-- `scripts/acquisition/` / `scripts/mapping/` / `scripts/qa/`
-- `agent/` / `eval/`
-
-### 一键跑通（demo 数据）
+### Demo 数据跑通
 
 ```powershell
 python scripts/run_botc_pipeline.py --demo
 ```
 
-输出重点：
-- `data/raw/source_manifest.json`
-- `data/interim/<source>/events.jsonl`
-- `data/processed/*.jsonl`
-- `docs/qa/*.json`
-- `docs/dataset_qa_report_v1.md`
-- `eval/report_latest.json`
-
-### 仅登记上游来源（不下载）
-
-```powershell
-python scripts/run_botc_pipeline.py
-```
-
-### 真实语料接入并训练（新增）
+### 真实语料接入并训练
 
 ```powershell
 python scripts/run_real_data_pipeline.py
 ```
 
-该流程会尝试接入公开可访问真实源并训练轻量模型：
-- `werewolf_among_us`: `bolinlai/Werewolf-Among-Us`
-- `llmafia` transfer fallback: `peterpeterp/mafiamessages`
-- `aiwolf` transfer: `fukufuk/aiwolf-convs`
+可能生成的产物：
 
-产物：
-- 处理后语料：`data/processed/*.jsonl`
-- QA 报告：`docs/dataset_qa_report_v1.md`
-- 训练报告：`models/training_report.json`
-- 模型文件：`models/vote_stance_model.joblib`、`models/speech_acts_model.joblib`
-- 前端推理权重：`scripts/ml_runtime_model_data.js`（游戏运行时直接调用）
+- `data/processed/*.jsonl`
+- `docs/dataset_qa_report_v1.md`
+- `models/training_report.json`
+- `models/vote_stance_model.joblib`
+- `models/speech_acts_model.joblib`
+- `scripts/ml_runtime_model_data.js`
 
-## 在线参考资料
+`data/`、`models/` 等产物是否提交，需要根据语料许可和仓库发布方式单独判断。
 
-- [Trouble Brewing - Official Wiki](https://wiki.bloodontheclocktower.com/Trouble_Brewing)
-- [Bad Moon Rising - Official Wiki](https://wiki.bloodontheclocktower.com/Bad_Moon_Rising)
-- [Sects & Violets - Official Wiki](https://wiki.bloodontheclocktower.com/Sects_%26_Violets)
-- [Setup - Official Wiki](https://wiki.bloodontheclocktower.com/Setup)
-- UI/素材参考页：[clocktower.gstonegames.com/grimoire](https://clocktower.gstonegames.com/grimoire/)
+## 公开发布注意事项
 
-## 说明
+当前仓库包含或引用了来自官方/资源站点的参考素材、角色图标、背景图、字体和规则资料。它们适合本地研究和私有开发，但不应默认视为可公开再分发资产。
 
-- TB 为高保真规则实现。
-- BMR / SnV 目前仍为简化规则模式（可玩）。
+在把仓库设为 public 或发布 Release 前，建议先完成：
+
+- 删除或替换所有不确定授权的官方/抓取素材。
+- 将 `assets/reference_scraped/`、官方图标、背景和字体改为本地私有资源包，或提供下载/导入脚本而不是直接提交素材。
+- 使用自制、开源授权或占位素材替代打包进 exe 的资源。
+- 在 README 和 Release note 中保留非官方声明。
+- 不要使用可能让人误解为官方产品的名称、logo 或描述。
+- 不要发布可能与官方 app、script tool 或商业产品直接竞争的公开工具。
+
+更稳妥的公开路线是：保留此仓库为 private，然后另建一个 public-clean 仓库，只包含代码、占位素材、构建说明和素材导入接口。
+
+## Release 建议
+
+Private 仓库：
+
+- 可以发布 GitHub Release，上传 `.exe` 或 `.zip` 给自己测试。
+- Release note 建议注明构建日期、commit、已知问题和素材只供私有测试。
+
+Public 仓库：
+
+- 暂不建议上传当前完整 exe。
+- 可只发布源码或 demo build，但需要移除受限素材。
+- 如果保留玩法规则实现，README 应强调非官方、非商业、学习用途。
+
+## 参考资料
+
+- [Blood on the Clocktower 官方站](https://bloodontheclocktower.com/)
+- [Community Created Content Policy](https://bloodontheclocktower.com/pages/community-created-content-policy)
+- [Terms of Use](https://bloodontheclocktower.com/pages/terms-of-use)
+- [Trouble Brewing Wiki](https://wiki.bloodontheclocktower.com/Trouble_Brewing)
+- [Bad Moon Rising Wiki](https://wiki.bloodontheclocktower.com/Bad_Moon_Rising)
+- [Sects & Violets Wiki](https://wiki.bloodontheclocktower.com/Sects_%26_Violets)
+- [Setup Wiki](https://wiki.bloodontheclocktower.com/Setup)
+- [GStone Grimoire Reference](https://clocktower.gstonegames.com/grimoire/)
+
+## 开发备注
+
+- 当前主要面向 Windows。
+- Node / Electron 版本以 `package-lock.json` 为准。
+- 项目仍处于重构阶段，角色规则、AI 对话和 UI 都会继续变化。
+- 如果 Codex 线程过长导致客户端卡顿，建议新开线程并引用 `docs/design/CURRENT_THREAD_HANDOFF.md` 或最近的设计文档继续。
