@@ -1,0 +1,582 @@
+*{
+    margin: 0;
+    padding: 0;
+    
+}
+html,body{
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+.content{
+    width: 100%;
+    height: 100%;
+    background: url(https://oss.gstonegames.com/data_file/clocktower/home_page/bg.png) top center no-repeat;
+    background-size: cover;
+}
+/* 中间图片 */
+.content .centerContain .centerContainImg{
+    padding: 0 35px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+/* .content .centerContain .centerContainImg .containImg{
+    flex: 1;
+} */
+.content .centerContain .centerContainImg .containImg:last-child{
+    margin-right: 0;
+}
+.content .centerContain .centerContainImg .containImg a{
+    width: 100%;
+    height: 100%;
+}
+.content .centerContain .centerContainImg .containImg .smallCenter{
+    width: 85%;
+    display: block;
+    margin: 0 auto;
+    transition: all 0.1s ease-out;
+    /* transform: translateX(10px); */
+}
+/* #smallCenter2:hover{
+    width: 100%;
+} */
+/* 底部*/
+.bottomContain{
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+.bottomIconLf{
+    width: 100%;
+}
+.bottomContain .bottomIcon .tip{
+    width: 12%;
+}
+.bottomContain .bottomIcon .gs{
+    width: 26%;
+}
+.bottomContain .bottomIcon .gs img{
+    width: 100%;
+}
+.bottomContain p a{
+    text-decoration: none;
+    color: #888888;
+}
+.bottomIconRg{
+    position: absolute;
+    right: 40px;
+}
+/* 图标 */
+/* .iconBottom{
+    position: fixed;
+    bottom: 30px;
+    right: 20px;
+    width: 20%;
+}
+.iconList{
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+.iconLi{
+    width: 30%;
+    margin-right: 36px;
+}
+.iconList .icons{
+    
+    margin-top: 6px;
+}
+.groupIcon{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.groupLi{
+    flex: 1;
+}
+.group{
+    width: 100%;
+    margin-right: 36px;
+} */
+.iconList{
+    display: flex;
+    align-items: center;
+}
+.iconLi{
+    width: 2vw;
+    margin-right: 22px;
+    position: relative;
+}
+/* .iconLi:hover{
+    background: url(./images/wx_group.png) center top no-repeat;
+    background-size: 100px 124px;
+} */
+.iconLi2{
+    width: 20%;
+    margin-right: 36px;
+}
+/* .iconLi2:hover{
+    background: url(./images/qq_group.png) center top no-repeat;
+    background-size: 100px 124px;
+} */
+.iconLi3{
+    width: 20%;
+}
+/* .iconLi3:hover{
+    background: url(./images/md_group.png) center top no-repeat;
+    background-size: 100px 124px;
+} */
+.iconList .icons{
+    width: 100%;
+    margin-top: 6px;
+}
+.iconList .iconsBg{
+    width: 400%;
+    height: 350%;
+    position: absolute;
+    left: -145%;
+    bottom: 100%;
+    background: url(./images/wx_group.png) center no-repeat;
+    background-size: 100%;
+    display: none;
+}
+.iconList .iconsBg2{
+    width: 400%;
+    height: 350%;
+    position: absolute;
+    left: -145%;
+    bottom: 100%;
+    background: url(./images/qq_group.png) center no-repeat;
+    background-size: 100%;
+    display: none;
+}
+.iconList .iconsBg3{
+    width: 400%;
+    height: 350%;
+    position: absolute;
+    left: -145%;
+    bottom: 100%;
+    background: url(./images/md_group.png) center no-repeat;
+    background-size: 100%;
+    display: none;
+}
+
+@media screen and (min-width: 450px) and (max-width: 980px) {
+    html,
+    body {
+      font-size: 1.1em;
+    }
+    .topContain{
+        width: 100%;
+        height: 15%;
+    }
+    /* 顶部logo */
+    .topContain .logoImg{
+        width: 25%;
+        display: block;
+        margin: 0 auto;
+        padding-top: 4%;
+    }
+    .content .centerContain{
+        width: 100%;
+        height: 72%;
+    }
+    .content .centerContain .centerContainImg{
+        padding: 0 35px;
+        height: 65%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        padding-top: 10%;
+    }
+    .content .centerContain .centerContainImg .containImg{
+        width: 33%;
+        margin-bottom: 20px;
+    }
+    .bottomContain{
+        width: 100%;
+        height: 10%;
+        padding-top: 6%;
+    }
+    .bottomContain .bottomIcon{
+        width: 60%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+    }
+    
+    .bottomContain .bottomIcon .tpi{
+        width: 45%;
+    }
+    .bottomContain .bottomIcon .tpi img{
+        width: 100%;
+    }
+    .bottomContain p{
+        text-align: center;
+        font-size: 0.5rem;
+        color: #888888;
+    }
+    .content .centerContain .centerContainImg a{
+        width: 33%;
+        height: 65%;
+        display: block;
+    }
+}
+@media screen and (min-width: 450px) {
+    html,
+    body {
+      font-size: 1.1em;
+    }
+    .topContain{
+        width: 100%;
+        height: 16%;
+    }
+    /* 顶部logo */
+    .topContain .logoImg{
+        width: 10%;
+        display: block;
+        margin: 0 auto;
+        padding-top: 3%;
+    }
+    .content .centerContain{
+        width: 100%;
+        height: 70%;
+    }
+    .bottomContain{
+        width: 100%;
+        height: 10%;
+        position: relative;
+    }
+    .content .centerContain .centerContainImg .containImg{
+        flex:1
+    }
+    .bottomContain .bottomIcon{
+        width: 20%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .bottomContain .bottomIcon .tpi{
+        width: 55%;
+    }
+    .bottomContain .bottomIcon .tpi img{
+        width: 100%;
+    }
+    .bottomContain p{
+        width: 20%;
+        text-align: center;
+        font-size: 0.7vw;
+        color: #888888;
+        margin: 0 auto;
+    }
+    .content .centerContain .centerContainImg a{
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+}
+@media screen and (min-width: 2000px) and (max-width: 6000px) {
+    html,
+    body {
+      font-size: 1.1em;
+    }
+    .topContain{
+        width: 100%;
+        height: 20%;
+    }
+    /* 顶部logo */
+    .topContain .logoImg{
+        width: 8%;
+        display: block;
+        margin: 0 auto;
+        padding-top: 3%;
+    }
+    .content .centerContain{
+        width: 100%;
+        height: 70%;
+    }
+    .bottomContain{
+        width: 100%;
+        height: 10%;
+    }
+    .content .centerContain .centerContainImg .containImg{
+        flex:1
+    }
+    .content .centerContain .centerContainImg .containImg .smallCenter{
+        width: 75%;
+        display: block;
+        margin: 0 auto;
+        transition: all 0.1s ease-out;
+        /* transform: translateX(10px); */
+    }
+    .bottomContain .bottomIcon{
+        width: 20%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .bottomContain .bottomIcon .tpi{
+        width: 45%;
+    }
+    .bottomContain .bottomIcon .tpi img{
+        width: 100%;
+    }
+    .bottomContain p{
+        text-align: center;
+        font-size: 0.7vw;
+        color: #888888;
+        padding-right: 50px;
+    }
+    .content .centerContain .centerContainImg a{
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+}
+
+/* @media screen and (min-height: 0px) and (max-height: 1000px){
+    .content .centerContain .centerContainImg .containImg .smallCenter{
+        width: 50%;
+    }
+}
+@media screen and (min-height: 1000px){
+    .content .centerContain .centerContainImg .containImg .smallCenter{
+        width: 85%;
+    }
+} */
+
+/* 手机版 */
+#mobileContent .mobileTopContain{
+    width: 100%;
+    height: 20%;
+}
+#mobileContent .mobileTopContain img{
+    width: 30%;
+    display: block;
+    margin: 0 auto;
+    padding-top: 40px;
+}
+
+#mobileContent .mobileCenterContain{
+    width: 100%;
+    height: 65%;
+}
+.mobileContainImg{
+    width: 100%;
+    /* height: 20%; */
+    margin-top: 20px;
+}
+.mobileContainImg a{
+    width: 90%;
+    height: 100%;
+    display: block;
+    margin: 0 auto;
+}
+.mobileContainImg a img{
+    width: 327px;
+    height: 80px;
+    display: block;
+    margin: 0 auto;
+}
+#mobileContent .mobileBottomContain{
+    width: 100%;
+    height: 10%;
+    margin: 0 auto;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+}
+#mobileContent .mobileBottomContain .bottomIcon{
+    width: 80%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+#mobileContent .mobileBottomContain .bottomIcon .tpi{
+    width: 60%;
+}
+#mobileContent .mobileBottomContain .bottomIcon .tpi img{
+    width: 80%;
+    display: block;
+    margin: 0 auto;
+}
+#mobileContent .mobileBottomContain .bottomIcon .gs{
+    width: 40%;
+}
+#mobileContent .mobileBottomContain .bottomIcon .gs img{
+    width: 60%;
+    display: block;
+    margin: 0 auto;
+}
+#mobileContent .mobileBottomContain p{
+    width: 100%;
+    text-align: center;
+    font-size: 0.5rem;
+}
+#mobileContent .mobileBottomContain p a{
+    text-decoration: none;
+    color: #888888;
+}
+
+.userEnter{
+    position: absolute;
+    bottom: 60px;
+    left: 60px;
+    color: #fff;
+    font-size: 20px;
+    font-weight: bolder;
+    z-index: 999;
+}
+.userEnter a{
+    text-decoration: none;
+    color: #fff;
+}
+.userEnterH5{
+    /* position: absolute;
+    top: 20px;
+    right: 10px; */
+    width: 83%;
+    margin: 0 auto;
+    text-align: left;
+    margin-top: 20px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: bolder;
+}
+.userEnterH5 a{
+    text-decoration: none;
+    color: #fff;
+}
+
+
+
+/* 港台用户 -- 二维码*/
+.download-wrap {
+    position: relative;
+    height: 164px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    /* margin-bottom: 14px; */
+    transform-origin: bottom left;
+    transform: scale(1);
+    opacity: 1;
+    transition: all 200ms ease-in-out;
+    z-index: 50;
+    margin-right: 15px;
+}
+.closed ul li{
+    width: 0;
+    height: 0;
+}
+.homer {
+    background-image: url(https://res-botcapp.noxgroup.com/website/client/img/home-download-bg.ccc8d56.png);
+    width: 340px;
+}
+.homerTit{
+    display: flex;
+    align-items: center;
+    padding-left: 15px;
+    padding-right: 15px;
+    padding-top: 6px;
+    margin-bottom: 6px;
+    justify-content: space-between;
+}
+.homerTit h3{
+    font-size: 20px;
+}
+.download-wrap .store {
+    width: 160px;
+    height: 72px;
+    margin: 0 10px 10px 10px;
+}
+body ul, html ul {
+    list-style: none;
+}
+.download-wrap .store .ios {
+    margin-bottom: 5px;
+}
+.download-wrap .store li {
+    height: 38px;
+    background: #000;
+    border-radius: 12px;
+    padding: 4px 0;
+}
+.download-wrap .store a {
+    display: block;
+    text-decoration: none;
+}
+.download-wrap .store .ios img {
+    width: 25px;
+    height: 28px;
+    margin-top: 4px;
+}
+.download-wrap .store a img {
+    float: left;
+    margin-left: 14px;
+    margin-right: 12px;
+}
+.download-wrap .store a .download {
+    font-size: 11px;
+    font-weight: 400;
+    color: #fff;
+    line-height: 13px;
+    margin-bottom: 2px;
+}
+.download-wrap .store a .name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #fff;
+    line-height: 22px;
+}
+.download-wrap .store .android img {
+    width: 24px;
+    height: 26px;
+    margin-top: 7px;
+}
+.download-wrap .qrcode {
+    position: absolute;
+    right: 12px;
+    top: 36px;
+    width: 104px;
+    height: 104px;
+    background: #000;
+    border-radius: 6px;
+}
+.download-wrap .qrcode img {
+    width: 96px;
+    height: 96px;
+    margin: 4px;
+    position: relative;
+    left: 0;
+    top: 0;
+}
+.homerTip{
+    font-size: 12px;
+    padding-top: 16px;
+    color: #f00;
+    padding-left: 15px;
+}
+
+
+/*选择*/
+#containImg5{
+    position: relative;
+}
+.containcheck{
+    width: 100%;
+    height: 100%;
+    background: #000;
+    opacity: 0.5;
+    position: absolute;
+    top: 0;
+    left: 0;
+}

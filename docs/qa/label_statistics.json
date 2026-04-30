@@ -1,0 +1,101 @@
+{
+  "check": "label_statistics",
+  "total_records": 145447,
+  "utterance_count_by_source": {
+    "aiwolf": 1372,
+    "llmafia": 120002,
+    "werewolf_among_us": 24073
+  },
+  "speech_act_frequency": {
+    "table_read": 119186,
+    "probe": 12860,
+    "hard_claim": 7495,
+    "coordinate_vote": 5472,
+    "accuse": 1153,
+    "soft_claim": 734,
+    "defend": 40,
+    "withhold_info": 18
+  },
+  "speech_act_cooccurrence_top50": [
+    {
+      "act_a": "hard_claim",
+      "act_b": "probe",
+      "count": 563
+    },
+    {
+      "act_a": "coordinate_vote",
+      "act_b": "probe",
+      "count": 488
+    },
+    {
+      "act_a": "coordinate_vote",
+      "act_b": "hard_claim",
+      "count": 207
+    },
+    {
+      "act_a": "accuse",
+      "act_b": "hard_claim",
+      "count": 77
+    },
+    {
+      "act_a": "accuse",
+      "act_b": "probe",
+      "count": 73
+    },
+    {
+      "act_a": "accuse",
+      "act_b": "coordinate_vote",
+      "count": 62
+    },
+    {
+      "act_a": "probe",
+      "act_b": "soft_claim",
+      "count": 37
+    },
+    {
+      "act_a": "hard_claim",
+      "act_b": "soft_claim",
+      "count": 26
+    },
+    {
+      "act_a": "coordinate_vote",
+      "act_b": "soft_claim",
+      "count": 9
+    },
+    {
+      "act_a": "defend",
+      "act_b": "hard_claim",
+      "count": 4
+    },
+    {
+      "act_a": "accuse",
+      "act_b": "soft_claim",
+      "count": 4
+    },
+    {
+      "act_a": "hard_claim",
+      "act_b": "withhold_info",
+      "count": 2
+    },
+    {
+      "act_a": "defend",
+      "act_b": "probe",
+      "count": 2
+    },
+    {
+      "act_a": "defend",
+      "act_b": "soft_claim",
+      "count": 1
+    }
+  ],
+  "vote_related_field_coverage": {
+    "vote_stance_rate": 0.03773883270194641,
+    "nomination_related_rate": 1.0,
+    "targets_rate": 4.1252139954760154e-05,
+    "raw_counts": {
+      "nomination_related_available": 145447,
+      "targets_available": 6,
+      "vote_stance_available": 5489
+    }
+  }
+}

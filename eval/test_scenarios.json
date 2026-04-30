@@ -1,0 +1,164 @@
+[
+  {
+    "id": "early_day_uncertainty",
+    "suite": "core",
+    "description": "第1天信息不足时的公开发言。",
+    "speaker": "P2",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "先给一个保守判断。",
+    "state_snapshot": {
+      "game_id": "eval_001",
+      "day_index": 1,
+      "phase": "day",
+      "players": {
+        "P1": {"alive": true},
+        "P2": {"alive": true},
+        "P3": {"alive": true}
+      },
+      "suspicion_scores": {"P1": 1.2, "P3": 0.8},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "pressure_defense",
+    "suite": "core",
+    "description": "被压力时的私聊回应。",
+    "speaker": "P4",
+    "audience": "private",
+    "action_type": "private_statement",
+    "user_hint": "你先帮我看看5号。",
+    "state_snapshot": {
+      "game_id": "eval_002",
+      "day_index": 2,
+      "phase": "day",
+      "players": {
+        "P4": {"alive": true},
+        "P5": {"alive": true},
+        "P6": {"alive": true}
+      },
+      "suspicion_scores": {"P5": 2.5, "P6": 0.5},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "soft_claim",
+    "suite": "core",
+    "description": "软报身份并保留信息。",
+    "speaker": "P3",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "我不想全报信息。",
+    "state_snapshot": {
+      "game_id": "eval_003",
+      "day_index": 2,
+      "phase": "day",
+      "players": {"P3": {"alive": true}, "P7": {"alive": true}},
+      "suspicion_scores": {"P7": 1.8},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "vote_push",
+    "suite": "core",
+    "description": "提名/带票建议。",
+    "speaker": "P1",
+    "audience": "public",
+    "action_type": "nomination_recommendation",
+    "user_hint": "给出一个提名建议。",
+    "state_snapshot": {
+      "game_id": "eval_004",
+      "day_index": 2,
+      "phase": "nomination",
+      "players": {"P1": {"alive": true}, "P8": {"alive": true}},
+      "suspicion_scores": {"P8": 3.1},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "dead_player_contribution",
+    "suite": "botc_extension",
+    "description": "死者且鬼票已用尽的发言约束。",
+    "speaker": "P9",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "我还是会给你们线索。",
+    "state_snapshot": {
+      "game_id": "eval_005",
+      "day_index": 3,
+      "phase": "day",
+      "players": {
+        "P9": {"alive": false, "dead_vote_available": false, "dead_vote_spent": true},
+        "P2": {"alive": true}
+      },
+      "suspicion_scores": {"P2": 1.4},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "misinformation_state",
+    "suite": "botc_extension",
+    "description": "中毒/醉酒条件下应降低确定性。",
+    "speaker": "P6",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "分享昨晚信息。",
+    "state_snapshot": {
+      "game_id": "eval_006",
+      "day_index": 2,
+      "phase": "day",
+      "players": {
+        "P6": {
+          "alive": true,
+          "sober_drunk": "drunk",
+          "healthy_poisoned": "poisoned",
+          "sane_mad": "sane"
+        },
+        "P1": {"alive": true}
+      },
+      "suspicion_scores": {"P1": 1.0},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "madness_compliance",
+    "suite": "botc_extension",
+    "description": "madness 状态下发言需要带 mad_play 特征。",
+    "speaker": "P5",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "继续按你公开身份发言。",
+    "state_snapshot": {
+      "game_id": "eval_007",
+      "day_index": 2,
+      "phase": "day",
+      "players": {
+        "P5": {
+          "alive": true,
+          "public_claim": "贤者",
+          "sane_mad": "mad"
+        },
+        "P4": {"alive": true}
+      },
+      "suspicion_scores": {"P4": 1.2},
+      "storyteller_signals": []
+    }
+  },
+  {
+    "id": "storyteller_uncertainty_hook",
+    "suite": "botc_extension",
+    "description": "有 storyteller signal 时应保留不确定元数据。",
+    "speaker": "P2",
+    "audience": "public",
+    "action_type": "public_statement",
+    "user_hint": "给出你的判断。",
+    "state_snapshot": {
+      "game_id": "eval_008",
+      "day_index": 2,
+      "phase": "day",
+      "players": {"P2": {"alive": true}, "P3": {"alive": true}},
+      "suspicion_scores": {"P3": 1.5},
+      "storyteller_signals": [{"type": "storyteller_signal", "note": "ambiguous_night_resolution"}]
+    }
+  }
+]

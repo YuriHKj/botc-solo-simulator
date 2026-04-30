@@ -1,0 +1,33 @@
+﻿Source: https://clocktower.gstonegames.com/
+Local root: C:\Users\11507\Documents\Playground\assets\reference_scraped\home
+File count: 22
+
+By extension:
+- png: 19
+- webmanifest: 1
+- css: 1
+- js: 1
+
+Largest 120 files:
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\center5.png (461.8 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\center1.png (449.1 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\center3.png (437.2 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\center4.png (390.9 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\center2.png (379.1 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\h5Center4.png (86 KB)
+- jquery.js (84.9 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\h5Center5.png (83 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\h5Center1.png (80.9 KB)
+- images\h5Center3.png (78.3 KB)
+- ext\oss.gstonegames.com\data_file\clocktower\home_page\h5Center2.png (72.1 KB)
+- images\logo.png (61.6 KB)
+- images\apple-touch-icon.png (20.5 KB)
+- images\tpi.png (20.4 KB)
+- index.css (11.8 KB)
+- images\gs.png (5.2 KB)
+- images\wx.png (5.2 KB)
+- images\md.png (4.6 KB)
+- images\qq.png (4.4 KB)
+- images\favicon-32x32.png (1.3 KB)
+- images\favicon-16x16.png (0.7 KB)
+- images\site.webmanifest (0.4 KB)

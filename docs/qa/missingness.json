@@ -1,0 +1,258 @@
+{
+  "check": "missingness",
+  "total_records": 145447,
+  "field_stats": {
+    "game_id": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "script": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "phase": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "day_index": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "utterance_id": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "speaker": {
+      "present": 25447,
+      "missing_or_unknown": 120000,
+      "missing_rate": 0.8250427990952031
+    },
+    "audience": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "speaker_alive": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "speaker_private_role": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "speaker_alignment": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "speaker_public_claim": {
+      "present": 4362,
+      "missing_or_unknown": 141085,
+      "missing_rate": 0.9700096942528894
+    },
+    "speaker_state": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "action_capability": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "text": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "speech_acts": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "targets": {
+      "present": 6,
+      "missing_or_unknown": 145441,
+      "missing_rate": 0.9999587478600452
+    },
+    "epistemic_strength": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "intent": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "truth_status_objective": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "truth_status_subjective": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "deception_type": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "evidence_source": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "vote_stance": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "nomination_related": {
+      "present": 145447,
+      "missing_or_unknown": 0,
+      "missing_rate": 0.0
+    },
+    "nomination_target": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "nomination_by": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "execution_push_strength": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "reason_type": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "rhetorical_style": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "pressure_level": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "belief_delta": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "coalition_signal": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "contradiction_links": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    },
+    "metadata": {
+      "present": 0,
+      "missing_or_unknown": 145447,
+      "missing_rate": 1.0
+    }
+  },
+  "top_missing_fields": [
+    {
+      "field": "speaker_private_role",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "speaker_alignment",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "action_capability",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "intent",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "truth_status_objective",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "truth_status_subjective",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "deception_type",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "nomination_target",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "nomination_by",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "execution_push_strength",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "reason_type",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "rhetorical_style",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "pressure_level",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "belief_delta",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "coalition_signal",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "contradiction_links",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "metadata",
+      "missing_rate": 1.0
+    },
+    {
+      "field": "targets",
+      "missing_rate": 0.9999587478600452
+    },
+    {
+      "field": "speaker_public_claim",
+      "missing_rate": 0.9700096942528894
+    },
+    {
+      "field": "speaker",
+      "missing_rate": 0.8250427990952031
+    }
+  ]
+}

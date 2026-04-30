@@ -1,0 +1,411 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BOTC 单机模拟器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="appShell" class="app-shell">
+      <button id="btnToggleLeft" class="sidebar-toggle sidebar-toggle-left" type="button" aria-label="收起左侧栏" title="收起左侧栏">
+        ⟨
+      </button>
+      <button id="btnToggleRight" class="sidebar-toggle sidebar-toggle-right" type="button" aria-label="收起右侧栏" title="收起右侧栏">
+        ⟩
+      </button>
+      <header class="hud-panel panel-soft">
+        <div class="hud-brand" aria-hidden="true">BOTC SOLO</div>
+        <div class="hud-main">
+          <div id="setupLine" class="setup-line">--</div>
+          <div id="aliveLine" class="alive-line">--</div>
+          <div id="statusLine" class="status-line">载入中...</div>
+          <button id="recentEventCapsule" type="button" class="recent-event-capsule">最近事件：暂无</button>
+        </div>
+        <div class="hud-actions">
+          <button id="btnToggleBottom" type="button" class="hud-menu-btn">底部面板</button>
+          <button id="btnOpenScriptSheet" type="button" class="hud-menu-btn hud-ref-btn">剧本手册</button>
+          <button id="btnOpenSettings" type="button" class="hud-menu-btn">设置</button>
+          <button id="btnOpenStartMenu" type="button" class="hud-menu-btn">主菜单</button>
+        </div>
+      </header>
+
+      <aside id="leftPanel" class="panel controls">
+        <div class="panel-top-actions">
+          <button id="btnCollapseLeftPanel" class="panel-collapse-btn" type="button" aria-label="收起左侧栏" title="收起左侧栏">
+            收起 ⟨
+          </button>
+          <button id="btnToggleLeftDensity" class="panel-collapse-btn panel-density-btn" type="button" aria-label="切换左侧栏详细程度" title="切换左侧栏详细程度">
+            详细模式
+          </button>
+        </div>
+        <section class="panel-section">
+          <h2>开局</h2>
+          <label>
+            剧本
+            <select id="scriptSelect">
+              <option value="tb">暗流涌动 (Trouble Brewing)</option>
+              <option value="bmr">黯月初升 (Bad Moon Rising)</option>
+              <option value="snv">紫罗兰教派 (Sects &amp; Violets)</option>
+            </select>
+          </label>
+          <label>
+            玩家人数
+            <input id="playerCount" type="number" min="5" max="15" step="1" value="9" />
+          </label>
+          <label>
+            自选身份（测试）
+            <select id="roleSelect"></select>
+          </label>
+          <button id="btnNewGame">新开一局</button>
+
+          <label class="switch-row">
+            <input id="toggleGrimoire" type="checkbox" />
+            显示魔典全知视角
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <h2>白天流程</h2>
+          <div id="stageChip" class="stage-chip">--</div>
+
+          <h3>1) 私聊阶段</h3>
+          <label>
+            私聊对象
+            <select id="whisperTargetSelect"></select>
+          </label>
+          <div class="quick-ask-block">
+            <div class="quick-ask-title">快捷提问（主路径）</div>
+            <div id="whisperQuickGrid" class="quick-ask-grid"></div>
+            <div class="quick-ask-hint">优先点击按钮提问；可在下方补充细节。</div>
+          </div>
+          <label>
+            补充问法（可选）
+            <input id="whisperInput" type="text" maxlength="80" placeholder="例如：结合昨晚信息再说说理由" />
+          </label>
+          <div id="whisperIntentPreview" class="intent-preview">解析：怀疑判断（主路径）</div>
+          <button id="btnWhisper">打开私聊窗口</button>
+          <button id="btnToPublic">进入公聊阶段</button>
+
+          <h3>2) 公聊阶段</h3>
+          <button id="btnDiscuss">进行一轮公聊</button>
+          <button id="btnToNomination">进入提名阶段</button>
+
+          <h3>3) 提名阶段</h3>
+          <label>
+            提名者
+            <select id="nominatorSelect"></select>
+          </label>
+          <label>
+            被提名者
+            <select id="nomineeSelect"></select>
+          </label>
+          <label>
+            你的投票
+            <select id="humanVoteSelect">
+              <option value="yes">赞成</option>
+              <option value="no">反对</option>
+            </select>
+          </label>
+          <button id="btnNominate">按当前选择发起提名</button>
+          <button id="btnAINominate">让 AI 自动提名</button>
+          <button id="btnSkipDay">今日无人处决</button>
+        </section>
+
+        <section class="panel-section advanced-panel-section">
+          <h2>Slayer</h2>
+          <label>
+            开枪目标
+            <select id="slayerTargetSelect"></select>
+          </label>
+          <button id="btnSlayer">发动 Slayer</button>
+        </section>
+
+        <section class="panel-section advanced-panel-section">
+          <h2>夜间行动</h2>
+          <div id="nightActionSummary" class="night-action-summary">当前无可预设的夜间行动。</div>
+          <button id="btnOpenNightActionModal">打开夜间选择弹窗</button>
+          <label class="hidden">
+            目标一
+            <select id="nightTargetASelect"></select>
+          </label>
+          <label id="nightTargetRowB" class="hidden">
+            目标二
+            <select id="nightTargetBSelect"></select>
+          </label>
+          <button id="btnSaveNightAction" class="hidden">保存夜间选择</button>
+        </section>
+
+        <section class="panel-section advanced-panel-section">
+          <h2>夜间私有信息</h2>
+          <div id="privateInfo" class="private-info">夜间没有新的私有线索。</div>
+        </section>
+      </aside>
+
+      <section class="center-column">
+        <section id="boardWrap" class="board-wrap panel-soft">
+          <section id="officialTopInfo" class="official-top-info" aria-label="官方风格信息条">
+            <div id="officialScriptLine" class="official-script-line">--</div>
+            <div id="officialSetupLine" class="official-setup-line">--</div>
+            <div id="officialStateLine" class="official-state-line">--</div>
+          </section>
+          <div id="grimoireBoard" class="grimoire-board"></div>
+          <div id="scriptBadge" class="script-badge">暗流涌动</div>
+        </section>
+
+        <section class="panel debate-stage">
+          <div class="debate-stage-head">
+            <h2>对话舞台</h2>
+            <div id="debateMeta" class="debate-meta">等待玩家行动…</div>
+          </div>
+          <div id="debateTimeline" class="debate-timeline"></div>
+        </section>
+
+        <div class="center-bottom">
+          <section class="panel guide-card">
+            <h2>新手流程引导</h2>
+            <div id="guideTitle" class="guide-title">--</div>
+            <ol id="guideList" class="guide-list"></ol>
+            <div id="guideHint" class="guide-hint"></div>
+          </section>
+
+          <section class="bluff-card panel">
+            <h3>恶魔的伪装</h3>
+            <div id="bluffList" class="bluff-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <aside id="rightPanel" class="panel intel">
+        <button id="btnCollapseRightPanel" class="panel-collapse-btn panel-collapse-btn-right" type="button" aria-label="收起右侧栏" title="收起右侧栏">
+          收起 ⟩
+        </button>
+        <section id="aiInsightSection" class="intel-section">
+          <h2>AI 推理摘要（复盘）</h2>
+          <div id="aiInsights" class="ai-insights"></div>
+        </section>
+
+        <section class="intel-section intel-log-section">
+          <h2>事件日志</h2>
+          <div id="logList" class="log-list"></div>
+        </section>
+      </aside>
+    </main>
+
+    <section id="startScreen" class="start-screen">
+      <div class="start-card panel-soft">
+        <div class="start-hero">
+          <h1>BOTC Solo Simulator</h1>
+          <p class="start-subtitle">染钟楼谜团 · 单机魔典</p>
+          <p class="start-subtitle start-subtitle-small">The Grimoire Awaits</p>
+          <div class="start-main-actions">
+            <button id="btnStartFromMenu" type="button" class="start-main-btn">开始新游戏</button>
+            <button id="btnLoadLatestSave" type="button" class="start-main-btn">继续游戏</button>
+            <button id="btnOpenSheetFromStart" type="button" class="start-main-btn">剧本图鉴</button>
+            <button id="btnOpenSettingsFromStart" type="button" class="start-main-btn">设置</button>
+            <button id="btnExitGame" type="button" class="start-main-btn start-exit-btn">退出</button>
+          </div>
+        </div>
+
+        <div class="start-version-tag">v0.4 alpha</div>
+
+        <div class="start-grid">
+          <section class="start-section">
+            <h2>新游戏参数</h2>
+            <label>
+              剧本
+              <select id="startScriptSelect"></select>
+            </label>
+            <label>
+              玩家人数
+              <input id="startPlayerCount" type="number" min="5" max="15" step="1" value="9" />
+            </label>
+            <label>
+              自选身份（测试）
+              <select id="startRoleSelect"></select>
+            </label>
+          </section>
+
+          <section class="start-section">
+            <h2>存档管理</h2>
+            <div id="startSaveSlots" class="start-save-slots"></div>
+          </section>
+        </div>
+
+        <div class="start-footer">
+          <button id="btnCloseStartMenu" type="button">返回当前对局</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="scriptSheetModal" class="sheet-modal">
+      <div class="sheet-modal-card panel-soft">
+        <div class="sheet-modal-header">
+          <h2 id="sheetModalTitle">剧本总览</h2>
+          <button id="btnCloseScriptSheet" type="button" class="sheet-close-btn">关闭</button>
+        </div>
+
+        <div class="sheet-tab-row">
+          <button id="sheetTabTB" type="button" class="sheet-tab-btn">暗流涌动</button>
+          <button id="sheetTabBMR" type="button" class="sheet-tab-btn">黯月初升</button>
+          <button id="sheetTabSNV" type="button" class="sheet-tab-btn">紫罗兰教派</button>
+        </div>
+
+        <div class="sheet-body">
+          <figure class="sheet-figure">
+            <img id="sheetImage" alt="剧本与夜间顺序表" />
+          </figure>
+          <aside class="sheet-order-card">
+            <h3>首夜顺序</h3>
+            <ol id="sheetFirstNightList" class="sheet-order-list"></ol>
+            <h3>其他夜晚顺序</h3>
+            <ol id="sheetOtherNightList" class="sheet-order-list"></ol>
+            <p class="sheet-order-hint">注：列表为当前引擎结算顺序，左侧大图为官方剧本总览与顺序参考。</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="tokenActionModal" class="sheet-modal">
+      <div class="sheet-modal-card token-action-card panel-soft">
+        <div class="sheet-modal-header">
+          <h2 id="tokenActionTitle">魔典标记</h2>
+          <button id="btnCloseTokenAction" type="button" class="sheet-close-btn">关闭</button>
+        </div>
+        <div class="token-action-body">
+          <label>
+            标记对象
+            <select id="markPlayerSelect"></select>
+          </label>
+          <label>
+            角色标记
+            <select id="markRoleSelect"></select>
+          </label>
+          <button id="btnApplyMarkedRole">应用角色标记</button>
+
+          <label>
+            添加提醒（reminder）
+            <select id="markReminderSelect"></select>
+          </label>
+          <button id="btnAddReminder">添加提醒</button>
+
+          <label>
+            当前提醒
+            <select id="markCurrentReminderSelect"></select>
+          </label>
+          <button id="btnRemoveReminder">移除所选提醒</button>
+          <button id="btnClearMark">清空该玩家全部标记</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="nightActionModal" class="sheet-modal">
+      <div class="sheet-modal-card token-action-card panel-soft">
+        <div class="sheet-modal-header">
+          <h2 id="nightActionModalTitle">夜间行动</h2>
+          <button id="btnCloseNightActionModal" type="button" class="sheet-close-btn">关闭</button>
+        </div>
+        <div class="token-action-body night-action-body">
+          <div id="nightActionRoleCard" class="night-role-card">
+            <div id="nightActionRoleIcon" class="night-role-icon"></div>
+            <div class="night-role-copy">
+              <div id="nightActionRoleBadge" class="night-role-badge">Storyteller</div>
+              <div id="nightActionRoleSubtitle" class="night-role-subtitle">夜幕落下，等待你的选择。</div>
+            </div>
+          </div>
+          <div id="nightActionModalPrompt" class="night-action-summary">今夜暂无可执行行动。</div>
+          <label>
+            <span id="nightModalTargetALabel">目标一</span>
+            <select id="nightModalTargetASelect"></select>
+          </label>
+          <label id="nightModalTargetRowB" class="hidden">
+            <span id="nightModalTargetBLabel">目标二</span>
+            <select id="nightModalTargetBSelect"></select>
+          </label>
+          <div id="nightActionModalHelper" class="night-action-helper"></div>
+          <button id="btnConfirmNightActionModal">确认并进入夜晚</button>
+          <button id="btnSkipNightActionModal">今晚跳过选择（系统自动）</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="settingsModal" class="sheet-modal">
+      <div class="sheet-modal-card settings-card panel-soft">
+        <div class="sheet-modal-header">
+          <h2>设置</h2>
+          <button id="btnCloseSettingsModal" type="button" class="sheet-close-btn">关闭</button>
+        </div>
+        <div class="token-action-body settings-body">
+          <label>
+            分辨率预设
+            <select id="settingResolutionSelect">
+              <option value="auto">自动适配</option>
+              <option value="1280x720">1280 x 720</option>
+              <option value="1600x900">1600 x 900</option>
+              <option value="1920x1080">1920 x 1080</option>
+            </select>
+          </label>
+          <label>
+            UI 缩放 <span id="settingUIScaleValue">100%</span>
+            <input id="settingUIScaleRange" type="range" min="80" max="130" step="5" value="100" />
+          </label>
+          <label>
+            主音量 <span id="settingMasterVolumeValue">100%</span>
+            <input id="settingMasterVolumeRange" type="range" min="0" max="100" step="5" value="100" />
+          </label>
+          <label>
+            音效音量 <span id="settingSfxVolumeValue">100%</span>
+            <input id="settingSfxVolumeRange" type="range" min="0" max="100" step="5" value="100" />
+          </label>
+          <div class="settings-actions">
+            <button id="btnToggleFullscreen" type="button">切换全屏</button>
+            <button id="btnSaveSettings" type="button">保存设置</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="chatDramaModal" class="sheet-modal">
+      <div class="sheet-modal-card chat-drama-card panel-soft">
+        <div class="sheet-modal-header">
+          <h2 id="chatDramaTitle">私聊</h2>
+          <button id="btnCloseChatDrama" type="button" class="sheet-close-btn">关闭</button>
+        </div>
+        <div class="chat-drama-body">
+          <div class="chat-portrait-wrap">
+            <div id="chatPortrait" class="chat-portrait">
+              <div id="chatPortraitSeat" class="chat-portrait-seat">2号</div>
+              <div id="chatPortraitName" class="chat-portrait-name">2号</div>
+              <div id="chatPortraitPersona" class="chat-portrait-persona">稳健风格</div>
+            </div>
+          </div>
+          <div class="chat-lines">
+            <div class="chat-line chat-player-line">
+              <div class="chat-speaker">你</div>
+              <div id="chatDramaQuestion" class="chat-bubble">你最怀疑谁？</div>
+            </div>
+            <div class="chat-line chat-ai-line">
+              <div id="chatDramaSpeaker" class="chat-speaker">2号</div>
+              <div id="chatDramaResponse" class="chat-bubble">我先说结论，再给你依据。</div>
+            </div>
+            <section class="chat-drama-controls">
+              <div class="chat-drama-quick-title">继续追问</div>
+              <div id="chatDramaQuickGrid" class="chat-drama-quick-grid"></div>
+              <label class="chat-drama-input-label">
+                补充问法（可选）
+                <input id="chatDramaInput" type="text" maxlength="90" placeholder="例如：只看你最想提名的一位" />
+              </label>
+              <div id="chatDramaIntentPreview" class="intent-preview">解析：怀疑判断（主路径）</div>
+              <div class="chat-drama-actions">
+                <button id="btnChatDramaSend" type="button">继续私聊</button>
+                <div id="chatDramaHint" class="chat-drama-hint">仅白天私聊阶段可连续追问。</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="./scripts/app.js"></script>
+  </body>
+</html>

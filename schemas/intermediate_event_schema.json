@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BOTC Intermediate Event Schema v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source",
+    "game_id",
+    "phase",
+    "turn_index",
+    "speaker",
+    "audience",
+    "text",
+    "timestamp",
+    "raw_metadata"
+  ],
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": [
+        "werewolf_among_us",
+        "llmafia",
+        "aiwolf",
+        "unknown"
+      ]
+    },
+    "game_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "setup",
+        "night",
+        "day",
+        "nomination",
+        "execution",
+        "endgame",
+        "postgame",
+        "unknown"
+      ]
+    },
+    "day_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "turn_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "speaker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audience": {
+      "type": "string",
+      "enum": [
+        "public",
+        "private",
+        "whisper",
+        "small_group",
+        "storyteller_only",
+        "unknown"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "raw_metadata": {
+      "type": "object"
+    }
+  }
+}

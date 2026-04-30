@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Electron / PyInstaller build outputs
+release/
+release-*/
+release-model/
+dist/
+build/
+
+# Large acquired/training corpora
+data/raw/
+data/interim/
+data/processed/
+data/**/*.jsonl
+data/**/*.parquet
+data/**/*.arrow
+data/**/*.zip
+
+# Generated verification artifacts
+docs/verification/*.png
+docs/verification/*.jpg
+docs/verification/*.jpeg
+docs/verification/*.webp
+docs/verification/*.mp4
+docs/verification/*.log
+docs/verification/*-out.txt
+docs/verification/*-err.txt
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Logs and local environment
+*.log
+.env
+.env.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

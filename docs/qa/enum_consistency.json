@@ -1,0 +1,11 @@
+{
+  "check": "enum_consistency",
+  "files": [
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\aiwolf.jsonl",
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\llmafia.jsonl",
+    "C:\\Users\\11507\\Documents\\Playground\\data\\processed\\werewolf_among_us.jsonl"
+  ],
+  "total_enum_field_checks": 1599917,
+  "drift": {},
+  "drift_field_count": 0
+}

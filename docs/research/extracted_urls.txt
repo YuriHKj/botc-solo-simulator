@@ -1,0 +1,5 @@
+﻿https://oss.gstonegames.com/data_file/clocktower/web/ct_mp.png
+https://oss.gstonegames.com/data_file/clocktower/web/editions/
+https://oss.gstonegames.com/data_file/clocktower/web/editions/custom.png
+https://oss.gstonegames.com/data_file/clocktower/web/icons/
+https://oss.gstonegames.com/data_file/clocktower/web/sounds/countdown.mp3
