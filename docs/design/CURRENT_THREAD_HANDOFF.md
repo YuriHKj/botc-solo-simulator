@@ -13,6 +13,15 @@ Build and iteratively refine a local Electron/HTML single-player Blood on the Cl
 - Support the three base scripts: Trouble Brewing, Bad Moon Rising, Sects & Violets.
 - Move role behavior out of the monolithic engine into reusable role modules so future custom scripts can compose roles without binding them to one script.
 
+## Start Here
+
+For current project status and open requirements, read:
+
+- `docs/INDEX.md`
+- `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`
+
+These two files are now the recommended entry point before reading older plans.
+
 ## Current Refactor Status
 
 Role module registry:
@@ -60,6 +69,7 @@ Known warning:
 
 - Node emits `MODULE_TYPELESS_PACKAGE_JSON` because browser scripts are ESM while `package.json` does not declare `"type": "module"`.
 - Do not blindly add `"type": "module"` yet because `electron/main.js` is CommonJS.
+- The major visible mojibake pass was completed on 2026-04-30, but future edits should still prefer a safer string-table/localization path for new Chinese UI strings.
 
 ## Next Good Steps
 
@@ -71,8 +81,8 @@ Known warning:
    - choose yes/no or text question
    - choose no-action/charge mode
 3. Add regression tests for role runners, death/execution handlers, and misinformation shapes.
-4. Repair remaining mojibake strings through a proper localization/string-table pass.
-5. Continue UI work only after the role-interface seam is stable.
+4. Add a proper localization/string-table path for future visible strings, so Chinese text edits do not reintroduce encoding drift.
+5. Continue UI work only after the role-interface seam is stable, unless the UI change is a small isolated fix.
 
 ## Workspace Notes
 
