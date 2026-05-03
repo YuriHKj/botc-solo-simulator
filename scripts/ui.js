@@ -1751,22 +1751,37 @@ function openNightActionModal(action, request = {}) {
     onConfirm: request.onConfirm ?? null,
     onSkip: request.onSkip ?? null,
     mandatory: !!request.mandatory,
+    preventDismiss: request.preventDismiss ?? request.variant === "storyteller",
   };
 
   const interaction = action.interaction ?? {};
   const styleName = interaction.style ? `${interaction.style}`.replace(/[^a-z0-9_-]/gi, "") : "default";
   const modalCard = dom.nightActionModal.querySelector(".sheet-modal-card");
+  const modalVariant = request.variant === "storyteller" ? "storyteller" : "standard";
 
   modalCard?.classList.forEach((className) => {
     if (className.startsWith("night-style-")) {
       modalCard.classList.remove(className);
     }
   });
-  modalCard?.classList.add("night-action-card", `night-style-${styleName}`);
+  modalCard?.classList.remove("storyteller-action-card", "standard-action-card");
+  dom.nightActionModal.classList.remove("storyteller-modal", "standard-action-modal");
+  modalCard?.classList.add("night-action-card", `night-style-${styleName}`, `${modalVariant}-action-card`);
+  dom.nightActionModal.classList.add(`${modalVariant}-action-modal`);
 
-  dom.nightActionModalTitle.textContent = interaction.title || `夜间行动：${action.roleName}`;
+  if (dom.nightActionModalKicker) {
+    dom.nightActionModalKicker.textContent = modalVariant === "storyteller" ? "Storyteller Action" : "Role Action";
+  }
+  if (dom.nightActionWakeLine) {
+    dom.nightActionWakeLine.classList.toggle("hidden", modalVariant !== "storyteller");
+  }
+  dom.btnCloseNightActionModal?.classList.toggle("hidden", modalVariant === "storyteller");
+  dom.nightActionModalTitle.textContent =
+    interaction.title || (modalVariant === "storyteller" ? `Storyteller：${action.roleName}` : `夜间行动：${action.roleName}`);
   dom.nightActionRoleBadge.textContent = interaction.badge || "Storyteller";
-  dom.nightActionRoleSubtitle.textContent = interaction.subtitle || "夜幕落下，Storyteller 等待你的选择。";
+  dom.nightActionRoleSubtitle.textContent =
+    interaction.subtitle ||
+    (modalVariant === "storyteller" ? "Storyteller 叫醒你处理一个即时触发。" : "夜幕落下，Storyteller 等待你的选择。");
   const phaseLabel = action.phaseLabel || (action.nightNumber ? `第${action.nightNumber}夜` : "当前阶段");
   dom.nightActionModalPrompt.textContent = `${phaseLabel} · ${action.prompt}`;
   dom.nightActionModalHelper.textContent = interaction.helper || "";
@@ -1790,6 +1805,7 @@ function closeNightActionModal() {
     return;
   }
   dom.nightActionModal.classList.remove("show");
+  dom.nightActionModal.classList.remove("storyteller-modal", "standard-action-modal");
   nightModalRequest = null;
 }
 
@@ -1868,6 +1884,10 @@ function openChatDramaModal(payload) {
 }
 
 function handleNightActionDismiss() {
+  if (nightModalRequest?.preventDismiss) {
+    showToast("请先确认选择，或点击“自动处理”。");
+    return;
+  }
   if (nightModalRequest?.mandatory) {
     nightModalRequest.onSkip?.();
   }
@@ -2080,8 +2100,11 @@ export function initUI(handlers) {
   dom.nightTargetRowB = qs("nightTargetRowB");
   dom.nightActionSummary = qs("nightActionSummary");
   dom.nightActionModal = qs("nightActionModal");
+  dom.nightActionModalCard = qs("nightActionModalCard");
+  dom.nightActionModalKicker = qs("nightActionModalKicker");
   dom.nightActionModalTitle = qs("nightActionModalTitle");
   dom.nightActionModalPrompt = qs("nightActionModalPrompt");
+  dom.nightActionWakeLine = qs("nightActionWakeLine");
   dom.nightActionRoleCard = qs("nightActionRoleCard");
   dom.nightActionRoleIcon = qs("nightActionRoleIcon");
   dom.nightActionRoleBadge = qs("nightActionRoleBadge");

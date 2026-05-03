@@ -300,12 +300,22 @@
     </section>
 
     <section id="nightActionModal" class="sheet-modal">
-      <div class="sheet-modal-card token-action-card panel-soft">
-        <div class="sheet-modal-header">
-          <h2 id="nightActionModalTitle">夜间行动</h2>
+      <div id="nightActionModalCard" class="sheet-modal-card token-action-card panel-soft">
+        <div class="sheet-modal-header night-modal-header">
+          <div class="night-modal-title-wrap">
+            <div id="nightActionModalKicker" class="night-modal-kicker">夜间行动</div>
+            <h2 id="nightActionModalTitle">夜间行动</h2>
+          </div>
           <button id="btnCloseNightActionModal" type="button" class="sheet-close-btn">关闭</button>
         </div>
         <div class="token-action-body night-action-body">
+          <div id="nightActionWakeLine" class="storyteller-wake-line hidden">
+            <span class="storyteller-eye-mark" aria-hidden="true"></span>
+            <div>
+              <strong>Storyteller 正在唤醒你</strong>
+              <span>流程已暂停，完成此选择后再继续结算。</span>
+            </div>
+          </div>
           <div id="nightActionRoleCard" class="night-role-card">
             <div id="nightActionRoleIcon" class="night-role-icon"></div>
             <div class="night-role-copy">
@@ -324,8 +334,10 @@
           </label>
           <div id="nightActionDynamicFields" class="night-action-dynamic"></div>
           <div id="nightActionModalHelper" class="night-action-helper"></div>
-          <button id="btnConfirmNightActionModal">确认并进入夜晚</button>
-          <button id="btnSkipNightActionModal">今晚跳过选择（系统自动）</button>
+          <div class="night-action-button-row">
+            <button id="btnConfirmNightActionModal" class="night-primary-action">确认并进入夜晚</button>
+            <button id="btnSkipNightActionModal" class="night-secondary-action">今晚跳过选择（系统自动）</button>
+          </div>
         </div>
       </div>
     </section>

@@ -98,6 +98,7 @@ function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = 
 
   refresh();
   promptNightActionChoice(action, {
+    variant: "storyteller",
     mandatory: true,
     onConfirm: (plan) => {
       const result = resolvePendingStorytellerAction(state, plan);
