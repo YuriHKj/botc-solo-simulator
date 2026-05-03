@@ -866,9 +866,35 @@ select:focus-visible {
   padding: 6px;
 }
 
+.ai-review-summary-list {
+  display: grid;
+  gap: 4px;
+}
+
 .ai-row {
   border-bottom: 1px dashed rgba(255, 229, 174, 0.15);
   padding: 6px 4px;
+}
+
+.ai-review-row {
+  width: 100%;
+  border: 1px solid transparent;
+  border-bottom-color: rgba(255, 229, 174, 0.15);
+  border-radius: 9px;
+  background: rgba(255, 232, 193, 0.03);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.ai-review-row:hover,
+.ai-review-row:focus-visible,
+.ai-review-row.active {
+  border-color: rgba(247, 195, 111, 0.46);
+  background: rgba(111, 67, 24, 0.3);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .ai-row:last-child {
@@ -885,6 +911,106 @@ select:focus-visible {
   margin-top: 2px;
   font-size: 0.82rem;
   color: #a9bac2;
+}
+
+.ai-trail-panel {
+  margin-top: 8px;
+  border: 1px solid rgba(247, 195, 111, 0.28);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(18, 13, 9, 0.8), rgba(4, 8, 12, 0.82)),
+    radial-gradient(circle at 12% 0%, rgba(247, 195, 111, 0.12), transparent 42%);
+  padding: 8px;
+}
+
+.ai-trail-head {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: center;
+}
+
+.ai-trail-title {
+  color: #ffd98c;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.ai-trail-target-select {
+  width: 100%;
+  min-height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(247, 195, 111, 0.34);
+  background: rgba(15, 10, 7, 0.9);
+  color: #f3ead7;
+  padding: 5px 8px;
+}
+
+.ai-trail-meta {
+  margin-top: 7px;
+  color: #d4c7ad;
+  font-size: 0.8rem;
+  line-height: 1.42;
+}
+
+.ai-trail-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.ai-trail-item {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid rgba(255, 232, 193, 0.14);
+  border-radius: 10px;
+  background: rgba(4, 8, 11, 0.54);
+  padding: 7px;
+}
+
+.ai-trail-item.up {
+  border-left: 3px solid rgba(255, 101, 101, 0.72);
+}
+
+.ai-trail-item.down {
+  border-left: 3px solid rgba(105, 179, 255, 0.72);
+}
+
+.ai-trail-delta {
+  border-radius: 999px;
+  background: rgba(255, 232, 193, 0.1);
+  color: #ffe3a7;
+  font-weight: 800;
+  text-align: center;
+  padding: 4px 2px;
+  font-size: 0.78rem;
+}
+
+.ai-trail-line {
+  color: #f6ead4;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.ai-trail-source,
+.ai-trail-text {
+  margin-top: 3px;
+  color: #9eb0b8;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.ai-review-empty {
+  color: #9eb0b8;
+  font-size: 0.82rem;
+  padding: 8px;
+  border-radius: 9px;
+  background: rgba(255, 232, 193, 0.04);
 }
 
 .log-list {

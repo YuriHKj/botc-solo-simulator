@@ -16,6 +16,8 @@
   角色模块化拆分进度、通用行动接口和后续接口方向。
 - `docs/design/AI_AGENT_MVP.md`
   AI 独立个体视角 MVP：个人记忆、邪恶互认、私聊/公聊可见性边界。
+- `docs/design/AI_EVIDENCE_BOOK.md`
+  AI 证据簿结构：来源、可信度、公开性、污染风险和后续推理接入方式。
 - `docs/design/UI_GRIMOIRE_FOCUS_REFACTOR_PLAN.md`
   UI 继续精修时的主要执行计划。
 - `docs/design/AI_DIALOGUE_LOGIC_REPORT.md`

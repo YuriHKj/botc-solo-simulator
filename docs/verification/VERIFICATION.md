@@ -38,6 +38,38 @@ powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
 - 命名展示改为座位号风格，不再出现 `AI-x`。
 - 新版 EXE 已成功生成，可用于实机体验回归。
 
+## 本轮验证（CR-2026-05-04-01）
+
+### 1) AI 证据簿契约回归
+
+```powershell
+npm run test:ai-agents
+```
+
+结果：通过。
+
+覆盖内容：
+
+- 夜间信息会成为私有 evidence。
+- 公聊会成为公开 evidence。
+- 私聊 evidence 只进入参与者证据簿，不泄露给无关 AI。
+- 私聊和玩家发言会被标记为可疑/可污染信息。
+- 投票等公开流程 evidence 维持高可信、不可污染。
+- 旧 `addAgentObservation(...)` 路径会同步生成标准 evidence。
+- evidence 造成的怀疑变化会写入 `beliefTrailByPlayerId`，包含前后分数、实际改变量、原因和证据回指。
+- 重复刷新 AI 信念不会无限追加同一批 trail；trail 表示当前信念解释。
+- 复盘态 `AI 推理摘要` 会展示 AI 选择、目标选择和最近 trail 明细。
+
+### 2) 全量契约回归
+
+```powershell
+npm test
+```
+
+结果：通过。
+
+备注：Node 仍提示 `package.json` 未声明 `"type": "module"`，这是既有 warning，不影响本轮测试结果。
+
 ## 本轮验证（CR-2026-04-21-04）
 ### 1) 语法检查
 ```powershell

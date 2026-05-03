@@ -14,7 +14,14 @@ import {
   runAIDiscussion,
   runPrivateWhisper,
 } from "../scripts/ai.js";
-import { addAgentObservation, getAIAgent, getKnownBluffRoleIds, getVisibleClaims } from "../scripts/ai_agents.js";
+import {
+  addAgentObservation,
+  getAgentEvidence,
+  getAIAgent,
+  getKnownBluffRoleIds,
+  getSuspicionTrailForTarget,
+  getVisibleClaims,
+} from "../scripts/ai_agents.js";
 
 function fixedRng(seed = 987654321) {
   let state = seed >>> 0;
@@ -77,7 +84,12 @@ function testInsightRowsDoNotMutatePlayerBeliefs() {
   const before = JSON.stringify(
     state.players
       .filter((player) => !player.isHuman)
-      .map((player) => ({ id: player.id, suspicion: player.suspicion, reasonFlags: player.reasonFlags }))
+      .map((player) => ({
+        id: player.id,
+        suspicion: player.suspicion,
+        reasonFlags: player.reasonFlags,
+        trail: getAIAgent(state, player)?.beliefTrailByPlayerId ?? {},
+      }))
   );
 
   const rows = getAIInsightRows(state);
@@ -86,13 +98,22 @@ function testInsightRowsDoNotMutatePlayerBeliefs() {
   const after = JSON.stringify(
     state.players
       .filter((player) => !player.isHuman)
-      .map((player) => ({ id: player.id, suspicion: player.suspicion, reasonFlags: player.reasonFlags }))
+      .map((player) => ({
+        id: player.id,
+        suspicion: player.suspicion,
+        reasonFlags: player.reasonFlags,
+        trail: getAIAgent(state, player)?.beliefTrailByPlayerId ?? {},
+      }))
   );
   assert.equal(after, before, "rendering AI insight rows should not mutate player belief fields");
 }
 
 function observationKinds(agent, kind) {
   return (agent.observations ?? []).filter((entry) => entry.kind === kind);
+}
+
+function evidenceKinds(state, player, kind) {
+  return getAgentEvidence(state, player, { kind });
 }
 
 function testNightInfoBecomesPrivateObservation() {
@@ -105,6 +126,10 @@ function testNightInfoBecomesPrivateObservation() {
   assert.ok(
     observationKinds(getAIAgent(state, evilAI), "night-info").length > 0,
     "evil first-night info should be stored as private night-info observations"
+  );
+  assert.ok(
+    evidenceKinds(state, evilAI, "night-info").every((entry) => entry.visibility === "private"),
+    "night info should also become private evidence"
   );
   assert.equal(
     observationKinds(getAIAgent(state, goodAI), "evil-recognition").length,
@@ -125,6 +150,10 @@ function testPublicDiscussionBecomesPublicObservations() {
       assert.ok(
         observationKinds(getAIAgent(state, player), "public-speech").length > 0,
         `${player.name} should observe public discussion`
+      );
+      assert.ok(
+        evidenceKinds(state, player, "public-speech").every((entry) => entry.visibility === "public"),
+        `${player.name} should store public discussion as public evidence`
       );
     });
 }
@@ -147,10 +176,19 @@ function testPrivateWhisperBecomesPrivateObservationOnlyForParticipant() {
     observationKinds(getAIAgent(state, target), "private-whisper").length > 0,
     "whisper target should receive private-whisper observations"
   );
+  assert.ok(
+    evidenceKinds(state, target, "private-whisper").some((entry) => entry.canBeFalse && entry.source === "private-chat"),
+    "private whisper evidence should be marked as socially fallible"
+  );
   assert.equal(
     observationKinds(getAIAgent(state, outsider), "private-whisper").length,
     0,
     "unrelated AI should not receive private-whisper observations"
+  );
+  assert.equal(
+    evidenceKinds(state, outsider, "private-whisper").length,
+    0,
+    "unrelated AI should not receive private-whisper evidence"
   );
 }
 
@@ -186,7 +224,35 @@ function testNominationAndVoteBecomePublicObservations() {
       assert.ok(observationKinds(agent, "nomination").length > 0, `${player.name} should observe nomination`);
       assert.ok(observationKinds(agent, "vote").length > 0, `${player.name} should observe vote`);
       assert.ok(observationKinds(agent, "execution").length > 0, `${player.name} should observe execution outcome`);
+      assert.ok(
+        evidenceKinds(state, player, "vote").every((entry) => entry.source === "public-procedure" && !entry.canBeFalse),
+        `${player.name} should store vote evidence as reliable public procedure`
+      );
     });
+}
+
+function testObservationWritesEvidenceBook() {
+  const state = makeTBState();
+  const observer = state.players.find((player) => !player.isHuman && player.team === "good");
+  const target = state.players.find((player) => player.id !== observer.id);
+  assert.ok(observer, "expected observer AI");
+  assert.ok(target, "expected target");
+
+  const before = getAgentEvidence(state, observer, { targetId: target.id }).length;
+  addAgentObservation(state, observer.id, {
+    kind: "public-speech",
+    source: "public-chat",
+    private: false,
+    text: "我怀疑这个人。",
+    payload: {
+      speakerId: target.id,
+      focusId: target.id,
+    },
+  });
+  const after = getAgentEvidence(state, observer, { targetId: target.id });
+  assert.equal(after.length, before + 1, "new observations should create normalized evidence entries");
+  assert.equal(after.at(-1).evidenceType, "social", "public speech should be normalized as social evidence");
+  assert.equal(after.at(-1).canBeFalse, true, "player speech evidence should be treated as fallible");
 }
 
 function testBeliefRefreshConsumesAgentObservations() {
@@ -219,6 +285,26 @@ function testBeliefRefreshConsumesAgentObservations() {
     observer.reasonFlags?.[target.id]?.includes("humanAccuse"),
     "belief refresh should turn observed public accusation into local suspicion evidence"
   );
+  const trail = getSuspicionTrailForTarget(state, observer, target.id);
+  assert.ok(trail.length > 0, "belief refresh should explain suspicion changes with evidence trail");
+  assert.equal(trail.at(-1).reasonKey, "humanAccuse", "trail should record the reason key");
+  assert.equal(trail.at(-1).evidenceKind, "public-speech", "trail should link back to evidence kind");
+  assert.ok(Number.isFinite(trail.at(-1).before), "trail should record previous suspicion");
+  assert.ok(Number.isFinite(trail.at(-1).after), "trail should record next suspicion");
+  assert.ok(Number.isFinite(trail.at(-1).appliedDelta), "trail should record applied delta");
+
+  const firstTrailLength = trail.length;
+  refreshAIBeliefs(state);
+  assert.equal(
+    getSuspicionTrailForTarget(state, observer, target.id).length,
+    firstTrailLength,
+    "belief trail should describe the current recomputation instead of duplicating every refresh"
+  );
+
+  const insight = getAIInsightRows(state).find((entry) => entry.id === observer.id);
+  const targetInsight = insight?.targets?.find((entry) => entry.id === target.id);
+  assert.ok(targetInsight, "AI insight rows should expose target-level recap data");
+  assert.ok(targetInsight.trail.length > 0, "AI insight rows should expose trail data for recap UI");
 }
 
 [
@@ -229,6 +315,7 @@ function testBeliefRefreshConsumesAgentObservations() {
   testPublicDiscussionBecomesPublicObservations,
   testPrivateWhisperBecomesPrivateObservationOnlyForParticipant,
   testNominationAndVoteBecomePublicObservations,
+  testObservationWritesEvidenceBook,
   testBeliefRefreshConsumesAgentObservations,
 ].forEach((test) => test());
 

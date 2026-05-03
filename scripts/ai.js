@@ -4,17 +4,22 @@ import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
 import {
   areKnownAllies,
+  clearAgentBeliefTrail,
   countAgentEvidence,
   ensureAIAgents,
   getAIAgent,
   getAgentObservations,
+  getAgentEvidence,
+  getEvidenceForTarget,
   getKnownAllyIds,
   getKnownBluffRoleIds,
+  getSuspicionTrailForTarget,
   getVisibleClaims,
   getVisibleSpeeches,
   recordPrivateWhisperForAgents,
   recordPublicClaimForAgents,
   recordPublicSpeechForAgents,
+  recordSuspicionChangeFromEvidence,
 } from "./ai_agents.js";
 
 const QUESTION_INTENT = {
@@ -274,6 +279,36 @@ function bump(aiPlayer, targetId, delta, reasonKey = null) {
   }
 }
 
+function evidenceWeight(evidence, base = 1) {
+  if (!evidence) {
+    return base;
+  }
+  const reliability = Number.isFinite(evidence.reliabilityScore) ? evidence.reliabilityScore : 0.5;
+  const sourceTrust = Number.isFinite(evidence.sourceTrust) ? evidence.sourceTrust : reliability;
+  const contaminationRisk = Number.isFinite(evidence.contaminationRisk) ? evidence.contaminationRisk : 0.25;
+  return clamp(base * (0.62 * reliability + 0.38 * sourceTrust) * (1 - contaminationRisk * 0.72), 0.12, 1.05);
+}
+
+function bumpFromEvidence(state, aiPlayer, targetId, delta, reasonKey, evidence, base = 1) {
+  const before = aiPlayer.suspicion?.[targetId] ?? null;
+  const weight = evidenceWeight(evidence, base);
+  const appliedDelta = delta * weight;
+  bump(aiPlayer, targetId, appliedDelta, reasonKey);
+  const after = aiPlayer.suspicion?.[targetId] ?? null;
+  if (before !== null && after !== null && before !== after) {
+    recordSuspicionChangeFromEvidence(state, aiPlayer, {
+      targetId,
+      reasonKey,
+      evidence,
+      before,
+      after,
+      rawDelta: delta,
+      appliedDelta,
+      weight,
+    });
+  }
+}
+
 function normalizeSuspicion(aiPlayer) {
   const entries = Object.entries(aiPlayer.suspicion ?? {}).filter(([targetId]) => targetId !== aiPlayer.id);
   if (entries.length === 0) {
@@ -291,9 +326,11 @@ function roleNameById(state, roleId) {
 }
 
 function applyClaimSignals(state, aiPlayer) {
-  const claims = getAgentObservations(state, aiPlayer, "claim").map((observation) => ({
-    playerId: observation.payload?.playerId,
-    roleId: observation.payload?.roleId,
+  const claimEvidence = getAgentEvidence(state, aiPlayer, { kind: "claim" });
+  const claims = claimEvidence.map((evidence) => ({
+    playerId: evidence.payload?.playerId,
+    roleId: evidence.payload?.roleId,
+    evidence,
   }));
   if (claims.length === 0) {
     return;
@@ -312,7 +349,8 @@ function applyClaimSignals(state, aiPlayer) {
   Object.values(byRole).forEach((playerIds) => {
     if (playerIds.length > 1) {
       playerIds.forEach((playerId) => {
-        bump(aiPlayer, playerId, 0.1, "duplicateClaim");
+        const evidence = claims.find((claim) => claim.playerId === playerId)?.evidence;
+        bumpFromEvidence(state, aiPlayer, playerId, 0.1, "duplicateClaim", evidence);
       });
     }
   });
@@ -320,20 +358,21 @@ function applyClaimSignals(state, aiPlayer) {
   Object.entries(byPlayer).forEach(([playerId, roleIds]) => {
     const uniqueRoles = [...new Set(roleIds)];
     if (uniqueRoles.length > 1) {
-      bump(aiPlayer, playerId, 0.12, "claimFlip");
+      const evidence = claims.find((claim) => claim.playerId === playerId)?.evidence;
+      bumpFromEvidence(state, aiPlayer, playerId, 0.12, "claimFlip", evidence);
     }
   });
 
   const bluffIds = new Set(getKnownBluffRoleIds(state, aiPlayer));
   claims.forEach((claim) => {
     if (bluffIds.has(claim.roleId)) {
-      bump(aiPlayer, claim.playerId, 0.06, "bluffHit");
+      bumpFromEvidence(state, aiPlayer, claim.playerId, 0.06, "bluffHit", claim.evidence);
     }
   });
 }
 
 function applyNominationSignals(state, aiPlayer) {
-  getAgentObservations(state, aiPlayer, "nomination").forEach((entry) => {
+  getAgentEvidence(state, aiPlayer, { kind: "nomination" }).forEach((entry) => {
     const nominatorId = entry.payload?.nominatorId;
     const nomineeId = entry.payload?.nomineeId;
     if (!nominatorId || !nomineeId) {
@@ -341,16 +380,16 @@ function applyNominationSignals(state, aiPlayer) {
     }
     const nomineeHeat = aiPlayer.suspicion?.[nomineeId] ?? 0.5;
     if (nomineeHeat < 0.45) {
-      bump(aiPlayer, nominatorId, 0.04, "suspiciousNomination");
+      bumpFromEvidence(state, aiPlayer, nominatorId, 0.04, "suspiciousNomination", entry);
     }
     if (nomineeHeat > 0.68) {
-      bump(aiPlayer, nominatorId, -0.03, "proGoodVote");
+      bumpFromEvidence(state, aiPlayer, nominatorId, -0.03, "proGoodVote", entry);
     }
   });
 }
 
 function applyVoteSignals(state, aiPlayer) {
-  getAgentObservations(state, aiPlayer, "vote").forEach((event) => {
+  getAgentEvidence(state, aiPlayer, { kind: "vote" }).forEach((event) => {
     const payload = event.payload ?? {};
     if (!payload.nomineeId) {
       return;
@@ -361,20 +400,20 @@ function applyVoteSignals(state, aiPlayer) {
         return;
       }
       if (nomineeHeat >= 0.62 && detail.vote) {
-        bump(aiPlayer, detail.voterId, -0.03, "proGoodVote");
+        bumpFromEvidence(state, aiPlayer, detail.voterId, -0.03, "proGoodVote", event);
       }
       if (nomineeHeat >= 0.62 && !detail.vote) {
-        bump(aiPlayer, detail.voterId, 0.05, "antiGoodVote");
+        bumpFromEvidence(state, aiPlayer, detail.voterId, 0.05, "antiGoodVote", event);
       }
       if (nomineeHeat <= 0.4 && detail.vote) {
-        bump(aiPlayer, detail.voterId, 0.05, "antiGoodVote");
+        bumpFromEvidence(state, aiPlayer, detail.voterId, 0.05, "antiGoodVote", event);
       }
     });
   });
 }
 
 function applyObservedSpeechSignals(state, aiPlayer) {
-  getAgentObservations(state, aiPlayer, "public-speech").forEach((observation) => {
+  getAgentEvidence(state, aiPlayer, { kind: "public-speech" }).forEach((observation) => {
     const speakerId = observation.payload?.speakerId;
     const focusId = observation.payload?.focusId;
     if (!speakerId || speakerId === aiPlayer.id) {
@@ -384,19 +423,19 @@ function applyObservedSpeechSignals(state, aiPlayer) {
     if (focusId && focusId !== aiPlayer.id) {
       const attitude = inferAttitude(observation.text ?? "");
       if (attitude === "accuse") {
-        bump(aiPlayer, focusId, 0.025, "humanAccuse");
+        bumpFromEvidence(state, aiPlayer, focusId, 0.025, "humanAccuse", observation);
       } else if (attitude === "defend") {
-        bump(aiPlayer, focusId, -0.02, "humanDefend");
+        bumpFromEvidence(state, aiPlayer, focusId, -0.02, "humanDefend", observation);
       }
     }
     if (hasAny(text, ACCUSE_WORDS) && !focusId) {
-      bump(aiPlayer, speakerId, 0.015, "privateEvasive");
+      bumpFromEvidence(state, aiPlayer, speakerId, 0.015, "privateEvasive", observation);
     }
   });
 }
 
 function applyObservedPrivateSignals(state, aiPlayer) {
-  getAgentObservations(state, aiPlayer, "private-whisper").forEach((observation) => {
+  getAgentEvidence(state, aiPlayer, { kind: "private-whisper" }).forEach((observation) => {
     const speakerId = observation.payload?.speakerId;
     const focusId = observation.payload?.focusId;
     if (!speakerId || speakerId === aiPlayer.id || !focusId || focusId === aiPlayer.id) {
@@ -404,15 +443,15 @@ function applyObservedPrivateSignals(state, aiPlayer) {
     }
     const attitude = inferAttitude(observation.text ?? "");
     if (attitude === "accuse") {
-      bump(aiPlayer, focusId, 0.04, "humanAccuse");
+      bumpFromEvidence(state, aiPlayer, focusId, 0.04, "humanAccuse", observation);
     } else if (attitude === "defend") {
-      bump(aiPlayer, focusId, -0.035, "humanDefend");
+      bumpFromEvidence(state, aiPlayer, focusId, -0.035, "humanDefend", observation);
     }
   });
 }
 
 function applyNightPatternSignals(state, aiPlayer) {
-  getAgentObservations(state, aiPlayer, "night-death").forEach((death) => {
+  getAgentEvidence(state, aiPlayer, { kind: "night-death" }).forEach((death) => {
     const deathPlayerId = death.payload?.playerId;
     if (!deathPlayerId) {
       return;
@@ -421,7 +460,7 @@ function applyNightPatternSignals(state, aiPlayer) {
       .filter((speech) => speech.payload?.speakerId === deathPlayerId)
       .slice(-1)[0];
     if (before?.payload?.focusId) {
-      bump(aiPlayer, before.payload.focusId, 0.06, "nightPattern");
+      bumpFromEvidence(state, aiPlayer, before.payload.focusId, 0.06, "nightPattern", death);
     }
   });
 }
@@ -842,9 +881,11 @@ function collectEvidence(state, aiPlayer, focusPlayer) {
     snippets.push(`该玩家最近公聊重点：${concise}`);
   }
 
+  const targetEvidence = getEvidenceForTarget(state, aiPlayer, focusPlayer.id);
   const agentEvidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), focusPlayer.id);
   if (agentEvidenceCount > 0) {
-    snippets.push(`个人视角记录 ${agentEvidenceCount} 条`);
+    const risky = targetEvidence.filter((entry) => entry.canBeFalse || entry.contaminationRisk >= 0.15).length;
+    snippets.push(risky > 0 ? `个人证据 ${agentEvidenceCount} 条，其中 ${risky} 条可能被污染` : `个人证据 ${agentEvidenceCount} 条`);
   }
 
   return [...new Set(snippets)].slice(0, 2);
@@ -1116,6 +1157,7 @@ export function refreshAIBeliefs(state) {
     .filter((player) => !player.isHuman)
     .forEach((aiPlayer) => {
       initSuspicionForAI(state, aiPlayer);
+      clearAgentBeliefTrail(state, aiPlayer);
       applyClaimSignals(state, aiPlayer);
       applyObservedSpeechSignals(state, aiPlayer);
       applyObservedPrivateSignals(state, aiPlayer);
@@ -1482,6 +1524,7 @@ function snapshotAIBeliefFields(state) {
       suspicion: structuredClone(player.suspicion ?? {}),
       reasonFlags: structuredClone(player.reasonFlags ?? {}),
       dialogueBias: structuredClone(player.dialogueBias ?? {}),
+      beliefTrailByPlayerId: structuredClone(getAIAgent(state, player)?.beliefTrailByPlayerId ?? {}),
     }));
 }
 
@@ -1494,6 +1537,10 @@ function restoreAIBeliefFields(state, snapshot) {
     player.suspicion = entry.suspicion;
     player.reasonFlags = entry.reasonFlags;
     player.dialogueBias = entry.dialogueBias;
+    const agent = getAIAgent(state, player);
+    if (agent) {
+      agent.beliefTrailByPlayerId = entry.beliefTrailByPlayerId ?? {};
+    }
   });
 }
 
@@ -1505,12 +1552,24 @@ export function getAIInsightRows(state) {
     .map((aiPlayer) => {
       const top = getTopTarget(aiPlayer, state);
       const personaTag = PERSONA_LABELS[aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY] ?? "稳健";
+      const targets = rankTargets(aiPlayer, state, Math.min(8, state.players.length))
+        .filter((entry) => entry.player.id !== aiPlayer.id)
+        .map((entry) => ({
+          id: entry.player.id,
+          name: entry.player.name,
+          score: `${Math.round(entry.score * 100)}%`,
+          scoreValue: entry.score,
+          reason: summarizeReason(aiPlayer, entry.player.id) || "暂无明确理由",
+          trail: getSuspicionTrailForTarget(state, aiPlayer, entry.player.id).slice(-12),
+        }));
       return {
         id: aiPlayer.id,
         name: `${aiPlayer.name}${personaTag}`,
+        targetId: top?.player?.id ?? null,
         target: top?.player?.name ?? "--",
         score: top ? `${Math.round(top.score * 100)}%` : "--",
         reason: top ? summarizeReason(aiPlayer, top.player.id) : "暂无线索",
+        targets,
       };
     });
   restoreAIBeliefFields(state, snapshot);

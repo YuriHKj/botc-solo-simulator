@@ -34,6 +34,12 @@ signals through an agent-visibility layer.
   nominations, and votes.
 - AI insight rows snapshot and restore player belief fields, so rendering the recap no longer mutates suspicion.
 - Suspicion normalization no longer stretches tiny differences into `92%` certainty.
+- Observations now mirror into an `evidenceBook` with source, visibility, target IDs, reliability,
+  source trust, contamination risk, and fallibility flags.
+- Belief refresh reads claim, speech, whisper, nomination, vote, and night-death signals from
+  normalized evidence records and discounts low-trust or contamination-prone evidence.
+- Evidence-driven suspicion changes are recorded in `beliefTrailByPlayerId`, grouped by target player,
+  with before/after scores, applied delta, reason key, and linked evidence metadata.
 
 ## Still Simplified
 
@@ -46,10 +52,10 @@ signals through an agent-visibility layer.
 
 ## Recommended Next Step
 
-Deepen the observation-driven belief model:
+Deepen the evidence-driven belief model:
 
-1. Add an incremental `updateAgentBeliefsFromObservation(...)` pass instead of full recomputation.
-2. Store normalized evidence entries with source, reliability, target, and polarity.
-3. Split claim, speech, vote, nomination, and night information into typed evidence records.
-4. Generate dialogue from `agent.observations` and `agent.beliefs`, not directly from global events.
-5. Teach dialogue generation to explicitly cite confirmed execution/death observations when appropriate.
+1. Add an incremental `updateAgentBeliefsFromEvidence(...)` pass instead of full recomputation.
+2. Add role-specific contamination metadata for poisoned/drunk night information.
+3. Generate dialogue from `agent.evidenceBook`, `beliefTrailByPlayerId`, and `agent.beliefs`, not directly from global events.
+4. Teach dialogue generation to explicitly cite confirmed execution/death observations when appropriate.
+5. Add a recap UI that shows each AI's evidence and suspicion trail without exposing it during live play.

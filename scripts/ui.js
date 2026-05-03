@@ -54,12 +54,15 @@ const REMOVE_ICON = `${WEB_ASSET_ROOT}/icons/x.png`;
 let currentScriptId = "tb";
 let sheetScriptId = "tb";
 let lastRenderedState = null;
+let lastRenderedAIInsights = [];
 let lastStageKey = "";
 let phaseShiftTimer = null;
 let activeMarkPlayerId = "";
 let nightModalRequest = null;
 let revealPlayedForGameKey = "";
 let chatDramaTargetId = "";
+let selectedReviewAIId = "";
+const selectedReviewTargetByAI = {};
 const seenDebateIds = new Set();
 const QUICK_WHISPER_PROMPT_META = [
   { text: "你最怀疑谁？", intentHint: "suspect" },
@@ -989,9 +992,37 @@ function renderAIInsights(aiInsights, state) {
   }
 
   dom.aiInsights.innerHTML = "";
+  if (aiInsights.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ai-review-empty";
+    empty.textContent = "暂无 AI 推理记录。";
+    dom.aiInsights.appendChild(empty);
+    return;
+  }
+
+  if (!selectedReviewAIId || !aiInsights.some((entry) => entry.id === selectedReviewAIId)) {
+    selectedReviewAIId = aiInsights[0]?.id ?? "";
+  }
+
+  const selectedRow = aiInsights.find((entry) => entry.id === selectedReviewAIId) ?? aiInsights[0];
+  const selectedTargetId =
+    selectedReviewTargetByAI[selectedRow.id] ??
+    selectedRow.targetId ??
+    selectedRow.targets?.[0]?.id ??
+    "";
+  selectedReviewTargetByAI[selectedRow.id] = selectedTargetId;
+
+  const summaryList = document.createElement("div");
+  summaryList.className = "ai-review-summary-list";
+
   aiInsights.forEach((entry) => {
-    const row = document.createElement("div");
-    row.className = "ai-row";
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `ai-row ai-review-row${entry.id === selectedReviewAIId ? " active" : ""}`;
+    row.addEventListener("click", () => {
+      selectedReviewAIId = entry.id;
+      renderAIInsights(aiInsights, state);
+    });
 
     const head = document.createElement("div");
     head.className = "ai-row-head";
@@ -1003,8 +1034,136 @@ function renderAIInsights(aiInsights, state) {
 
     row.appendChild(head);
     row.appendChild(body);
-    dom.aiInsights.appendChild(row);
+    summaryList.appendChild(row);
   });
+
+  dom.aiInsights.appendChild(summaryList);
+  dom.aiInsights.appendChild(renderEvidenceTrailPanel(selectedRow));
+}
+
+function formatTrailDelta(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  const pct = Math.round(value * 1000) / 10;
+  return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+function formatTrailScore(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function trailSourceLabel(entry) {
+  const sourceMap = {
+    storyteller: "说书人",
+    "public-procedure": "公开流程",
+    "public-chat": "公聊",
+    "private-chat": "私聊",
+    public: "公开声明",
+  };
+  return sourceMap[entry.source] ?? entry.source ?? "未知来源";
+}
+
+function renderEvidenceTrailPanel(aiRow) {
+  const panel = document.createElement("section");
+  panel.className = "ai-trail-panel";
+
+  const head = document.createElement("div");
+  head.className = "ai-trail-head";
+
+  const title = document.createElement("div");
+  title.className = "ai-trail-title";
+  title.textContent = "怀疑变化证据链";
+
+  const targetSelect = document.createElement("select");
+  targetSelect.className = "ai-trail-target-select";
+  targetSelect.setAttribute("aria-label", "选择复盘目标");
+
+  const targets = aiRow.targets ?? [];
+  targets.forEach((target) => {
+    const option = document.createElement("option");
+    option.value = target.id;
+    option.textContent = `${target.name} · ${target.score}`;
+    if ((selectedReviewTargetByAI[aiRow.id] ?? aiRow.targetId) === target.id) {
+      option.selected = true;
+    }
+    targetSelect.appendChild(option);
+  });
+  head.appendChild(title);
+  head.appendChild(targetSelect);
+  panel.appendChild(head);
+
+  targetSelect.addEventListener("change", () => {
+    selectedReviewTargetByAI[aiRow.id] = targetSelect.value;
+    // Re-render from the cached game state on next full render; locally update the panel immediately.
+    if (lastRenderedState) {
+      renderGame(lastRenderedState, lastRenderedAIInsights);
+    }
+  });
+
+  const selectedTargetId = selectedReviewTargetByAI[aiRow.id] ?? aiRow.targetId ?? targets[0]?.id ?? "";
+  const selectedTarget = targets.find((target) => target.id === selectedTargetId) ?? targets[0] ?? null;
+  if (!selectedTarget) {
+    const empty = document.createElement("div");
+    empty.className = "ai-review-empty";
+    empty.textContent = "暂无可复盘目标。";
+    panel.appendChild(empty);
+    return panel;
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "ai-trail-meta";
+  meta.textContent = `${aiRow.name} 对 ${selectedTarget.name} 的当前怀疑：${selectedTarget.score}。${selectedTarget.reason}`;
+  panel.appendChild(meta);
+
+  const list = document.createElement("div");
+  list.className = "ai-trail-list";
+  const trail = selectedTarget.trail ?? [];
+  if (trail.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ai-review-empty";
+    empty.textContent = "这条怀疑目前没有可追踪的 evidence 变化，可能只来自基础先验或邪恶互认保护。";
+    list.appendChild(empty);
+  } else {
+    trail.slice().reverse().forEach((entry) => {
+      const item = document.createElement("article");
+      const directionClass = (entry.appliedDelta ?? 0) >= 0 ? "up" : "down";
+      item.className = `ai-trail-item ${directionClass}`;
+
+      const delta = document.createElement("div");
+      delta.className = "ai-trail-delta";
+      delta.textContent = formatTrailDelta(entry.appliedDelta);
+
+      const body = document.createElement("div");
+      body.className = "ai-trail-item-body";
+
+      const line = document.createElement("div");
+      line.className = "ai-trail-line";
+      line.textContent = `${formatTrailScore(entry.before)} → ${formatTrailScore(entry.after)} · ${entry.reasonKey || "未知原因"}`;
+
+      const source = document.createElement("div");
+      source.className = "ai-trail-source";
+      const reliability = Number.isFinite(entry.reliabilityScore) ? `${Math.round(entry.reliabilityScore * 100)}%` : "--";
+      const risk = Number.isFinite(entry.contaminationRisk) ? `${Math.round(entry.contaminationRisk * 100)}%` : "--";
+      source.textContent = `${trailSourceLabel(entry)} / ${entry.evidenceKind || "evidence"} · 可信 ${reliability} · 污染风险 ${risk}`;
+
+      const text = document.createElement("div");
+      text.className = "ai-trail-text";
+      text.textContent = entry.text ? compactText(entry.text, 64) : "无原文。";
+
+      body.appendChild(line);
+      body.appendChild(source);
+      body.appendChild(text);
+      item.appendChild(delta);
+      item.appendChild(body);
+      list.appendChild(item);
+    });
+  }
+  panel.appendChild(list);
+  return panel;
 }
 
 function fillSelect(selectEl, options, selectedId = null, emptyLabel = "--") {
@@ -2481,6 +2640,7 @@ export function renderGame(state, aiInsights) {
   triggerPhaseShift(state);
   applySceneTheme(state);
   lastRenderedState = state;
+  lastRenderedAIInsights = aiInsights ?? [];
   renderCircle(state, aiInsights);
   renderDebateStage(state);
   renderNominationOptions(state);
