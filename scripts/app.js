@@ -11,6 +11,7 @@ import { createEmptyUtteranceArchive, ensureUtteranceArchive } from "./dialogue_
 import {
   addLog,
   getHumanNightActionState,
+  getPendingStorytellerActionState,
   advanceDayStage,
   createNewGame,
   addGrimoireReminder,
@@ -18,6 +19,7 @@ import {
   clearGrimoireNote,
   removeGrimoireReminder,
   resolveNominationAndVote,
+  resolvePendingStorytellerAction,
   runNight,
   setHumanDayActionPlan,
   setGrimoireMarkedRole,
@@ -78,6 +80,43 @@ function refresh() {
   const insights = getAIInsightRows(state);
   renderGame(state, insights);
   persistLatestSave();
+}
+
+function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = false } = {}) {
+  if (!state || state.gameOver) {
+    refresh();
+    return false;
+  }
+  const action = getPendingStorytellerActionState(state);
+  if (!action.available) {
+    refresh();
+    if (drainedFromQueue) {
+      onDrained?.();
+    }
+    return false;
+  }
+
+  refresh();
+  promptNightActionChoice(action, {
+    mandatory: true,
+    onConfirm: (plan) => {
+      const result = resolvePendingStorytellerAction(state, plan);
+      if (!result.ok) {
+        return { ok: false, reason: result.reason };
+      }
+      showToast(result.message ?? "Storyteller 操作已处理。");
+      refresh();
+      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true }), 0);
+      return { ok: true };
+    },
+    onSkip: () => {
+      const result = resolvePendingStorytellerAction(state, { auto: true });
+      showToast(result.ok ? result.message ?? "已自动处理 Storyteller 操作。" : result.reason);
+      refresh();
+      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true }), 0);
+    },
+  });
+  return true;
 }
 
 function clampNum(value, min, max, fallback) {
@@ -204,6 +243,9 @@ function hydrateLoadedState(loadedState) {
   };
   loadedState.logs = Array.isArray(loadedState.logs) ? loadedState.logs : [];
   loadedState.pendingHumanInfo = Array.isArray(loadedState.pendingHumanInfo) ? loadedState.pendingHumanInfo : [];
+  loadedState.pendingStorytellerActions = Array.isArray(loadedState.pendingStorytellerActions)
+    ? loadedState.pendingStorytellerActions
+    : [];
   loadedState.dayStageMeta = loadedState.dayStageMeta ?? {
     privateUsed: 0,
     privateLimit: 0,
@@ -329,7 +371,7 @@ function runNightWithStorytellerPrompt() {
   if (!action.available) {
     state.pendingHumanInfo = [];
     runNight(state, rng);
-    refresh();
+    handlePendingStorytellerActions();
     return;
   }
 
@@ -343,14 +385,14 @@ function runNightWithStorytellerPrompt() {
       showToast(`已确认夜间行动：${result.targetNames}`);
       state.pendingHumanInfo = [];
       runNight(state, rng);
-      refresh();
+      handlePendingStorytellerActions();
       return { ok: true };
     },
     onSkip: () => {
       showToast("本夜未手动选择目标，系统将按默认逻辑结算。");
       state.pendingHumanInfo = [];
       runNight(state, rng);
-      refresh();
+      handlePendingStorytellerActions();
     },
   });
 }
@@ -491,6 +533,9 @@ function executeNomination({ nominatorId, nomineeId, humanVoteYes }) {
     }
 
     if (!state.gameOver) {
+      if (handlePendingStorytellerActions({ onDrained: runNightWithStorytellerPrompt })) {
+        return;
+      }
       runNightWithStorytellerPrompt();
       return;
     }
@@ -541,6 +586,9 @@ function passDay() {
     }
 
     if (!state.gameOver) {
+      if (handlePendingStorytellerActions({ onDrained: runNightWithStorytellerPrompt })) {
+        return;
+      }
       runNightWithStorytellerPrompt();
       return;
     }
@@ -573,7 +621,7 @@ function runSlayer({ targetId }) {
       showToast("Slayer 发动完成。");
     }
 
-    refresh();
+    handlePendingStorytellerActions();
   } catch (error) {
     const text = error instanceof Error ? error.message : "Slayer 发动失败。";
     showToast(text);
@@ -770,6 +818,7 @@ function loadFromPayload(payload, sourceLabel) {
     hideStartMenu();
     refresh();
     showToast(`已读取存档：${sourceLabel}`);
+    handlePendingStorytellerActions();
     setTimeout(() => {
       maybeSuggestFullscreen();
     }, 420);

@@ -293,6 +293,217 @@ function addPrivateInfo(state, player, text) {
   });
 }
 
+function ensureStorytellerActionQueue(state) {
+  state.pendingStorytellerActions = Array.isArray(state.pendingStorytellerActions) ? state.pendingStorytellerActions : [];
+  return state.pendingStorytellerActions;
+}
+
+function playerChoiceOptions(state, { actorId = "", allowSelf = false, allowDead = false, excludeIds = [], filter = null } = {}) {
+  const excluded = new Set(excludeIds.filter(Boolean));
+  return state.players
+    .filter((player) => (allowDead ? true : player.alive))
+    .filter((player) => (allowSelf ? true : player.id !== actorId))
+    .filter((player) => !excluded.has(player.id))
+    .filter((player) => (typeof filter === "function" ? filter(player) : true))
+    .map((player) => ({
+      id: player.id,
+      label: `${player.seatIndex + 1}号${player.isHuman ? "（你）" : ""}`,
+      alive: player.alive,
+      team: player.team,
+      category: player.category,
+    }));
+}
+
+function enqueueStorytellerAction(state, action) {
+  if (!state || !action?.type) {
+    return null;
+  }
+  const queue = ensureStorytellerActionQueue(state);
+  const id = action.id ?? `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  if (queue.some((entry) => entry.id === id)) {
+    return id;
+  }
+  queue.push({
+    id,
+    createdDay: state.day,
+    createdNight: state.night,
+    createdPhase: state.phase,
+    ...action,
+  });
+  addLog(state, "storyteller-action", action.logText ?? "Storyteller 正等待玩家选择。", {
+    private: true,
+    actionId: id,
+    type: action.type,
+    actorId: action.actorId ?? null,
+  });
+  return id;
+}
+
+export function getPendingStorytellerActionState(state) {
+  const action = ensureStorytellerActionQueue(state)[0] ?? null;
+  if (!action) {
+    return { available: false, reason: "当前没有等待处理的 Storyteller 操作。" };
+  }
+  return {
+    available: true,
+    id: action.id,
+    type: action.type,
+    roleId: action.roleId ?? "",
+    roleName: action.roleName ?? "Storyteller",
+    roleIcon: action.roleIcon ?? null,
+    inputType: action.inputType ?? "player-target",
+    targetCount: action.targetCount ?? 1,
+    minTargetCount: action.minTargetCount ?? action.targetCount ?? 1,
+    maxTargetCount: action.maxTargetCount ?? action.targetCount ?? 1,
+    options: action.options ?? [],
+    selectedTargetIds: action.selectedTargetIds ?? [],
+    prompt: action.prompt ?? "请选择目标。",
+    phaseLabel: action.phaseLabel ?? `D${state.day}/N${state.night}`,
+    interaction: action.interaction ?? {
+      title: "Storyteller 操作",
+      subtitle: "流程暂停，等待你的选择。",
+      badge: "Storyteller",
+      confirmText: "确认选择",
+      skipText: "自动处理",
+    },
+  };
+}
+
+function removePendingStorytellerAction(state, actionId) {
+  const queue = ensureStorytellerActionQueue(state);
+  const index = queue.findIndex((entry) => entry.id === actionId);
+  if (index >= 0) {
+    queue.splice(index, 1);
+  }
+}
+
+function firstAvailableTargets(action, count) {
+  return (action.options ?? []).slice(0, count).map((entry) => entry.id).filter(Boolean);
+}
+
+function normalizeStorytellerTargetIds(action, input = {}) {
+  const targetCount = Number.isFinite(action.targetCount) ? action.targetCount : 1;
+  const min = Number.isFinite(action.minTargetCount) ? action.minTargetCount : targetCount;
+  const max = Number.isFinite(action.maxTargetCount) ? action.maxTargetCount : targetCount;
+  const raw = input.auto ? firstAvailableTargets(action, max) : input.targetIds ?? [];
+  const unique = uniqueStrings(raw);
+  if (unique.length < min) {
+    return { ok: false, reason: min <= 1 ? "请选择 1 名目标。" : `请至少选择 ${min} 名目标。` };
+  }
+  if (unique.length > max) {
+    return { ok: false, reason: `最多只能选择 ${max} 名目标。` };
+  }
+  const allowed = new Set((action.options ?? []).map((entry) => entry.id));
+  if (unique.some((targetId) => !allowed.has(targetId))) {
+    return { ok: false, reason: "所选目标不符合当前 Storyteller 操作。" };
+  }
+  return { ok: true, targetIds: unique };
+}
+
+function resolveRavenkeeperAction(state, action, targetIds) {
+  const actor = getPlayerById(state, action.actorId);
+  const target = getPlayerById(state, targetIds[0]);
+  if (!actor || !target) {
+    return { ok: false, reason: "守鸦人目标无效。" };
+  }
+  const shownRoleId = isAbilityBlocked(actor, state) ? chooseOne(getAllRoles(state.scriptId))?.id ?? target.roleId : target.roleId;
+  const text = `[第${action.createdNight}夜] 你临终查验 ${target.name}，其身份为 ${getRoleNameById(state, shownRoleId)}。`;
+  addPrivateInfo(state, actor, text);
+  state.events.infoPings.push({
+    night: action.createdNight,
+    actorId: actor.id,
+    type: "ravenkeeper",
+    targetId: target.id,
+    shownRoleId,
+    text,
+  });
+  return { ok: true, message: `守鸦人查验了 ${target.name}。` };
+}
+
+function resolveMoonchildAction(state, action, targetIds) {
+  const actor = getPlayerById(state, action.actorId);
+  const target = getPlayerById(state, targetIds[0]);
+  if (!actor || !target || !state.bmr) {
+    return { ok: false, reason: "月之子目标无效。" };
+  }
+  state.bmr.moonchildPendingById[actor.id] = target.id;
+  addLog(state, "death-trigger", `${actor.name} 触发 Moonchild，指定了 ${target.name}。`, {
+    victimId: actor.id,
+    targetId: target.id,
+  });
+  return { ok: true, message: `月之子指定了 ${target.name}。` };
+}
+
+function resolveKlutzAction(state, action, targetIds) {
+  const actor = getPlayerById(state, action.actorId);
+  const target = getPlayerById(state, targetIds[0]);
+  if (!actor || !target || !state.snv) {
+    return { ok: false, reason: "呆瓜目标无效。" };
+  }
+  if (target.team === "evil") {
+    addLog(state, "death-trigger", `${actor.name} 触发 Klutz 并点中邪恶玩家，善良阵营立即失败。`, {
+      victimId: actor.id,
+      targetId: target.id,
+    });
+    finalizeWinner(state, "evil", "Klutz 点中了邪恶玩家，善良阵营失败。");
+    return { ok: true, message: `呆瓜点中了 ${target.name}。` };
+  }
+  addLog(state, "death-trigger", `${actor.name} 触发 Klutz，点中了善良玩家 ${target.name}，未触发失败。`, {
+    victimId: actor.id,
+    targetId: target.id,
+  });
+  return { ok: true, message: `呆瓜点中了 ${target.name}。` };
+}
+
+function resolveBarberAction(state, action, targetIds) {
+  if (!state.snv) {
+    return { ok: false, reason: "当前没有 Barber 状态。" };
+  }
+  const [a, b] = targetIds.map((targetId) => getPlayerById(state, targetId));
+  if (!a || !b || a.id === b.id) {
+    return { ok: false, reason: "请选择两名不同玩家。" };
+  }
+  const swapped = swapRolesByRoleId(state, a, b);
+  if (!swapped) {
+    return { ok: false, reason: "角色交换失败。" };
+  }
+  state.snv.barberDiedToday = false;
+  addLog(state, "death-trigger", `Barber 触发：恶魔选择交换 ${a.name} 与 ${b.name} 的角色。`, {
+    barberId: action.actorId,
+    targetIds,
+  });
+  return { ok: true, message: `已交换 ${a.name} 与 ${b.name} 的角色。` };
+}
+
+export function resolvePendingStorytellerAction(state, input = {}) {
+  const action = ensureStorytellerActionQueue(state)[0] ?? null;
+  if (!action) {
+    return { ok: false, reason: "当前没有等待处理的 Storyteller 操作。" };
+  }
+  const targets = normalizeStorytellerTargetIds(action, input);
+  if (!targets.ok) {
+    return targets;
+  }
+
+  const handlers = {
+    "ravenkeeper-info": resolveRavenkeeperAction,
+    "moonchild-choice": resolveMoonchildAction,
+    "klutz-choice": resolveKlutzAction,
+    "barber-swap": resolveBarberAction,
+  };
+  const handler = handlers[action.type];
+  if (!handler) {
+    return { ok: false, reason: `未知 Storyteller 操作：${action.type}` };
+  }
+  const result = handler(state, action, targets.targetIds);
+  if (!result.ok) {
+    return result;
+  }
+  removePendingStorytellerAction(state, action.id);
+  checkWin(state);
+  return result;
+}
+
 function seatName(player) {
   if (!player) {
     return "--";
@@ -1501,6 +1712,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       privateTargets: [],
     },
     pendingHumanInfo: [],
+    pendingStorytellerActions: [],
     humanNightPlan: null,
     humanAbilityUsage: {},
     grimoireNotes: {},
@@ -2070,6 +2282,8 @@ function createTBRoleContext(state, rng = Math.random) {
     clamp,
     consumeHumanNightPlan,
     consumeHumanNightPlanTargets,
+    enqueueStorytellerAction,
+    playerChoiceOptions,
     getAlivePlayers,
     getAllRoles,
     getEffectiveRoleId,
@@ -2105,6 +2319,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     chooseRandomAliveExcluding: (gameState, excludedIds) => chooseRandomAliveExcluding(gameState, excludedIds, rng),
     consumeHumanNightPlan,
     consumeHumanNightPlanTargets,
+    enqueueStorytellerAction,
     finalizeWinner,
     getAliveDemons,
     getAlivePlayers,
@@ -2112,6 +2327,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     getEffectiveRoleId,
     getNightOrderRoleIds,
     getPlayerById,
+    playerChoiceOptions,
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
     isRoleNightWindowOpen,
     markWokeTonight,
@@ -2134,6 +2350,7 @@ function createSNVRoleContext(state, rng = Math.random) {
     chooseOne: (list) => chooseOne(list, rng),
     chooseRandomAliveExcluding: (gameState, excludedIds) => chooseRandomAliveExcluding(gameState, excludedIds, rng),
     consumeHumanNightPlan,
+    enqueueStorytellerAction,
     finalizeWinner,
     getAliveDemons,
     getAlivePlayers,
@@ -2141,6 +2358,7 @@ function createSNVRoleContext(state, rng = Math.random) {
     getEffectiveRoleId,
     getPlayerById,
     getRoleById,
+    playerChoiceOptions,
     getTownsfolkRoles: (scriptId) => SCRIPT_MAP[scriptId]?.roles?.townsfolk ?? [],
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
     isRoleNightWindowOpen,

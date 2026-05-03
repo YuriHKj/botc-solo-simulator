@@ -521,8 +521,33 @@ function triggerSweetheartDrunk(ctx, victim) {
 }
 
 function triggerKlutzChoice(ctx, victim) {
-  const { state, addLog, chooseRandomAliveExcluding, finalizeWinner } = ctx;
+  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, finalizeWinner, playerChoiceOptions } = ctx;
   if (!state.snv || victim.roleId !== SNV.KLUTZ) {
+    return;
+  }
+  if (victim.isHuman && enqueueStorytellerAction) {
+    enqueueStorytellerAction(state, {
+      type: "klutz-choice",
+      actorId: victim.id,
+      roleId: SNV.KLUTZ,
+      roleName: victim.roleName,
+      roleIcon: victim.roleIcon,
+      inputType: "player-target",
+      targetCount: 1,
+      options: playerChoiceOptions(state, { actorId: victim.id, allowDead: false, allowSelf: false }),
+      prompt: "呆瓜死亡。请选择 1 名存活玩家；如果你选择邪恶玩家，善良阵营立即失败。",
+      phaseLabel: `第${state.day}天`,
+      interaction: {
+        title: "呆瓜的最终指认",
+        subtitle: "你死亡后必须公开指出一名玩家。",
+        badge: "Klutz",
+        targetLabels: ["指认玩家"],
+        helper: "点中邪恶玩家会让善良阵营立刻失败。",
+        confirmText: "确认指认",
+        skipText: "自动指认",
+      },
+      logText: "Klutz 死亡，等待主视角指认玩家。",
+    });
     return;
   }
   const target = chooseRandomAliveExcluding(state, [victim.id]);
@@ -540,6 +565,45 @@ function triggerKlutzChoice(ctx, victim) {
   addLog(state, "death-trigger", `${victim.name} 触发 Klutz，点中了善良玩家 ${target.name}，未触发失败。`, {
     victimId: victim.id,
     targetId: target.id,
+  });
+}
+
+function triggerBarberChoice(ctx, victim) {
+  const { state, enqueueStorytellerAction, getAliveDemons, playerChoiceOptions } = ctx;
+  if (!state.snv || victim.roleId !== SNV.BARBER) {
+    return;
+  }
+  const humanDemon = getAliveDemons(state).find((entry) => entry.isHuman);
+  if (!humanDemon || !enqueueStorytellerAction) {
+    return;
+  }
+  enqueueStorytellerAction(state, {
+    type: "barber-swap",
+    actorId: victim.id,
+    controllerId: humanDemon.id,
+    roleId: SNV.BARBER,
+    roleName: victim.roleName,
+    roleIcon: victim.roleIcon,
+    inputType: "player-target",
+    targetCount: 2,
+    options: playerChoiceOptions(state, {
+      actorId: humanDemon.id,
+      allowDead: false,
+      allowSelf: true,
+      filter: (player) => player.category !== "demon",
+    }),
+    prompt: "理发师死亡。作为恶魔，你可以选择 2 名非恶魔玩家交换角色。",
+    phaseLabel: `第${state.day}天 / 第${state.night}夜`,
+    interaction: {
+      title: "理发师死亡",
+      subtitle: "恶魔醒来，可以交换两名玩家的角色。",
+      badge: "Barber",
+      targetLabels: ["交换对象一", "交换对象二"],
+      helper: "第一版实现限制为两名存活非恶魔玩家。",
+      confirmText: "确认交换",
+      skipText: "自动交换",
+    },
+    logText: "Barber 死亡，等待主视角恶魔选择交换目标。",
   });
 }
 
@@ -600,6 +664,7 @@ function onAfterNightDeath(ctx, { victim, reason, payload }) {
 function onAfterDeath(ctx, { victim }) {
   triggerSweetheartDrunk(ctx, victim);
   triggerKlutzChoice(ctx, victim);
+  triggerBarberChoice(ctx, victim);
 }
 
 function onAfterExecutionOutcome(ctx, { victim }) {

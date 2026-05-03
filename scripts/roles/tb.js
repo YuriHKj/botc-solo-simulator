@@ -548,6 +548,31 @@ function triggerRavenkeeperInfo(ctx, ravenkeeper) {
   if (ctx.isAbilityBlocked(ravenkeeper)) {
     return;
   }
+  if (ravenkeeper.isHuman && ctx.enqueueStorytellerAction) {
+    ctx.enqueueStorytellerAction(ctx.state, {
+      type: "ravenkeeper-info",
+      actorId: ravenkeeper.id,
+      roleId: TB.RAVENKEEPER,
+      roleName: ravenkeeper.roleName,
+      roleIcon: ravenkeeper.roleIcon,
+      inputType: "player-target",
+      targetCount: 1,
+      options: ctx.playerChoiceOptions(ctx.state, { actorId: ravenkeeper.id, allowDead: true, allowSelf: false }),
+      prompt: "守鸦人死亡。请选择 1 名玩家，Storyteller 会告诉你该玩家的身份。",
+      phaseLabel: `第${ctx.state.night}夜`,
+      interaction: {
+        title: "守鸦人临终查验",
+        subtitle: "你在夜晚死亡，睁眼选择一名玩家。",
+        badge: "Ravenkeeper",
+        targetLabels: ["查验对象"],
+        helper: "此信息只会进入你的私人夜间信息和事件日志。",
+        confirmText: "确认查验",
+        skipText: "自动查验",
+      },
+      logText: "守鸦人死亡，等待主视角选择临终查验目标。",
+    });
+    return;
+  }
   const candidates = ctx.state.players.filter((entry) => entry.id !== ravenkeeper.id);
   const chosen = ctx.chooseOne(candidates);
   if (!chosen) {

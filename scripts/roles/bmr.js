@@ -905,8 +905,33 @@ function triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload) {
 }
 
 function triggerMoonchildChoice(ctx, victim) {
-  const { state, addLog, chooseRandomAliveExcluding } = ctx;
+  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, playerChoiceOptions } = ctx;
   if (!state.bmr || victim.roleId !== BMR.MOONCHILD) {
+    return;
+  }
+  if (victim.isHuman && enqueueStorytellerAction) {
+    enqueueStorytellerAction(state, {
+      type: "moonchild-choice",
+      actorId: victim.id,
+      roleId: BMR.MOONCHILD,
+      roleName: victim.roleName,
+      roleIcon: victim.roleIcon,
+      inputType: "player-target",
+      targetCount: 1,
+      options: playerChoiceOptions(state, { actorId: victim.id, allowDead: false, allowSelf: false }),
+      prompt: "月之子死亡。请选择 1 名存活玩家；如果该玩家为善良阵营，今晚他会死亡。",
+      phaseLabel: `第${state.day}天`,
+      interaction: {
+        title: "月之子的遗言",
+        subtitle: "你死亡后必须指定一名存活玩家。",
+        badge: "Moonchild",
+        targetLabels: ["指定玩家"],
+        helper: "若你指定的是善良玩家，该玩家会在下一个夜晚死亡。",
+        confirmText: "确认指定",
+        skipText: "自动指定",
+      },
+      logText: "Moonchild 死亡，等待主视角指定玩家。",
+    });
     return;
   }
   const target = chooseRandomAliveExcluding(state, [victim.id]);

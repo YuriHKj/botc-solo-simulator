@@ -5,6 +5,10 @@ import {
   createNewGame,
   getHumanDayActionState,
   getHumanNightActionState,
+  getPendingStorytellerActionState,
+  markPublicDiscussionRound,
+  resolveNominationAndVote,
+  resolvePendingStorytellerAction,
   runNight,
   setHumanDayActionPlan,
   setHumanNightActionPlan,
@@ -26,6 +30,30 @@ function firstOther(state, predicate = () => true) {
   const player = state.players.find((entry) => !entry.isHuman && predicate(entry));
   assert.ok(player, "expected a non-human target");
   return player;
+}
+
+function moveToNomination(state) {
+  assert.equal(advanceDayStage(state, "public").ok, true);
+  markPublicDiscussionRound(state);
+  assert.equal(advanceDayStage(state, "nomination").ok, true);
+}
+
+function executeHumanPlayer(state) {
+  const target = human(state);
+  const nominator = firstOther(state, (entry) => entry.alive);
+  const result = resolveNominationAndVote(
+    state,
+    {
+      nominatorId: nominator.id,
+      nomineeId: target.id,
+      humanVoteYes: true,
+      decideAIVote: () => true,
+    },
+    fixedRng()
+  );
+  assert.equal(result.accepted, true, result.reason);
+  assert.equal(result.passed, true, "execution vote should pass");
+  assert.equal(target.alive, false, "human player should be executed");
 }
 
 function startGame(scriptId, roleId, playerCount = 9) {
@@ -132,6 +160,42 @@ function testJugglerGuesses() {
   assert.equal(state.snv.jugglerGuessesByDay[human(state).id].guesses.length, 2);
 }
 
+function testMoonchildQueuesStorytellerAction() {
+  const state = startGame("bmr", "moonchild");
+  runNight(state, fixedRng());
+  moveToNomination(state);
+  executeHumanPlayer(state);
+
+  const action = getPendingStorytellerActionState(state);
+  assert.equal(action.available, true);
+  assert.equal(action.type, "moonchild-choice");
+  const target = action.options.find((entry) => entry.team === "good");
+  assert.ok(target, "Moonchild action should expose legal living targets");
+
+  const result = resolvePendingStorytellerAction(state, { targetIds: [target.id] });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(state.pendingStorytellerActions.length, 0);
+  assert.equal(state.bmr.moonchildPendingById[human(state).id], target.id);
+}
+
+function testKlutzQueuesStorytellerAction() {
+  const state = startGame("snv", "klutz");
+  runNight(state, fixedRng());
+  moveToNomination(state);
+  executeHumanPlayer(state);
+
+  const action = getPendingStorytellerActionState(state);
+  assert.equal(action.available, true);
+  assert.equal(action.type, "klutz-choice");
+  const target = action.options.find((entry) => entry.team === "good");
+  assert.ok(target, "Klutz action should expose legal living targets");
+
+  const result = resolvePendingStorytellerAction(state, { targetIds: [target.id] });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(state.pendingStorytellerActions.length, 0);
+  assert.equal(state.gameOver, false, "choosing a good player should not end the game");
+}
+
 [
   testGamblerPlayerRole,
   testPoChargeAndMultiKill,
@@ -140,6 +204,8 @@ function testJugglerGuesses() {
   testCerenovusPlayerRole,
   testPitHagPlayerRole,
   testJugglerGuesses,
+  testMoonchildQueuesStorytellerAction,
+  testKlutzQueuesStorytellerAction,
 ].forEach((test) => test());
 
 console.log("role action contracts ok");
