@@ -61,11 +61,22 @@ export const BMR_ROLE_ACTION_RULES = {
   },
   [BMR.GAMBLER]: {
     kind: "player-target",
+    inputType: "player-role",
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
     minNight: 2,
-    prompt: "Choose 1 living player as your Gambler target.",
+    prompt: "选择 1 名存活玩家，并声明你认为 ta 是什么角色。",
+    interaction: {
+      title: "赌徒的午夜下注",
+      subtitle: "选择一名玩家和一个角色。若猜错，你会在夜里死亡。",
+      style: "divination",
+      badge: "玩家 + 角色",
+      targetLabels: ["下注对象"],
+      helper: "醉酒或中毒时，Storyteller 可以按失准信息结算；此处先按实际角色判定赌徒是否死亡。",
+      confirmText: "确认下注",
+      skipText: "让系统代为下注",
+    },
   },
   [BMR.COURTIER]: {
     kind: "player-target",
@@ -121,11 +132,28 @@ export const BMR_ROLE_ACTION_RULES = {
   },
   [BMR.PO]: {
     kind: "player-target",
+    inputType: "charge-or-targets",
     targetCount: 1,
+    minTargetCount: 1,
+    maxTargetCount: 1,
     allowSelf: false,
     allowDead: false,
     minNight: 1,
-    prompt: "Choose 1 living player as Po target, or charge by skipping the kill.",
+    prompt: "选择今晚击杀目标，或不杀人改为蓄力。",
+    modes: [
+      { id: "kill", label: "今晚击杀" },
+      { id: "charge", label: "今晚不杀，蓄力" },
+    ],
+    interaction: {
+      title: "珀的蓄力",
+      subtitle: "你可以今晚不杀，下一次夜晚将最多选择三名目标。",
+      style: "demon",
+      badge: "可蓄力",
+      targetLabels: ["击杀目标"],
+      helper: "若上一夜蓄力，本夜会显示最多 3 个目标栏。若选择蓄力，本夜不会造成恶魔击杀。",
+      confirmText: "确认恶魔行动",
+      skipText: "让系统代选",
+    },
   },
   [BMR.ZOMBUUL]: {
     kind: "player-target",
@@ -181,6 +209,7 @@ export function runBadMoonRisingNight(ctx) {
     addPrivateInfo,
     chooseOne,
     chooseRandomAliveExcluding,
+    consumeHumanNightPlan,
     consumeHumanNightPlanTargets,
     getAliveDemons,
     getAlivePlayers,
@@ -369,17 +398,22 @@ export function runBadMoonRisingNight(ctx) {
     )
     .forEach((gambler) => {
       markWokeTonight(state, gambler, "gambler");
-      const target = pickNightTargets(
-        state,
-        gambler,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== gambler.id) },
-        rng
-      )[0];
+      const planned = gambler.isHuman
+        ? consumeHumanNightPlan(state, gambler, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        : null;
+      const target =
+        planned?.targets?.[0] ??
+        pickNightTargets(
+          state,
+          gambler,
+          1,
+          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== gambler.id) },
+          rng
+        )[0];
       if (!target) {
         return;
       }
-      const guessedRoleId = target.publicClaimRoleId ?? chooseOne(getAllRoles(state.scriptId), rng)?.id ?? target.roleId;
+      const guessedRoleId = planned?.selectedRoleId ?? target.publicClaimRoleId ?? chooseOne(getAllRoles(state.scriptId), rng)?.id ?? target.roleId;
       const correct = guessedRoleId === target.roleId;
       if (!correct) {
         processNightDeath(state, gambler, "gambler-fail", { targetId: target.id, guessedRoleId }, rng);
@@ -625,11 +659,23 @@ export function runBadMoonRisingNight(ctx) {
   }
 
   if (demonRole === BMR.PO) {
+    const plannedPo = demon.isHuman
+      ? consumeHumanNightPlan(state, demon, {
+          allowSelf: false,
+          allowDead: false,
+          minTargets: 0,
+          maxTargets: bmr.poCharged ? 3 : 1,
+        })
+      : null;
     let targets = [];
+    if (plannedPo?.mode === "charge" && !bmr.poCharged) {
+      bmr.poCharged = true;
+      addLog(state, "night-effect", "Po 正在蓄力，下次将造成三重击杀。", { demonId: demon.id });
+      return;
+    }
     if (bmr.poCharged) {
-      const planned = consumeHumanNightPlanTargets(state, demon, 3, { allowSelf: false, allowDead: false });
       targets =
-        planned ??
+        plannedPo?.targets ??
         sample(
           getAlivePlayers(state).filter((entry) => entry.id !== demon.id),
           Math.min(3, Math.max(0, getAlivePlayers(state).length - 1)),
@@ -641,13 +687,15 @@ export function runBadMoonRisingNight(ctx) {
       addLog(state, "night-effect", "Po 正在蓄力，下次将造成三重击杀。", { demonId: demon.id });
       return;
     } else {
-      targets = pickNightTargets(
-        state,
-        demon,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
-        rng
-      );
+      targets =
+        plannedPo?.targets ??
+        pickNightTargets(
+          state,
+          demon,
+          1,
+          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
+          rng
+        );
     }
     targets.forEach((target) => {
       processNightDeath(state, target, "demon-kill", { by: demon.id }, rng);

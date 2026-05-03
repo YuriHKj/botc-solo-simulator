@@ -2208,10 +2208,47 @@ button:disabled {
   letter-spacing: 0.03em;
 }
 
-.night-action-card select {
+.night-action-card select,
+.night-action-card textarea {
   min-height: 42px;
   border-radius: 12px;
   font-size: 0.96rem;
+}
+
+.night-action-card textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 166, 98, 0.42);
+  background: rgba(12, 8, 5, 0.86);
+  color: #f8ead1;
+  outline: none;
+}
+
+.night-action-dynamic {
+  display: grid;
+  gap: 10px;
+}
+
+.night-guess-row,
+.night-dynamic-targets {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 226, 171, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 226, 171, 0.045);
+}
+
+.night-dynamic-targets {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.night-question-field {
+  display: grid;
+  gap: 6px;
 }
 
 .night-action-helper {

@@ -178,6 +178,37 @@ Implemented daytime interaction:
 
 TB passive prompt metadata was also added for Virgin and Mayor as `passiveInteraction` on their role definitions. That metadata is not yet rendered in a dedicated passive-trigger modal; it is ready for the next UI round.
 
+## 2026-05-03 Generic Action Interface Round
+
+The human action path no longer assumes every role is just one or two player targets. `getHumanNightActionState()` and `getHumanDayActionState()` now expose an `inputType`, role options, mode options, selected plan state, and min/max target counts. `setHumanNightActionPlan()` accepts a structured plan instead of only `{ targetIds }`, while the old player-target contract remains compatible.
+
+Supported action input types:
+
+- `player-target`: existing one/two player selection, still used by TB Butler, Fortune Teller, Monk, Poisoner, Imp, Slayer, and many BMR/SnV actions.
+- `player-role`: one player plus one role, currently used by BMR Gambler, SnV Cerenovus, and SnV Pit-Hag.
+- `role`: role-only choice, currently used by SnV Philosopher.
+- `question`: free yes/no question for Storyteller, currently used by SnV Artist.
+- `guesses`: repeated player+role rows, currently used by SnV Juggler as a day action.
+- `charge-or-targets`: action mode plus zero/one/multiple targets, currently used by BMR Po.
+
+The modal now renders from `inputType` instead of hard-coding `targetA/targetB`. This gives each role a dedicated Storyteller-style control without adding role-specific DOM branches across the app.
+
+Initial role hookups:
+
+- Gambler consumes `{ targetIds, roleId }`; if the guessed role does not match the target's true role, the Gambler dies.
+- Po consumes `{ mode, targetIds }`; `charge` skips the kill and sets the next-night charge flag, while charged Po can select up to three targets.
+- Philosopher consumes `{ roleId }` and gains that townfolk ability directly.
+- Artist consumes `{ question }`; common seat/category/team/alive phrasing is answered locally, with poisoned/drunk/Vortox inversion still applied.
+- Cerenovus consumes `{ targetIds, roleId }` and stores the forced public-claim role for the next day.
+- Pit-Hag consumes `{ targetIds, roleId }` and transforms the target into the selected role.
+- Juggler consumes `guesses[]` during public/nomination day stages and stores them for the next night result.
+
+Validation performed in this round:
+
+- `node --check` on `scripts/engine.js`, `scripts/ui.js`, `scripts/app.js`, `scripts/roles/index.js`, `scripts/roles/bmr.js`, and `scripts/roles/snv.js`.
+- Added and ran `tests/role_action_contracts.mjs`, covering Gambler, Po, Philosopher, Artist, Cerenovus, Pit-Hag, and Juggler structured action plans.
+- `npm run electron:win` completed successfully and produced `release/BOTC Solo Simulator Setup 0.2.0.exe`.
+
 ## 2026-04-27 Deep Split Round
 
 - Added `scripts/roles/index.js` as the first role registry.
@@ -197,12 +228,7 @@ This matches the design direction: misinformation should have storyteller-like s
 
 ## Deferred Work
 
-1. Add generic action schemas for non-player choices:
-   - choose role
-   - choose player + role
-   - choose yes/no question
-   - choose zero/one/multiple kills
-   - choose no-action/charge mode
-2. Gradually migrate BMR/SnV daytime, death, and setup rule handlers into their role modules.
+1. Add pending Storyteller death-trigger choices for Ravenkeeper, Moonchild, Klutz, Barber, and Sage instead of resolving all of them automatically.
+2. Gradually migrate remaining BMR/SnV daytime, death, and setup rule handlers into per-role callable handlers.
 3. Add small regression tests for fixed-seed TB/BMR/SnV nights, especially poisoned/drunk info generation and death-prevention chains.
 4. Continue repairing legacy mojibake strings in `engine.js`; this round fixed syntax-breaking strings only.

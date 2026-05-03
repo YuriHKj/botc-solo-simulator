@@ -19,6 +19,7 @@ import {
   removeGrimoireReminder,
   resolveNominationAndVote,
   runNight,
+  setHumanDayActionPlan,
   setGrimoireMarkedRole,
   setHumanNightActionPlan,
   skipDay,
@@ -224,6 +225,7 @@ function hydrateLoadedState(loadedState) {
   loadedState.aiDialogue.activeSpeech = loadedState.aiDialogue.activeSpeech ?? null;
   loadedState.aiDialogue.lastPublicFocusBySpeaker = loadedState.aiDialogue.lastPublicFocusBySpeaker ?? {};
   loadedState.aiDialogue.lastPublicTemplateBySpeaker = loadedState.aiDialogue.lastPublicTemplateBySpeaker ?? {};
+  loadedState.aiAgents = loadedState.aiAgents ?? {};
   loadedState.utteranceArchive = loadedState.utteranceArchive ?? createEmptyUtteranceArchive();
   ensureUtteranceArchive(loadedState);
 
@@ -333,8 +335,8 @@ function runNightWithStorytellerPrompt() {
 
   promptNightActionChoice(action, {
     mandatory: true,
-    onConfirm: ({ targetIds }) => {
-      const result = setHumanNightActionPlan(state, { targetIds });
+    onConfirm: (plan) => {
+      const result = setHumanNightActionPlan(state, plan);
       if (!result.ok) {
         return { ok: false, reason: result.reason };
       }
@@ -578,10 +580,10 @@ function runSlayer({ targetId }) {
   }
 }
 
-function setNightAction({ targetIds }) {
+function setNightAction(plan) {
   try {
     ensureState();
-    const result = setHumanNightActionPlan(state, { targetIds });
+    const result = setHumanNightActionPlan(state, plan);
     if (!result.ok) {
       showToast(result.reason);
       refresh();
@@ -593,6 +595,25 @@ function setNightAction({ targetIds }) {
   } catch (error) {
     const text = error instanceof Error ? error.message : "夜间行动预设失败。";
     showToast(text);
+  }
+}
+
+function setDayAction(plan) {
+  try {
+    ensureState();
+    const result = setHumanDayActionPlan(state, plan);
+    if (!result.ok) {
+      showToast(result.reason);
+      refresh();
+      return result;
+    }
+    showToast(`已执行白天行动：${result.targetNames}`);
+    refresh();
+    return result;
+  } catch (error) {
+    const text = error instanceof Error ? error.message : "白天行动失败。";
+    showToast(text);
+    return { ok: false, reason: text };
   }
 }
 
@@ -1057,6 +1078,7 @@ function boot() {
     onSkipDay: passDay,
     onSlayer: runSlayer,
     onSetNightAction: setNightAction,
+    onSetDayAction: setDayAction,
     onSetMarkedRole: setMarkedRole,
     onAddReminder: addReminder,
     onRemoveReminder: removeReminder,

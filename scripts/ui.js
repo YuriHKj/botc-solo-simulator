@@ -1030,6 +1030,206 @@ function fillSelect(selectEl, options, selectedId = null, emptyLabel = "--") {
   });
 }
 
+function selectedPlanValue(action, key, fallback = "") {
+  const plan = action.selectedPlan ?? {};
+  if (key === "roleId") {
+    return plan.selectedRoleId ?? plan.roleId ?? fallback;
+  }
+  return plan[key] ?? fallback;
+}
+
+function hideModalPlayerTargets() {
+  dom.nightModalTargetRowB.classList.add("hidden");
+  dom.nightModalTargetA.closest("label")?.classList.add("hidden");
+  fillSelect(dom.nightModalTargetA, [], "", "无目标");
+  fillSelect(dom.nightModalTargetB, [], "", "无目标");
+}
+
+function showModalPlayerTargets(action) {
+  const targetLabels = action.interaction?.targetLabels ?? [];
+  dom.nightModalTargetA.closest("label")?.classList.remove("hidden");
+  const selectedA = action.selectedTargetIds?.[0] || action.options?.[0]?.id || "";
+  dom.nightModalTargetALabel.textContent = targetLabels[0] || "目标一";
+  fillSelect(dom.nightModalTargetA, action.options ?? [], selectedA, "无目标");
+
+  if (action.targetCount > 1) {
+    dom.nightModalTargetRowB.classList.remove("hidden");
+    const fallbackB = action.options?.find((entry) => entry.id !== selectedA)?.id || action.options?.[0]?.id || "";
+    const selectedB = action.selectedTargetIds?.[1] || fallbackB;
+    dom.nightModalTargetBLabel.textContent = targetLabels[1] || "目标二";
+    fillSelect(dom.nightModalTargetB, action.options ?? [], selectedB, "无目标");
+  } else {
+    dom.nightModalTargetRowB.classList.add("hidden");
+    fillSelect(dom.nightModalTargetB, [], "", "无目标");
+  }
+}
+
+function appendSelectField(container, { label, className, datasetKey, options, selected, emptyLabel = "--" }) {
+  const wrapper = document.createElement("label");
+  wrapper.className = className ?? "";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const select = document.createElement("select");
+  select.dataset.nightField = datasetKey;
+  fillSelect(select, options ?? [], selected, emptyLabel);
+  wrapper.append(span, select);
+  container.appendChild(wrapper);
+  return select;
+}
+
+function renderNightActionDynamicFields(action) {
+  const container = dom.nightActionDynamicFields;
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+  const inputType = action.inputType ?? "player-target";
+
+  if (inputType === "player-target") {
+    showModalPlayerTargets(action);
+    return;
+  }
+
+  hideModalPlayerTargets();
+
+  if (inputType === "role") {
+    appendSelectField(container, {
+      label: "选择角色",
+      datasetKey: "roleId",
+      options: action.roleOptions ?? [],
+      selected: selectedPlanValue(action, "roleId", action.roleOptions?.[0]?.id ?? ""),
+      emptyLabel: "无可选角色",
+    });
+    return;
+  }
+
+  if (inputType === "player-role") {
+    appendSelectField(container, {
+      label: action.interaction?.targetLabels?.[0] || "选择玩家",
+      datasetKey: "targetId",
+      options: action.options ?? [],
+      selected: action.selectedTargetIds?.[0] || action.options?.[0]?.id || "",
+      emptyLabel: "无可选玩家",
+    });
+    appendSelectField(container, {
+      label: "声明/指定角色",
+      datasetKey: "roleId",
+      options: action.roleOptions ?? [],
+      selected: selectedPlanValue(action, "roleId", action.roleOptions?.[0]?.id ?? ""),
+      emptyLabel: "无可选角色",
+    });
+    return;
+  }
+
+  if (inputType === "question") {
+    const label = document.createElement("label");
+    label.className = "night-question-field";
+    const span = document.createElement("span");
+    span.textContent = "你的问题";
+    const textarea = document.createElement("textarea");
+    textarea.dataset.nightField = "question";
+    textarea.rows = 4;
+    textarea.maxLength = 220;
+    textarea.placeholder = "例如：场上是否还有两个以上邪恶玩家？";
+    textarea.value = selectedPlanValue(action, "question", "");
+    label.append(span, textarea);
+    container.appendChild(label);
+    return;
+  }
+
+  if (inputType === "guesses") {
+    const max = Number.isFinite(action.maxGuessCount) ? action.maxGuessCount : 5;
+    const selectedGuesses = Array.isArray(action.selectedPlan?.guesses) ? action.selectedPlan.guesses : [];
+    for (let index = 0; index < max; index += 1) {
+      const row = document.createElement("div");
+      row.className = "night-guess-row";
+      row.dataset.guessRow = `${index}`;
+      appendSelectField(row, {
+        label: `猜测 ${index + 1}：玩家`,
+        datasetKey: "guessPlayer",
+        options: [{ id: "", label: "不填写" }, ...(action.options ?? [])],
+        selected: selectedGuesses[index]?.playerId ?? (index === 0 ? action.options?.[0]?.id ?? "" : ""),
+      });
+      appendSelectField(row, {
+        label: "角色",
+        datasetKey: "guessRole",
+        options: [{ id: "", label: "不填写" }, ...(action.roleOptions ?? [])],
+        selected: selectedGuesses[index]?.roleId ?? (index === 0 ? action.roleOptions?.[0]?.id ?? "" : ""),
+      });
+      container.appendChild(row);
+    }
+    return;
+  }
+
+  if (inputType === "charge-or-targets") {
+    const modeSelect = appendSelectField(container, {
+      label: "行动方式",
+      datasetKey: "mode",
+      options: action.modes ?? [],
+      selected: selectedPlanValue(action, "mode", action.modes?.[0]?.id ?? "kill"),
+      emptyLabel: "选择行动方式",
+    });
+    const targetBox = document.createElement("div");
+    targetBox.className = "night-dynamic-targets";
+    const maxTargets = Math.max(1, Number.isFinite(action.maxTargetCount) ? action.maxTargetCount : action.targetCount ?? 1);
+    for (let index = 0; index < maxTargets; index += 1) {
+      appendSelectField(targetBox, {
+        label: maxTargets > 1 ? `击杀目标 ${index + 1}` : "击杀目标",
+        datasetKey: "targetId",
+        options: [{ id: "", label: index === 0 ? "不选择" : "空位" }, ...(action.options ?? [])],
+        selected: action.selectedTargetIds?.[index] ?? (index === 0 ? action.options?.[0]?.id ?? "" : ""),
+      });
+    }
+    const syncTargetVisibility = () => {
+      targetBox.classList.toggle("hidden", modeSelect.value === "charge" || modeSelect.value === "none");
+    };
+    modeSelect.addEventListener("change", syncTargetVisibility);
+    syncTargetVisibility();
+    container.appendChild(targetBox);
+  }
+}
+
+function collectNightActionPlan(action) {
+  const inputType = action.inputType ?? "player-target";
+  if (inputType === "player-target") {
+    const targetIds = [dom.nightModalTargetA.value];
+    if (!dom.nightModalTargetRowB.classList.contains("hidden")) {
+      targetIds.push(dom.nightModalTargetB.value);
+    }
+    return { targetIds };
+  }
+
+  const fields = dom.nightActionDynamicFields ?? document.createElement("div");
+  if (inputType === "role") {
+    return { roleId: fields.querySelector('[data-night-field="roleId"]')?.value ?? "" };
+  }
+  if (inputType === "player-role") {
+    return {
+      targetIds: [fields.querySelector('[data-night-field="targetId"]')?.value ?? ""],
+      roleId: fields.querySelector('[data-night-field="roleId"]')?.value ?? "",
+    };
+  }
+  if (inputType === "question") {
+    return { question: fields.querySelector('[data-night-field="question"]')?.value ?? "" };
+  }
+  if (inputType === "guesses") {
+    const guesses = [...fields.querySelectorAll(".night-guess-row")].map((row) => ({
+      playerId: row.querySelector('[data-night-field="guessPlayer"]')?.value ?? "",
+      roleId: row.querySelector('[data-night-field="guessRole"]')?.value ?? "",
+    }));
+    return { guesses };
+  }
+  if (inputType === "charge-or-targets") {
+    return {
+      mode: fields.querySelector('[data-night-field="mode"]')?.value ?? "",
+      targetIds: [...fields.querySelectorAll('[data-night-field="targetId"]')]
+        .map((select) => select.value)
+        .filter(Boolean),
+    };
+  }
+  return {};
+}
+
 function renderNominationOptions(state) {
   const alive = state.players.filter((entry) => entry.alive);
   const nominators = alive
@@ -1555,7 +1755,6 @@ function openNightActionModal(action, request = {}) {
 
   const interaction = action.interaction ?? {};
   const styleName = interaction.style ? `${interaction.style}`.replace(/[^a-z0-9_-]/gi, "") : "default";
-  const targetLabels = interaction.targetLabels ?? [];
   const modalCard = dom.nightActionModal.querySelector(".sheet-modal-card");
 
   modalCard?.classList.forEach((className) => {
@@ -1579,20 +1778,7 @@ function openNightActionModal(action, request = {}) {
     dom.nightActionRoleIcon.textContent = action.roleIcon ? "" : action.roleName?.slice(0, 1) || "夜";
   }
 
-  const selectedA = action.selectedTargetIds?.[0] || action.options?.[0]?.id || "";
-  dom.nightModalTargetALabel.textContent = targetLabels[0] || "目标一";
-  fillSelect(dom.nightModalTargetA, action.options ?? [], selectedA, "无目标");
-
-  if (action.targetCount > 1) {
-    dom.nightModalTargetRowB.classList.remove("hidden");
-    const fallbackB = action.options?.find((entry) => entry.id !== selectedA)?.id || action.options?.[0]?.id || "";
-    const selectedB = action.selectedTargetIds?.[1] || fallbackB;
-    dom.nightModalTargetBLabel.textContent = targetLabels[1] || "目标二";
-    fillSelect(dom.nightModalTargetB, action.options ?? [], selectedB, "无目标");
-  } else {
-    dom.nightModalTargetRowB.classList.add("hidden");
-    fillSelect(dom.nightModalTargetB, [], "", "无目标");
-  }
+  renderNightActionDynamicFields(action);
 
   dom.btnConfirmNightActionModal.textContent = interaction.confirmText || "确认并进入夜晚";
   dom.btnSkipNightActionModal.textContent = interaction.skipText || "今晚跳过选择（系统自动）";
@@ -1789,9 +1975,10 @@ function setButtonState(state) {
   dom.humanVote.disabled = !canNomination;
 
   const dayAction = getHumanDayActionState(state);
-  const canSlayer = dayAction.available && dayAction.roleId === "slayer" && !disabled;
-  dom.btnSlayer.disabled = !canSlayer;
-  dom.slayerTarget.disabled = !canSlayer;
+  const canDayAction = dayAction.available && !disabled;
+  dom.btnSlayer.disabled = !canDayAction;
+  dom.btnSlayer.textContent = dayAction.available && dayAction.roleId !== "slayer" ? `执行 ${dayAction.roleName}` : "发动 Slayer";
+  dom.slayerTarget.disabled = !canDayAction;
 
   const action = getHumanNightActionState(state);
   const canSetNightAction = action.available && !disabled;
@@ -1905,6 +2092,7 @@ export function initUI(handlers) {
   dom.nightModalTargetRowB = qs("nightModalTargetRowB");
   dom.nightModalTargetALabel = qs("nightModalTargetALabel");
   dom.nightModalTargetBLabel = qs("nightModalTargetBLabel");
+  dom.nightActionDynamicFields = qs("nightActionDynamicFields");
   dom.btnCloseNightActionModal = qs("btnCloseNightActionModal");
   dom.btnConfirmNightActionModal = qs("btnConfirmNightActionModal");
   dom.btnSkipNightActionModal = qs("btnSkipNightActionModal");
@@ -2134,9 +2322,12 @@ export function initUI(handlers) {
       return;
     }
     openNightActionModal(action, {
-      onConfirm: ({ targetIds }) => {
-        handlers.onSlayer({ targetId: targetIds[0] });
-        return { ok: true };
+      onConfirm: (plan) => {
+        if (action.roleId === "slayer") {
+          handlers.onSlayer({ targetId: plan.targetIds?.[0] });
+          return { ok: true };
+        }
+        return handlers.onSetDayAction?.(plan) ?? { ok: false, reason: "当前白天行动尚未接入处理器。" };
       },
       onSkip: () => {},
     });
@@ -2160,8 +2351,8 @@ export function initUI(handlers) {
       return;
     }
     openNightActionModal(action, {
-      onConfirm: ({ targetIds }) => {
-        handlers.onSetNightAction({ targetIds });
+      onConfirm: (plan) => {
+        handlers.onSetNightAction(plan);
         return { ok: true };
       },
       onSkip: () => {},
@@ -2181,11 +2372,8 @@ export function initUI(handlers) {
       closeNightActionModal();
       return;
     }
-    const targetIds = [dom.nightModalTargetA.value];
-    if (!dom.nightModalTargetRowB.classList.contains("hidden")) {
-      targetIds.push(dom.nightModalTargetB.value);
-    }
-    const result = nightModalRequest.onConfirm?.({ targetIds, action: nightModalRequest.action }) ?? { ok: true };
+    const plan = collectNightActionPlan(nightModalRequest.action);
+    const result = nightModalRequest.onConfirm?.({ ...plan, action: nightModalRequest.action }) ?? { ok: true };
     if (result?.ok === false) {
       if (result.reason) {
         showToast(result.reason);

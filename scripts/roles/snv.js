@@ -53,22 +53,44 @@ export const SNV_ROLE_ACTION_RULES = {
     prompt: "Choose 2 players to compare alignment.",
   },
   [SNV.PHILOSOPHER]: {
-    kind: "player-target",
-    targetCount: 1,
+    kind: "role-choice",
+    inputType: "role",
+    targetCount: 0,
     allowSelf: false,
     allowDead: false,
+    roleCategories: ["townsfolk"],
+    excludeRoleIds: [SNV.PHILOSOPHER],
     minNight: 1,
     maxUses: 1,
-    prompt: "Choose 1 player as Philosopher reference target.",
+    prompt: "选择你想获得的一个镇民角色能力。",
+    interaction: {
+      title: "哲学家的顿悟",
+      subtitle: "选择一个镇民能力。若该角色在场，原持有者会醉酒。",
+      style: "divination",
+      badge: "选择角色",
+      helper: "这是官方能力的关键交互：不是选玩家，而是直接选择一个角色能力。",
+      confirmText: "获得该能力",
+      skipText: "让系统代选",
+    },
   },
   [SNV.ARTIST]: {
-    kind: "player-target",
-    targetCount: 1,
+    kind: "question",
+    inputType: "question",
+    targetCount: 0,
     allowSelf: false,
     allowDead: false,
     minNight: 1,
     maxUses: 1,
-    prompt: "Choose 1 player as Artist question target.",
+    prompt: "向 Storyteller 提出一个是/否问题。",
+    interaction: {
+      title: "艺术家的提问",
+      subtitle: "写下一个是/否问题，Storyteller 会给出“是/否”答案。",
+      style: "divination",
+      badge: "是/否问题",
+      helper: "当前版本会用本地规则粗略回答常见问题；复杂自然语言会给出保守的 Storyteller 式答案。",
+      confirmText: "提交问题",
+      skipText: "暂不提问",
+    },
   },
   [SNV.WITCH]: {
     kind: "player-target",
@@ -80,19 +102,21 @@ export const SNV_ROLE_ACTION_RULES = {
   },
   [SNV.CERENOVUS]: {
     kind: "player-target",
+    inputType: "player-role",
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
     minNight: 1,
-    prompt: "Choose 1 player as Cerenovus madness target.",
+    prompt: "选择 1 名玩家，并指定 ta 明天应声称的角色。",
   },
   [SNV.PIT_HAG]: {
     kind: "player-target",
+    inputType: "player-role",
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
     minNight: 1,
-    prompt: "Choose 1 player as Pit-Hag transform target.",
+    prompt: "选择 1 名玩家，并把 ta 变成指定角色。",
   },
   [SNV.FANG_GU]: {
     kind: "player-target",
@@ -125,6 +149,31 @@ export const SNV_ROLE_ACTION_RULES = {
     allowDead: false,
     minNight: 2,
     prompt: "Choose 1 living player as Vortox night kill target.",
+  },
+};
+
+export const SNV_DAY_ACTION_RULES = {
+  [SNV.JUGGLER]: {
+    kind: "guesses",
+    inputType: "guesses",
+    targetCount: 0,
+    allowSelf: true,
+    allowDead: true,
+    minDay: 1,
+    maxUses: 1,
+    minGuessCount: 1,
+    maxGuessCount: 5,
+    allowedStages: ["public", "nomination"],
+    prompt: "填写最多 5 组“玩家 + 角色”杂耍猜测。",
+    interaction: {
+      title: "杂耍艺人的宣告",
+      subtitle: "白天公开猜测若干玩家的角色，今晚会得知猜中数量。",
+      style: "divination",
+      badge: "最多五组",
+      helper: "每名玩家最多填写一次。提交后会在夜晚结算你的猜中数量。",
+      confirmText: "公开杂耍猜测",
+      skipText: "暂不杂耍",
+    },
   },
 };
 
@@ -164,6 +213,7 @@ export function runSectsAndVioletsNight(ctx) {
     addPrivateInfo,
     applyVigormortisNeighborPoison,
     chooseOne,
+    consumeHumanNightPlan,
     getAliveDemons,
     getAlivePlayers,
     getAllRoles,
@@ -234,17 +284,22 @@ export function runSectsAndVioletsNight(ctx) {
         isRoleNightWindowOpen(state, SNV.CERENOVUS, state.night)
     )
     .forEach((cerenovus) => {
-      const target = pickNightTargets(
-        state,
-        cerenovus,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== cerenovus.id) },
-        rng
-      )[0];
+      const planned = cerenovus.isHuman
+        ? consumeHumanNightPlan(state, cerenovus, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        : null;
+      const target =
+        planned?.targets?.[0] ??
+        pickNightTargets(
+          state,
+          cerenovus,
+          1,
+          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== cerenovus.id) },
+          rng
+        )[0];
       if (!target) {
         return;
       }
-      const forcedRole = chooseOne(getAllRoles(state.scriptId), rng);
+      const forcedRole = planned?.role ?? chooseOne(getAllRoles(state.scriptId), rng);
       if (!forcedRole) {
         return;
       }
@@ -263,18 +318,24 @@ export function runSectsAndVioletsNight(ctx) {
         isRoleNightWindowOpen(state, SNV.PIT_HAG, state.night)
     )
     .forEach((pitHag) => {
-      const target = pickNightTargets(
-        state,
-        pitHag,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== pitHag.id) },
-        rng
-      )[0];
+      const planned = pitHag.isHuman
+        ? consumeHumanNightPlan(state, pitHag, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        : null;
+      const target =
+        planned?.targets?.[0] ??
+        pickNightTargets(
+          state,
+          pitHag,
+          1,
+          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== pitHag.id) },
+          rng
+        )[0];
       if (!target) {
         return;
       }
       const pool = getAllRoles(state.scriptId).filter((role) => role.id !== target.roleId);
-      const nextRole = chooseOne(pool, rng);
+      const plannedRoleStillValid = planned?.role && planned.role.id !== target.roleId ? planned.role : null;
+      const nextRole = plannedRoleStillValid ?? chooseOne(pool, rng);
       if (!nextRole) {
         return;
       }
@@ -344,13 +405,7 @@ export function runSectsAndVioletsNight(ctx) {
       if (snv.philosopherUsedByIds.includes(philosopher.id)) {
         return;
       }
-      const target = pickNightTargets(
-        state,
-        philosopher,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== philosopher.id) },
-        rng
-      )[0];
+      const planned = philosopher.isHuman ? consumeHumanNightPlan(state, philosopher, { minTargets: 0, maxTargets: 0 }) : null;
 
       const townsfolkPool = (getTownsfolkRoles(state.scriptId) ?? []).filter((entry) => entry.id !== SNV.PHILOSOPHER);
       if (townsfolkPool.length === 0) {
@@ -358,12 +413,8 @@ export function runSectsAndVioletsNight(ctx) {
       }
 
       snv.philosopherUsedByIds.push(philosopher.id);
-      let copiedRoleId = null;
-      if (target?.category === "townsfolk") {
-        copiedRoleId = target.roleId;
-      } else {
-        copiedRoleId = chooseOne(townsfolkPool, rng)?.id ?? null;
-      }
+      const plannedRole = planned?.role && planned.role.category === "townsfolk" && planned.role.id !== SNV.PHILOSOPHER ? planned.role : null;
+      const copiedRoleId = plannedRole?.id ?? chooseOne(townsfolkPool, rng)?.id ?? null;
       const role = copiedRoleId ? getRoleById(state.scriptId, copiedRoleId) : null;
       if (!role) {
         return;

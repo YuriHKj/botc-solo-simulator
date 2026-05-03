@@ -1,4 +1,13 @@
-﻿import { clamp, getAllRoles, getPlayerSetup, getRoleById, sample, SCRIPT_MAP, shuffle } from "./data.js";
+import { clamp, getAllRoles, getPlayerSetup, getRoleById, sample, SCRIPT_MAP, shuffle } from "./data.js";
+import {
+  ensureAIAgents,
+  recordDeathForAgents,
+  recordEvilRecognitionForAgents,
+  recordNominationForAgents,
+  recordPrivateInfoForAgent,
+  recordPublicClaimForAgents,
+  recordVoteForAgents,
+} from "./ai_agents.js";
 import { getOfficialNightOrderNames } from "./grimoire_reference.js";
 import { createEmptyUtteranceArchive } from "./dialogue_schema.js";
 import { getNightRunner, getScriptRoleActionRules, getScriptRoleDayActionRules, getScriptRuleHandlers } from "./roles/index.js";
@@ -273,6 +282,7 @@ export function addLog(state, type, message, payload = {}) {
 
 function addPrivateInfo(state, player, text) {
   player.privateNotes.push(text);
+  recordPrivateInfoForAgent(state, player, text);
   if (player.isHuman) {
     state.pendingHumanInfo.push(text);
   }
@@ -304,6 +314,7 @@ function deliverEvilRecognitionFirstNight(state) {
   if (state.storyFlags.evilRecognitionDone || state.night !== 1) {
     return;
   }
+  ensureAIAgents(state);
 
   const evilPlayers = state.players.filter((entry) => entry.team === "evil");
   if (evilPlayers.length === 0) {
@@ -335,6 +346,7 @@ function deliverEvilRecognitionFirstNight(state) {
   });
 
   addLog(state, "night-info", "第1夜已完成邪恶互认阶段。", { private: true, team: "evil" });
+  recordEvilRecognitionForAgents(state);
   state.storyFlags.evilRecognitionDone = true;
 }
 
@@ -624,16 +636,82 @@ function playerTargetOptions(state, human, rule) {
     }));
 }
 
+function actionInputType(rule) {
+  if (!rule) {
+    return "player-target";
+  }
+  if (rule.inputType) {
+    return rule.inputType;
+  }
+  return rule.kind === "player-target" ? "player-target" : rule.kind ?? "player-target";
+}
+
+function actionNeedsPlayerOptions(inputType) {
+  return ["player-target", "player-role", "guesses", "charge-or-targets"].includes(inputType);
+}
+
+function roleTargetOptions(state, rule = {}) {
+  const categories = Array.isArray(rule.roleCategories) && rule.roleCategories.length > 0 ? new Set(rule.roleCategories) : null;
+  const teams = Array.isArray(rule.roleTeams) && rule.roleTeams.length > 0 ? new Set(rule.roleTeams) : null;
+  return getAllRoles(state.scriptId)
+    .filter((role) => (categories ? categories.has(role.category) : true))
+    .filter((role) => (teams ? teams.has(role.team) : true))
+    .filter((role) => (rule.excludeRoleIds ?? []).includes(role.id) === false)
+    .map((role) => ({
+      id: role.id,
+      label: `${role.name}${role.englishName ? ` (${role.englishName})` : ""}`,
+      category: role.category,
+      team: role.team,
+      icon: role.icon ?? null,
+    }));
+}
+
+function normalizeActionRuleForState(state, roleId, rule) {
+  if (!rule) {
+    return null;
+  }
+  const normalized = { ...rule };
+  if (state.scriptId === "bmr" && roleId === BMR.PO) {
+    const charged = !!state.bmr?.poCharged;
+    normalized.inputType = "charge-or-targets";
+    normalized.targetCount = charged ? 3 : 1;
+    normalized.minTargetCount = charged ? 1 : 1;
+    normalized.maxTargetCount = charged ? 3 : 1;
+    normalized.modes = charged
+      ? [{ id: "kill", label: "释放蓄力，选择最多 3 名玩家" }]
+      : [
+          { id: "kill", label: "今晚击杀 1 名玩家" },
+          { id: "charge", label: "今晚不杀，改为蓄力" },
+        ];
+  }
+  return normalized;
+}
+
+function currentHumanPlanForAction(state, actionKind, actionKey, roleId) {
+  const plan = actionKind === "day" ? state.humanDayPlan : state.humanNightPlan;
+  if (!plan || plan.roleId !== roleId) {
+    return null;
+  }
+  if (actionKind === "day") {
+    return plan.day === actionKey ? plan : null;
+  }
+  return plan.night === actionKey ? plan : null;
+}
+
 function humanActionPayload(state, human, roleId, roleName, rule, options, selectedTargetIds = [], extra = {}) {
   const role = getRoleById(state.scriptId, roleId);
   const usedCount = getHumanAbilityUsageCount(state, roleId);
   const maxUses = Number.isFinite(rule.maxUses) ? rule.maxUses : null;
+  const inputType = actionInputType(rule);
   return {
     available: true,
     roleId,
     roleName,
     roleIcon: role?.icon ?? null,
+    inputType,
     targetCount: rule.targetCount,
+    minTargetCount: Number.isFinite(rule.minTargetCount) ? rule.minTargetCount : rule.targetCount,
+    maxTargetCount: Number.isFinite(rule.maxTargetCount) ? rule.maxTargetCount : rule.targetCount,
     allowSelf: rule.allowSelf,
     allowDead: rule.allowDead,
     prompt: rule.prompt,
@@ -641,6 +719,8 @@ function humanActionPayload(state, human, roleId, roleName, rule, options, selec
     usedCount,
     maxUses,
     options,
+    roleOptions: roleTargetOptions(state, rule),
+    modes: rule.modes ?? [],
     selectedTargetIds,
     ...extra,
   };
@@ -661,7 +741,7 @@ export function getHumanNightActionState(state) {
   const nightNumber = nextNightNumber(state);
   const roleId = getEffectiveRoleId(human);
   const roleName = getEffectiveRoleName(human) ?? human.roleName;
-  const rule = getHumanNightRule(state, roleId, nightNumber);
+  const rule = normalizeActionRuleForState(state, roleId, getHumanNightRule(state, roleId, nightNumber));
   if (!rule) {
     return { available: false, reason: `第${nightNumber}夜你没有可选的主动夜间操作。` };
   }
@@ -675,21 +755,19 @@ export function getHumanNightActionState(state) {
   }
 
   const options = playerTargetOptions(state, human, rule);
+  const inputType = actionInputType(rule);
 
-  if (options.length === 0) {
+  if (actionNeedsPlayerOptions(inputType) && options.length === 0 && !(inputType === "charge-or-targets" && rule.modes?.some((entry) => entry.id === "charge"))) {
     return { available: false, reason: "当前没有可选择的目标。" };
   }
 
-  const selected =
-    state.humanNightPlan &&
-    state.humanNightPlan.night === nightNumber &&
-    state.humanNightPlan.roleId === roleId
-      ? [...(state.humanNightPlan.targetIds ?? [])]
-      : [];
+  const selectedPlan = currentHumanPlanForAction(state, "night", nightNumber, roleId);
+  const selected = selectedPlan ? [...(selectedPlan.targetIds ?? [])] : [];
 
   return humanActionPayload(state, human, roleId, roleName, rule, options, selected, {
     nightNumber,
     phaseLabel: `第${nightNumber}夜`,
+    selectedPlan,
   });
 }
 
@@ -710,7 +788,7 @@ export function getHumanDayActionState(state) {
 
   const roleId = getEffectiveRoleId(human);
   const roleName = getEffectiveRoleName(human) ?? human.roleName;
-  const rule = HUMAN_DAY_RULES_BY_SCRIPT[state.scriptId]?.[roleId];
+  const rule = normalizeActionRuleForState(state, roleId, HUMAN_DAY_RULES_BY_SCRIPT[state.scriptId]?.[roleId]);
   if (!rule) {
     return { available: false, reason: "你的角色当前没有白天主动技能。" };
   }
@@ -725,14 +803,17 @@ export function getHumanDayActionState(state) {
   }
 
   const options = playerTargetOptions(state, human, rule);
-  if (options.length === 0) {
+  const inputType = actionInputType(rule);
+  if (actionNeedsPlayerOptions(inputType) && options.length === 0) {
     return { available: false, reason: "当前没有可选择的目标。" };
   }
+  const selectedPlan = currentHumanPlanForAction(state, "day", state.day, roleId);
 
   return humanActionPayload(state, human, roleId, roleName, rule, options, [], {
     dayNumber: state.day,
     dayStage: state.dayStage,
     phaseLabel: `第${state.day}天`,
+    selectedPlan,
   });
 }
 
@@ -804,42 +885,189 @@ function createSNVState() {
   };
 }
 
-export function setHumanNightActionPlan(state, { targetIds }) {
-  const action = getHumanNightActionState(state);
-  if (!action.available) {
-    return { ok: false, reason: action.reason };
-  }
-
-  const raw = Array.isArray(targetIds) ? targetIds : [];
+function uniqueStrings(list) {
   const unique = [];
-  raw.forEach((targetId) => {
-    if (!targetId || unique.includes(targetId)) {
-      return;
+  (Array.isArray(list) ? list : []).forEach((value) => {
+    const safe = `${value ?? ""}`.trim();
+    if (safe && !unique.includes(safe)) {
+      unique.push(safe);
     }
-    unique.push(targetId);
   });
+  return unique;
+}
 
-  if (unique.length !== action.targetCount) {
+function validateTargetsForAction(action, targetIds, { exact = true } = {}) {
+  const unique = uniqueStrings(targetIds);
+  const min = Number.isFinite(action.minTargetCount) ? action.minTargetCount : action.targetCount ?? 0;
+  const max = Number.isFinite(action.maxTargetCount) ? action.maxTargetCount : action.targetCount ?? min;
+  if (exact && Number.isFinite(action.targetCount) && unique.length !== action.targetCount) {
     return {
       ok: false,
       reason: action.targetCount === 1 ? "请至少选择 1 名目标。" : `请恰好选择 ${action.targetCount} 名目标。`,
     };
   }
-
+  if (!exact && unique.length < min) {
+    return { ok: false, reason: min <= 0 ? "请选择行动方式。" : `请至少选择 ${min} 名目标。` };
+  }
+  if (!exact && unique.length > max) {
+    return { ok: false, reason: `最多只能选择 ${max} 名目标。` };
+  }
   const allowed = new Set(action.options.map((entry) => entry.id));
   if (unique.some((entry) => !allowed.has(entry))) {
-    return { ok: false, reason: "所选目标不符合当前夜间规则。" };
+    return { ok: false, reason: "所选目标不符合当前行动规则。" };
   }
+  return { ok: true, targetIds: unique };
+}
+
+function validateRoleForAction(action, roleId) {
+  const safeRoleId = `${roleId ?? ""}`.trim();
+  const allowed = new Set((action.roleOptions ?? []).map((entry) => entry.id));
+  if (!safeRoleId || !allowed.has(safeRoleId)) {
+    return { ok: false, reason: "请选择一个符合当前规则的角色。" };
+  }
+  return { ok: true, roleId: safeRoleId };
+}
+
+function normalizeHumanActionPlan(action, input = {}) {
+  const inputType = action.inputType ?? "player-target";
+  const mode = `${input.mode ?? ""}`.trim() || (action.modes?.[0]?.id ?? "");
+  const plan = {
+    inputType,
+    mode,
+    targetIds: [],
+    roleId: "",
+    question: "",
+    guesses: [],
+  };
+
+  if (inputType === "role") {
+    const role = validateRoleForAction(action, input.roleId);
+    if (!role.ok) {
+      return role;
+    }
+    plan.roleId = role.roleId;
+    return { ok: true, plan };
+  }
+
+  if (inputType === "player-role") {
+    const targets = validateTargetsForAction(action, input.targetIds, { exact: true });
+    if (!targets.ok) {
+      return targets;
+    }
+    const role = validateRoleForAction(action, input.roleId);
+    if (!role.ok) {
+      return role;
+    }
+    plan.targetIds = targets.targetIds;
+    plan.roleId = role.roleId;
+    return { ok: true, plan };
+  }
+
+  if (inputType === "question") {
+    const question = `${input.question ?? ""}`.trim();
+    if (question.length < 2) {
+      return { ok: false, reason: "请输入要询问 Storyteller 的是/否问题。" };
+    }
+    plan.question = question.slice(0, 220);
+    return { ok: true, plan };
+  }
+
+  if (inputType === "guesses") {
+    const guesses = (Array.isArray(input.guesses) ? input.guesses : [])
+      .map((entry) => ({
+        playerId: `${entry?.playerId ?? ""}`.trim(),
+        roleId: `${entry?.roleId ?? ""}`.trim(),
+      }))
+      .filter((entry) => entry.playerId && entry.roleId);
+    const min = Number.isFinite(action.minGuessCount) ? action.minGuessCount : 1;
+    const max = Number.isFinite(action.maxGuessCount) ? action.maxGuessCount : 5;
+    if (guesses.length < min) {
+      return { ok: false, reason: `请至少填写 ${min} 组猜测。` };
+    }
+    if (guesses.length > max) {
+      return { ok: false, reason: `最多只能填写 ${max} 组猜测。` };
+    }
+    const allowedPlayers = new Set(action.options.map((entry) => entry.id));
+    const allowedRoles = new Set((action.roleOptions ?? []).map((entry) => entry.id));
+    if (guesses.some((entry) => !allowedPlayers.has(entry.playerId) || !allowedRoles.has(entry.roleId))) {
+      return { ok: false, reason: "猜测中包含不符合规则的玩家或角色。" };
+    }
+    if (new Set(guesses.map((entry) => entry.playerId)).size !== guesses.length) {
+      return { ok: false, reason: "多组猜测中不要重复选择同一名玩家。" };
+    }
+    plan.guesses = guesses;
+    return { ok: true, plan };
+  }
+
+  if (inputType === "charge-or-targets") {
+    const modeIds = new Set((action.modes ?? []).map((entry) => entry.id));
+    if (!mode || !modeIds.has(mode)) {
+      return { ok: false, reason: "请选择今晚是行动还是蓄力。" };
+    }
+    plan.mode = mode;
+    if (mode === "charge" || mode === "none") {
+      plan.targetIds = [];
+      return { ok: true, plan };
+    }
+    const targets = validateTargetsForAction(action, input.targetIds, { exact: false });
+    if (!targets.ok) {
+      return targets;
+    }
+    plan.targetIds = targets.targetIds;
+    return { ok: true, plan };
+  }
+
+  const targets = validateTargetsForAction(action, input.targetIds, { exact: true });
+  if (!targets.ok) {
+    return targets;
+  }
+  plan.targetIds = targets.targetIds;
+  return { ok: true, plan };
+}
+
+function describeActionPlan(state, action, plan) {
+  const targetNames = (plan.targetIds ?? [])
+    .map((targetId) => getPlayerById(state, targetId)?.name ?? targetId)
+    .join(" / ");
+  const roleName = plan.roleId ? getRoleById(state.scriptId, plan.roleId)?.name ?? plan.roleId : "";
+  if (action.inputType === "role") {
+    return roleName;
+  }
+  if (action.inputType === "player-role") {
+    return `${targetNames} / ${roleName}`;
+  }
+  if (action.inputType === "question") {
+    return `问题：“${plan.question}”`;
+  }
+  if (action.inputType === "guesses") {
+    return `${plan.guesses.length} 组猜测`;
+  }
+  if (action.inputType === "charge-or-targets" && (plan.mode === "charge" || plan.mode === "none")) {
+    return "不击杀，蓄力";
+  }
+  return targetNames || "无目标";
+}
+
+export function setHumanNightActionPlan(state, input = {}) {
+  const action = getHumanNightActionState(state);
+  if (!action.available) {
+    return { ok: false, reason: action.reason };
+  }
+
+  const normalized = normalizeHumanActionPlan(action, input);
+  if (!normalized.ok) {
+    return normalized;
+  }
+  const plan = normalized.plan;
 
   state.humanNightPlan = {
     night: action.nightNumber,
+    ...plan,
     roleId: action.roleId,
-    targetIds: unique,
+    selectedRoleId: plan.roleId,
   };
 
-  const targetNames = unique
-    .map((targetId) => getPlayerById(state, targetId)?.name ?? targetId)
-    .join(" / ");
+  const targetNames = describeActionPlan(state, action, plan);
   const human = getHumanPlayer(state);
   addLog(state, "night-plan", `[夜间预设] 第${action.nightNumber}夜 ${action.roleName} -> ${targetNames}`, {
     private: true,
@@ -850,8 +1078,50 @@ export function setHumanNightActionPlan(state, { targetIds }) {
     ok: true,
     nightNumber: action.nightNumber,
     roleName: action.roleName,
-    targetIds: unique,
+    targetIds: plan.targetIds,
+    plan,
     targetNames,
+  };
+}
+
+export function setHumanDayActionPlan(state, input = {}) {
+  const action = getHumanDayActionState(state);
+  if (!action.available) {
+    return { ok: false, reason: action.reason };
+  }
+  const normalized = normalizeHumanActionPlan(action, input);
+  if (!normalized.ok) {
+    return normalized;
+  }
+  const plan = normalized.plan;
+  state.humanDayPlan = {
+    day: action.dayNumber,
+    ...plan,
+    roleId: action.roleId,
+    selectedRoleId: plan.roleId,
+  };
+  const human = getHumanPlayer(state);
+  if (state.scriptId === "snv" && action.roleId === SNV.JUGGLER) {
+    state.snv = state.snv ?? createSNVState();
+    state.snv.jugglerGuessesByDay[human.id] = {
+      day: action.dayNumber,
+      resolved: false,
+      guesses: [...(plan.guesses ?? [])],
+    };
+    markHumanAbilityUsed(state, action.roleId);
+  }
+  const summary = describeActionPlan(state, action, plan);
+  addLog(state, "day-plan", `[白天行动] 第${action.dayNumber}天 ${action.roleName} -> ${summary}`, {
+    private: true,
+    playerId: human?.id,
+  });
+  return {
+    ok: true,
+    dayNumber: action.dayNumber,
+    roleName: action.roleName,
+    targetIds: plan.targetIds,
+    plan,
+    targetNames: summary,
   };
 }
 
@@ -931,7 +1201,7 @@ export function clearGrimoireNote(state, { playerId }) {
   return { ok: true };
 }
 
-function consumeHumanNightPlanTargets(state, actor, targetCount, { allowSelf = false, allowDead = false } = {}) {
+function consumeHumanNightPlan(state, actor, { allowSelf = false, allowDead = false, minTargets = null, maxTargets = null } = {}) {
   if (!actor?.isHuman) {
     return null;
   }
@@ -943,13 +1213,10 @@ function consumeHumanNightPlanTargets(state, actor, targetCount, { allowSelf = f
     return null;
   }
 
-  const unique = [];
-  (plan.targetIds ?? []).forEach((targetId) => {
-    if (targetId && !unique.includes(targetId)) {
-      unique.push(targetId);
-    }
-  });
-  if (unique.length !== targetCount) {
+  const unique = uniqueStrings(plan.targetIds);
+  const min = minTargets === null ? unique.length : minTargets;
+  const max = maxTargets === null ? unique.length : maxTargets;
+  if (unique.length < min || unique.length > max) {
     return null;
   }
 
@@ -974,7 +1241,22 @@ function consumeHumanNightPlanTargets(state, actor, targetCount, { allowSelf = f
 
   markHumanAbilityUsed(state, plan.roleId);
   state.humanNightPlan = null;
-  return resolved;
+  return {
+    ...plan,
+    targetIds: unique,
+    targets: resolved,
+    role: plan.selectedRoleId ? getRoleById(state.scriptId, plan.selectedRoleId) : null,
+  };
+}
+
+function consumeHumanNightPlanTargets(state, actor, targetCount, { allowSelf = false, allowDead = false } = {}) {
+  const plan = consumeHumanNightPlan(state, actor, {
+    allowSelf,
+    allowDead,
+    minTargets: targetCount,
+    maxTargets: targetCount,
+  });
+  return plan?.targets ?? null;
 }
 
 function isAbilityBlocked(player, state = null) {
@@ -1204,6 +1486,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       infoPings: [],
       speeches: [],
     },
+    aiAgents: {},
     utteranceArchive: createEmptyUtteranceArchive(),
     demonBluffs: [],
     gameOver: false,
@@ -1351,6 +1634,13 @@ function markNightDeath(state, victim, reason, payload = {}) {
     reason,
     ...payload,
   });
+  recordDeathForAgents(state, {
+    playerId: victim.id,
+    roleId: victim.roleId,
+    reason,
+    phase: "night",
+    payload,
+  });
   addLog(state, "death", `${victim.name} 在夜晚死亡。`, { victimId: victim.id, reason });
   return true;
 }
@@ -1366,6 +1656,13 @@ function markExecutionDeath(state, victim, reason, payload = {}) {
     roleId: victim.roleId,
     reason,
     ...payload,
+  });
+  recordDeathForAgents(state, {
+    playerId: victim.id,
+    roleId: victim.roleId,
+    reason,
+    phase: "day",
+    payload,
   });
   addLog(state, "execution", `${victim.name} 被处决。`, { nomineeId: victim.id, reason });
   if (state.tb) {
@@ -1771,6 +2068,7 @@ function createTBRoleContext(state, rng = Math.random) {
     checkWin,
     chooseOne: (list) => chooseOne(list, rng),
     clamp,
+    consumeHumanNightPlan,
     consumeHumanNightPlanTargets,
     getAlivePlayers,
     getAllRoles,
@@ -1805,6 +2103,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     aliveNeighbors,
     chooseOne: (list) => chooseOne(list, rng),
     chooseRandomAliveExcluding: (gameState, excludedIds) => chooseRandomAliveExcluding(gameState, excludedIds, rng),
+    consumeHumanNightPlan,
     consumeHumanNightPlanTargets,
     finalizeWinner,
     getAliveDemons,
@@ -1834,6 +2133,7 @@ function createSNVRoleContext(state, rng = Math.random) {
     checkWin,
     chooseOne: (list) => chooseOne(list, rng),
     chooseRandomAliveExcluding: (gameState, excludedIds) => chooseRandomAliveExcluding(gameState, excludedIds, rng),
+    consumeHumanNightPlan,
     finalizeWinner,
     getAliveDemons,
     getAlivePlayers,
@@ -2064,7 +2364,7 @@ function distortNumericInfo(truth, min, max, shouldDistort, rng = Math.random) {
   return chooseOne(choices, rng) ?? boundedTruth;
 }
 
-function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Math.random) {
+function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Math.random, forcedPlan = null) {
   const candidates = state.players.filter((entry) => entry.id !== actor.id);
   if (candidates.length === 0) {
     return null;
@@ -2233,7 +2533,18 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
     if (state.snv?.artistUsedByIds?.includes(actor.id)) {
       return null;
     }
-    const truth = target.team === "evil";
+    const question = `${forcedPlan?.question ?? ""}`.trim();
+    const lowerQuestion = question.toLowerCase();
+    let truth = target.team === "evil";
+    if (/(恶魔|demon)/i.test(question)) {
+      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.category === "demon");
+    } else if (/(爪牙|minion)/i.test(question)) {
+      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.category === "minion");
+    } else if (/(邪恶|evil|坏人)/i.test(question)) {
+      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.team === "evil");
+    } else if (/(存活|活着|alive)/i.test(question)) {
+      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.alive);
+    }
     let report = truth;
     if (blocked || vortoxActive) {
       report = !truth;
@@ -2245,7 +2556,9 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth,
       reported: report,
       polluted: blocked || vortoxActive,
-      text: `你对 ${target.name} 的问题得到答案：${report ? "是" : "否"}。`,
+      text: question
+        ? `你询问“${question}”，得到答案：${report ? "是" : "否"}。`
+        : `你的问题得到答案：${report ? "是" : "否"}。`,
     };
   }
 
@@ -2400,11 +2713,23 @@ function runNightSimplified(state, rng = Math.random) {
 
     const rule = getHumanNightRule(state, roleId, state.night);
     let plannedTargets = null;
+    let plannedPlan = null;
     if (actor.isHuman && rule) {
-      plannedTargets = consumeHumanNightPlanTargets(state, actor, rule.targetCount, {
-        allowSelf: !!rule.allowSelf,
-        allowDead: !!rule.allowDead,
-      });
+      const inputType = actionInputType(rule);
+      if (inputType === "question" || inputType === "role") {
+        plannedPlan = consumeHumanNightPlan(state, actor, {
+          allowSelf: !!rule.allowSelf,
+          allowDead: !!rule.allowDead,
+          minTargets: 0,
+          maxTargets: 0,
+        });
+        plannedTargets = plannedPlan?.targets ?? null;
+      } else {
+        plannedTargets = consumeHumanNightPlanTargets(state, actor, rule.targetCount, {
+          allowSelf: !!rule.allowSelf,
+          allowDead: !!rule.allowDead,
+        });
+      }
     }
     if (!plannedTargets && rule && rule.targetCount > 1) {
       plannedTargets = sample(
@@ -2414,7 +2739,7 @@ function runNightSimplified(state, rng = Math.random) {
       );
     }
 
-    const clue = generateInfoClueSimplified(state, actor, plannedTargets, rng);
+    const clue = generateInfoClueSimplified(state, actor, plannedTargets, rng, plannedPlan);
     if (!clue) {
       return;
     }
@@ -2458,7 +2783,9 @@ export function registerClaim(state, playerId, roleId) {
   }
   player.publicClaimRoleId = roleId;
   const roleName = getRoleNameById(state, roleId);
-  state.events.claims.push({ day: state.day, playerId, roleId });
+  const claim = { day: state.day, playerId, roleId, private: false };
+  state.events.claims.push(claim);
+  recordPublicClaimForAgents(state, claim);
   addLog(state, "claim", `${player.name} 声称自己是 ${roleName}。`, { playerId, roleId });
 
   getScriptRuleHandlers("snv").onRegisterClaim?.(createSNVRoleContext(state, Math.random), { player, roleId });
@@ -2531,6 +2858,7 @@ export function resolveNominationAndVote(
   getScriptRuleHandlers("snv").onNominationAccepted?.(createSNVRoleContext(state, rng), { nominator, nominee });
 
   addLog(state, "nomination", `${nominator.name} 提名了 ${nominee.name}。`, { nominatorId, nomineeId });
+  recordNominationForAgents(state, { nominatorId, nomineeId });
 
   if (isVirginTrigger(state, nominator, nominee, rng)) {
     processExecutionDeath(state, nominator, "virgin-trigger", { nomineeId: nominee.id }, rng);
@@ -2601,7 +2929,7 @@ export function resolveNominationAndVote(
 
   getScriptRuleHandlers("snv").onVotesTallied?.(createSNVRoleContext(state, rng), { votes, nominee });
 
-  state.events.votes.push({
+  const voteEvent = {
     day: state.day,
     nominatorId,
     nomineeId,
@@ -2609,7 +2937,9 @@ export function resolveNominationAndVote(
     threshold,
     votes,
     passed,
-  });
+  };
+  state.events.votes.push(voteEvent);
+  recordVoteForAgents(state, voteEvent);
 
   addLog(
     state,
