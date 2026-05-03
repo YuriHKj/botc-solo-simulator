@@ -160,6 +160,65 @@ function testJugglerGuesses() {
   assert.equal(state.snv.jugglerGuessesByDay[human(state).id].guesses.length, 2);
 }
 
+function testProfessorInteractionMetadata() {
+  const state = startGame("bmr", "professor");
+  runNight(state, fixedRng());
+  const deadTownsfolk = firstOther(state, (entry) => entry.category === "townsfolk");
+  deadTownsfolk.alive = false;
+
+  const action = getHumanNightActionState(state);
+  assert.equal(action.available, true, action.reason);
+  assert.equal(action.roleId, "professor");
+  assert.equal(action.interaction.title, "教授的禁忌讲堂");
+  assert.equal(action.options.some((entry) => entry.id === deadTownsfolk.id), true);
+}
+
+function testSnakeCharmerHitGivesPrivateInfo() {
+  const state = startGame("snv", "snake-charmer");
+  const demon = state.players.find((entry) => entry.category === "demon");
+  assert.ok(demon, "expected a demon target");
+
+  const action = getHumanNightActionState(state);
+  assert.equal(action.available, true, action.reason);
+  const planned = setHumanNightActionPlan(state, { targetIds: [demon.id] });
+  assert.equal(planned.ok, true, planned.reason);
+  runNight(state, fixedRng());
+
+  assert.equal(human(state).category, "demon", "Snake Charmer should become the demon after hitting a demon");
+  assert.equal(
+    human(state).privateNotes.some((entry) => entry.includes("舞蛇人") && entry.includes("身份已交换")),
+    true,
+    "human Snake Charmer should receive explicit swap information"
+  );
+}
+
+function testSageQueuesInfoAction() {
+  const state = startGame("snv", "sage");
+  runNight(state, fixedRng());
+
+  state.players
+    .filter((entry) => !entry.isHuman && entry.team === "good")
+    .forEach((entry) => {
+      entry.alive = false;
+    });
+  runNight(state, fixedRng());
+
+  const action = getPendingStorytellerActionState(state);
+  assert.equal(action.available, true);
+  assert.equal(action.type, "sage-info");
+  assert.equal(action.inputType, "info");
+  assert.ok(action.informationText.includes("贤者"));
+
+  const result = resolvePendingStorytellerAction(state, {});
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(state.pendingStorytellerActions.length, 0);
+  assert.equal(
+    human(state).privateNotes.some((entry) => entry.includes("贤者") && entry.includes("恶魔")),
+    true,
+    "resolved Sage info should be written to human private notes"
+  );
+}
+
 function testMoonchildQueuesStorytellerAction() {
   const state = startGame("bmr", "moonchild");
   runNight(state, fixedRng());
@@ -204,6 +263,9 @@ function testKlutzQueuesStorytellerAction() {
   testCerenovusPlayerRole,
   testPitHagPlayerRole,
   testJugglerGuesses,
+  testProfessorInteractionMetadata,
+  testSnakeCharmerHitGivesPrivateInfo,
+  testSageQueuesInfoAction,
   testMoonchildQueuesStorytellerAction,
   testKlutzQueuesStorytellerAction,
 ].forEach((test) => test());

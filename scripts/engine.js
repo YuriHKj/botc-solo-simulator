@@ -352,6 +352,7 @@ export function getPendingStorytellerActionState(state) {
     roleName: action.roleName ?? "Storyteller",
     roleIcon: action.roleIcon ?? null,
     inputType: action.inputType ?? "player-target",
+    informationText: action.informationText ?? "",
     targetCount: action.targetCount ?? 1,
     minTargetCount: action.minTargetCount ?? action.targetCount ?? 1,
     maxTargetCount: action.maxTargetCount ?? action.targetCount ?? 1,
@@ -475,6 +476,23 @@ function resolveBarberAction(state, action, targetIds) {
   return { ok: true, message: `已交换 ${a.name} 与 ${b.name} 的角色。` };
 }
 
+function resolveSageInfoAction(state, action) {
+  const actor = getPlayerById(state, action.actorId);
+  if (!actor || !state.snv) {
+    return { ok: false, reason: "贤者信息目标无效。" };
+  }
+  const text = action.informationText || "你作为贤者获得了一条恶魔相关信息。";
+  addPrivateInfo(state, actor, text);
+  state.events.infoPings.push({
+    night: action.createdNight,
+    actorId: actor.id,
+    type: "sage",
+    targetIds: action.targetIds ?? [],
+    text,
+  });
+  return { ok: true, message: "贤者信息已记录。" };
+}
+
 export function resolvePendingStorytellerAction(state, input = {}) {
   const action = ensureStorytellerActionQueue(state)[0] ?? null;
   if (!action) {
@@ -490,6 +508,7 @@ export function resolvePendingStorytellerAction(state, input = {}) {
     "moonchild-choice": resolveMoonchildAction,
     "klutz-choice": resolveKlutzAction,
     "barber-swap": resolveBarberAction,
+    "sage-info": resolveSageInfoAction,
   };
   const handler = handlers[action.type];
   if (!handler) {

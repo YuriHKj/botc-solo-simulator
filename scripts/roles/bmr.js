@@ -96,6 +96,16 @@ export const BMR_ROLE_ACTION_RULES = {
     minNight: 2,
     maxUses: 1,
     prompt: "Choose 1 dead player to attempt to revive.",
+    interaction: {
+      title: "教授的禁忌讲堂",
+      subtitle: "选择一名死亡镇民，尝试将其复活。",
+      style: "ward",
+      badge: "复活尝试",
+      targetLabels: ["复活对象"],
+      helper: "第一版按当前引擎规则：只能选择死亡镇民，成功后恢复存活并保留鬼票状态。",
+      confirmText: "尝试复活",
+      skipText: "让系统代选",
+    },
   },
   [BMR.DEVILS_ADVOCATE]: {
     kind: "player-target",

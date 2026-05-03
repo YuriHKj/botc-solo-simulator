@@ -390,6 +390,20 @@ export function runSectsAndVioletsNight(ctx) {
           charmerId: charmer.id,
           demonId: target.id,
         });
+        if (charmer.isHuman) {
+          addPrivateInfo(
+            state,
+            charmer,
+            `[第${state.night}夜] 你作为舞蛇人选中了恶魔 ${target.name}，你们的身份已交换；你现在是 ${charmer.roleName}。`
+          );
+        }
+        if (target.isHuman) {
+          addPrivateInfo(
+            state,
+            target,
+            `[第${state.night}夜] 舞蛇人选中了你，你们的身份已交换；你现在是 ${target.roleName}。`
+          );
+        }
       }
     });
 
@@ -608,7 +622,7 @@ function triggerBarberChoice(ctx, victim) {
 }
 
 function triggerSageInfo(ctx, victim, killerDemonId) {
-  const { state, addPrivateInfo, chooseOne, getPlayerById, shuffle } = ctx;
+  const { state, addPrivateInfo, chooseOne, enqueueStorytellerAction, getPlayerById, shuffle } = ctx;
   if (!state.snv || victim.roleId !== SNV.SAGE) {
     return;
   }
@@ -620,7 +634,36 @@ function triggerSageInfo(ctx, victim, killerDemonId) {
     return;
   }
   const shuffled = shuffle(pair);
-  addPrivateInfo(state, victim, `[第${state.night}夜] 你作为贤者看见两人中有一名恶魔：${shuffled[0].name} / ${shuffled[1].name}。`);
+  const informationText = `[第${state.night}夜] 你作为贤者看见两人中有一名恶魔：${shuffled[0].name} / ${shuffled[1].name}。`;
+  if (victim.isHuman && enqueueStorytellerAction) {
+    enqueueStorytellerAction(state, {
+      type: "sage-info",
+      actorId: victim.id,
+      roleId: SNV.SAGE,
+      roleName: victim.roleName,
+      roleIcon: victim.roleIcon,
+      inputType: "info",
+      targetCount: 0,
+      minTargetCount: 0,
+      maxTargetCount: 0,
+      targetIds: shuffled.map((entry) => entry.id),
+      informationText,
+      prompt: "贤者被恶魔杀死。Storyteller 会告诉你两名玩家，其中一名是恶魔。",
+      phaseLabel: `第${state.night}夜`,
+      interaction: {
+        title: "贤者的最后启示",
+        subtitle: "你被恶魔杀死，Storyteller 低声告诉你一条临终信息。",
+        style: "divination",
+        badge: "死亡信息",
+        helper: "这条信息会进入你的私人夜间信息和事件日志；其他玩家不会自动知道。",
+        confirmText: "记住这条信息",
+        skipText: "直接记录",
+      },
+      logText: "Sage 被恶魔杀死，等待主视角确认贤者信息。",
+    });
+    return;
+  }
+  addPrivateInfo(state, victim, informationText);
 }
 
 function triggerEvilTwinExecutionOutcome(ctx, victim) {

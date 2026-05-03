@@ -39,6 +39,15 @@ Each queued action stores a serializable payload:
 - SnV: Klutz death choice.
 - SnV: Barber swap choice when the demon is human-controlled.
 
+## 2026-05-04 Expansion Scope
+
+This round extends the queue beyond "choose a player" prompts:
+
+- Add an `info` style pending action for triggered information that should visibly pause the flow and ask the human to acknowledge it.
+- SnV Sage uses that path when the human Sage is killed by a demon: the engine precomputes the two-player pair, then the modal shows the information as a Storyteller wake-up.
+- BMR Professor keeps using the normal active night action pipeline, but receives dedicated interaction metadata so the UI no longer looks like a generic target picker.
+- SnV Snake Charmer remains an active night action; when the human Snake Charmer hits a demon and swaps, the human receives explicit private information instead of only seeing a hidden log-side role swap.
+
 ## Known Follow-ups
 
 - Snapshot poisoned/drunk state into queued information actions when exact timing matters.

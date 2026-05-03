@@ -1085,6 +1085,17 @@ function renderNightActionDynamicFields(action) {
   container.innerHTML = "";
   const inputType = action.inputType ?? "player-target";
 
+  if (inputType === "info") {
+    hideModalPlayerTargets();
+    if (action.informationText) {
+      const info = document.createElement("div");
+      info.className = "storyteller-info-card";
+      info.textContent = action.informationText;
+      container.appendChild(info);
+    }
+    return;
+  }
+
   if (inputType === "player-target") {
     showModalPlayerTargets(action);
     return;
@@ -1191,6 +1202,9 @@ function renderNightActionDynamicFields(action) {
 
 function collectNightActionPlan(action) {
   const inputType = action.inputType ?? "player-target";
+  if (inputType === "info") {
+    return {};
+  }
   if (inputType === "player-target") {
     const targetIds = [dom.nightModalTargetA.value];
     if (!dom.nightModalTargetRowB.classList.contains("hidden")) {
