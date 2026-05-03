@@ -5,7 +5,10 @@
   "main": "electron/main.js",
   "scripts": {
     "electron:start": "electron .",
-    "electron:win": "electron-builder --win nsis"
+    "electron:win": "electron-builder --win nsis",
+    "test:role-actions": "node tests/role_action_contracts.mjs",
+    "test:ai-agents": "node tests/ai_agent_contracts.mjs",
+    "test": "npm run test:role-actions && npm run test:ai-agents"
   },
   "devDependencies": {
     "electron": "^31.7.7",

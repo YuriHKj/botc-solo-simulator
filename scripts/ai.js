@@ -2,6 +2,20 @@ import { clamp, getAllRoles, REASON_SNIPPETS, sample } from "./data.js";
 import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
+import {
+  areKnownAllies,
+  countAgentEvidence,
+  ensureAIAgents,
+  getAIAgent,
+  getAgentObservations,
+  getKnownAllyIds,
+  getKnownBluffRoleIds,
+  getVisibleClaims,
+  getVisibleSpeeches,
+  recordPrivateWhisperForAgents,
+  recordPublicClaimForAgents,
+  recordPublicSpeechForAgents,
+} from "./ai_agents.js";
 
 const QUESTION_INTENT = {
   SUSPECT: "suspect",
@@ -241,13 +255,11 @@ function initSuspicionForAI(state, aiPlayer) {
     map[target.id] = prior;
   });
 
-  if (aiPlayer.team === "evil") {
-    state.players
-      .filter((entry) => entry.team === "evil" && entry.id !== aiPlayer.id)
-      .forEach((teammate) => {
-        map[teammate.id] = 0.12;
-      });
-  }
+  getKnownAllyIds(state, aiPlayer).forEach((allyId) => {
+    if (typeof map[allyId] === "number") {
+      map[allyId] = 0.08;
+    }
+  });
 
   aiPlayer.suspicion = map;
 }
@@ -267,20 +279,8 @@ function normalizeSuspicion(aiPlayer) {
   if (entries.length === 0) {
     return;
   }
-  const max = Math.max(...entries.map(([, score]) => score));
-  const min = Math.min(...entries.map(([, score]) => score));
-  const span = max - min;
-  if (span < 0.01) {
-    entries.forEach(([targetId, score]) => {
-      aiPlayer.suspicion[targetId] = clamp(score, 0.18, 0.82);
-    });
-    aiPlayer.suspicion[aiPlayer.id] = 0.01;
-    return;
-  }
-
   entries.forEach(([targetId, score]) => {
-    const normalized = (score - min) / span;
-    aiPlayer.suspicion[targetId] = clamp(0.1 + normalized * 0.82, 0.1, 0.92);
+    aiPlayer.suspicion[targetId] = clamp(score, 0.08, 0.88);
   });
   aiPlayer.suspicion[aiPlayer.id] = 0.01;
 }
@@ -291,7 +291,10 @@ function roleNameById(state, roleId) {
 }
 
 function applyClaimSignals(state, aiPlayer) {
-  const claims = state.events.claims ?? [];
+  const claims = getAgentObservations(state, aiPlayer, "claim").map((observation) => ({
+    playerId: observation.payload?.playerId,
+    roleId: observation.payload?.roleId,
+  }));
   if (claims.length === 0) {
     return;
   }
@@ -321,7 +324,7 @@ function applyClaimSignals(state, aiPlayer) {
     }
   });
 
-  const bluffIds = new Set((state.demonBluffs ?? []).map((entry) => entry.id));
+  const bluffIds = new Set(getKnownBluffRoleIds(state, aiPlayer));
   claims.forEach((claim) => {
     if (bluffIds.has(claim.roleId)) {
       bump(aiPlayer, claim.playerId, 0.06, "bluffHit");
@@ -330,8 +333,7 @@ function applyClaimSignals(state, aiPlayer) {
 }
 
 function applyNominationSignals(state, aiPlayer) {
-  const nominations = (state.logs ?? []).filter((entry) => entry.type === "nomination");
-  nominations.forEach((entry) => {
+  getAgentObservations(state, aiPlayer, "nomination").forEach((entry) => {
     const nominatorId = entry.payload?.nominatorId;
     const nomineeId = entry.payload?.nomineeId;
     if (!nominatorId || !nomineeId) {
@@ -348,9 +350,13 @@ function applyNominationSignals(state, aiPlayer) {
 }
 
 function applyVoteSignals(state, aiPlayer) {
-  (state.events.votes ?? []).forEach((event) => {
-    const nomineeHeat = aiPlayer.suspicion?.[event.nomineeId] ?? 0.5;
-    (event.votes ?? []).forEach((detail) => {
+  getAgentObservations(state, aiPlayer, "vote").forEach((event) => {
+    const payload = event.payload ?? {};
+    if (!payload.nomineeId) {
+      return;
+    }
+    const nomineeHeat = aiPlayer.suspicion?.[payload.nomineeId] ?? 0.5;
+    (payload.votes ?? []).forEach((detail) => {
       if (detail.abstain) {
         return;
       }
@@ -367,14 +373,55 @@ function applyVoteSignals(state, aiPlayer) {
   });
 }
 
+function applyObservedSpeechSignals(state, aiPlayer) {
+  getAgentObservations(state, aiPlayer, "public-speech").forEach((observation) => {
+    const speakerId = observation.payload?.speakerId;
+    const focusId = observation.payload?.focusId;
+    if (!speakerId || speakerId === aiPlayer.id) {
+      return;
+    }
+    const text = normalizeText(observation.text ?? "");
+    if (focusId && focusId !== aiPlayer.id) {
+      const attitude = inferAttitude(observation.text ?? "");
+      if (attitude === "accuse") {
+        bump(aiPlayer, focusId, 0.025, "humanAccuse");
+      } else if (attitude === "defend") {
+        bump(aiPlayer, focusId, -0.02, "humanDefend");
+      }
+    }
+    if (hasAny(text, ACCUSE_WORDS) && !focusId) {
+      bump(aiPlayer, speakerId, 0.015, "privateEvasive");
+    }
+  });
+}
+
+function applyObservedPrivateSignals(state, aiPlayer) {
+  getAgentObservations(state, aiPlayer, "private-whisper").forEach((observation) => {
+    const speakerId = observation.payload?.speakerId;
+    const focusId = observation.payload?.focusId;
+    if (!speakerId || speakerId === aiPlayer.id || !focusId || focusId === aiPlayer.id) {
+      return;
+    }
+    const attitude = inferAttitude(observation.text ?? "");
+    if (attitude === "accuse") {
+      bump(aiPlayer, focusId, 0.04, "humanAccuse");
+    } else if (attitude === "defend") {
+      bump(aiPlayer, focusId, -0.035, "humanDefend");
+    }
+  });
+}
+
 function applyNightPatternSignals(state, aiPlayer) {
-  const speeches = state.events.speeches ?? [];
-  (state.events.nightDeaths ?? []).forEach((death) => {
-    const before = speeches
-      .filter((speech) => speech.playerId === death.playerId && !speech.private)
+  getAgentObservations(state, aiPlayer, "night-death").forEach((death) => {
+    const deathPlayerId = death.payload?.playerId;
+    if (!deathPlayerId) {
+      return;
+    }
+    const before = getAgentObservations(state, aiPlayer, "public-speech")
+      .filter((speech) => speech.payload?.speakerId === deathPlayerId)
       .slice(-1)[0];
-    if (before?.focusId) {
-      bump(aiPlayer, before.focusId, 0.06, "nightPattern");
+    if (before?.payload?.focusId) {
+      bump(aiPlayer, before.payload.focusId, 0.06, "nightPattern");
     }
   });
 }
@@ -390,11 +437,12 @@ function applyDialogueBias(aiPlayer) {
 }
 
 function enforceEvilCoordination(state, aiPlayer) {
-  if (aiPlayer.team !== "evil") {
+  const knownAllyIds = getKnownAllyIds(state, aiPlayer);
+  if (knownAllyIds.length === 0) {
     return;
   }
   state.players
-    .filter((entry) => entry.id !== aiPlayer.id && entry.team === "evil")
+    .filter((entry) => entry.id !== aiPlayer.id && knownAllyIds.includes(entry.id))
     .forEach((ally) => {
       if (typeof aiPlayer.suspicion?.[ally.id] === "number") {
         aiPlayer.suspicion[ally.id] = Math.min(aiPlayer.suspicion[ally.id], 0.04);
@@ -713,12 +761,18 @@ function seatTextList(players) {
 }
 
 function composeEvilAllianceResponse(state, aiPlayer, human, analysis) {
-  const evilPlayers = state.players.filter((entry) => entry.team === "evil");
-  const demon = evilPlayers.find((entry) => entry.category === "demon") ?? null;
-  const minions = evilPlayers.filter((entry) => entry.category === "minion");
+  const agent = getAIAgent(state, aiPlayer);
+  const knownAllyIds = new Set(agent?.knownAllyIds ?? []);
+  const demon = agent?.knownDemonId ? getPlayerById(state, agent.knownDemonId) : null;
+  const minions = (agent?.knownMinionIds ?? []).map((id) => getPlayerById(state, id)).filter(Boolean);
   const ranked = rankTargets(aiPlayer, state, 5);
-  const goodFocus = ranked.find((entry) => entry.player.team !== "evil") ?? ranked[0] ?? null;
-  const bluffText = (state.demonBluffs ?? []).map((entry) => entry.name).filter(Boolean).join(" / ");
+  const goodFocus = ranked.find((entry) => !knownAllyIds.has(entry.player.id)) ?? ranked[0] ?? null;
+  const knownBluffIds = new Set(getKnownBluffRoleIds(state, aiPlayer));
+  const bluffText = (state.demonBluffs ?? [])
+    .filter((entry) => knownBluffIds.has(entry.id))
+    .map((entry) => entry.name)
+    .filter(Boolean)
+    .join(" / ");
 
   const lines = ["我们是同阵营，我按互认信息直说。"];
   if (aiPlayer.category === "demon") {
@@ -775,17 +829,22 @@ function collectEvidence(state, aiPlayer, focusPlayer) {
     snippets.push(reason);
   }
 
-  const latestClaim = (state.events.claims ?? []).filter((entry) => entry.playerId === focusPlayer.id).slice(-1)[0];
+  const latestClaim = getVisibleClaims(state, aiPlayer).filter((entry) => entry.playerId === focusPlayer.id).slice(-1)[0];
   if (latestClaim) {
     snippets.push(`该玩家最近报过身份：${roleNameById(state, latestClaim.roleId)}`);
   }
 
-  const latestSpeech = (state.events.speeches ?? [])
-    .filter((entry) => entry.playerId === focusPlayer.id && !entry.private)
+  const latestSpeech = getVisibleSpeeches(state, aiPlayer)
+    .filter((entry) => entry.playerId === focusPlayer.id)
     .slice(-1)[0];
   if (latestSpeech?.line) {
     const concise = latestSpeech.line.length > 26 ? `${latestSpeech.line.slice(0, 26)}...` : latestSpeech.line;
     snippets.push(`该玩家最近公聊重点：${concise}`);
+  }
+
+  const agentEvidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), focusPlayer.id);
+  if (agentEvidenceCount > 0) {
+    snippets.push(`个人视角记录 ${agentEvidenceCount} 条`);
   }
 
   return [...new Set(snippets)].slice(0, 2);
@@ -800,7 +859,12 @@ function pickClaimRole(state, aiPlayer, rng = Math.random) {
   }
 
   if (aiPlayer.team === "evil") {
-    const bluffPool = (state.demonBluffs ?? []).map((entry) => entry.id);
+    let bluffPool = getKnownBluffRoleIds(state, aiPlayer);
+    if (bluffPool.length === 0) {
+      bluffPool = getAllRoles(state.scriptId)
+        .filter((role) => role.team === "good")
+        .map((role) => role.id);
+    }
     if (bluffPool.length > 0) {
       const unused = bluffPool.filter((roleId) => !state.players.some((entry) => entry.publicClaimRoleId === roleId));
       const pool = unused.length > 0 ? unused : bluffPool;
@@ -823,7 +887,7 @@ function maybePrivateClaim(state, aiPlayer, human, rng = Math.random) {
   }
 
   aiPlayer.publicClaimRoleId = roleId;
-  state.events.claims.push({ day: state.day, playerId: aiPlayer.id, roleId });
+  state.events.claims.push({ day: state.day, playerId: aiPlayer.id, roleId, private: true, viewerId: human.id });
   addLog(state, "claim", `${aiPlayer.name} 在私聊中报身份为 ${roleNameById(state, roleId)}。`, {
     playerId: aiPlayer.id,
     viewerId: human.id,
@@ -1034,6 +1098,7 @@ function rotateBy(arr, shift) {
 
 export function initializeAI(state) {
   ensureDialogueState(state);
+  ensureAIAgents(state);
   state.events.speeches = state.events.speeches ?? [];
   state.players
     .filter((player) => !player.isHuman)
@@ -1046,11 +1111,14 @@ export function initializeAI(state) {
 
 export function refreshAIBeliefs(state) {
   ensureDialogueState(state);
+  ensureAIAgents(state);
   state.players
     .filter((player) => !player.isHuman)
     .forEach((aiPlayer) => {
       initSuspicionForAI(state, aiPlayer);
       applyClaimSignals(state, aiPlayer);
+      applyObservedSpeechSignals(state, aiPlayer);
+      applyObservedPrivateSignals(state, aiPlayer);
       applyNominationSignals(state, aiPlayer);
       applyVoteSignals(state, aiPlayer);
       applyNightPatternSignals(state, aiPlayer);
@@ -1078,7 +1146,9 @@ export function runAIDiscussion(state, rng = Math.random) {
     const claimRoleId = pickClaimRole(state, aiPlayer, rng);
     if (claimRoleId) {
       aiPlayer.publicClaimRoleId = claimRoleId;
-      state.events.claims.push({ day: state.day, playerId: aiPlayer.id, roleId: claimRoleId });
+      const claim = { day: state.day, playerId: aiPlayer.id, roleId: claimRoleId, private: false };
+      state.events.claims.push(claim);
+      recordPublicClaimForAgents(state, claim);
       addLog(state, "claim", `${aiPlayer.name} 声称自己是 ${roleNameById(state, claimRoleId)}。`, {
         playerId: aiPlayer.id,
         roleId: claimRoleId,
@@ -1092,6 +1162,13 @@ export function runAIDiscussion(state, rng = Math.random) {
 
     aiPlayer.speechHistory.push({ day: state.day, line: composed.line, focusId: composed.focusId });
     state.events.speeches.push({ day: state.day, playerId: aiPlayer.id, line: composed.line, focusId: composed.focusId, private: false });
+    recordPublicSpeechForAgents(state, {
+      speakerId: aiPlayer.id,
+      text: composed.line,
+      focusId: composed.focusId,
+      roundInDay,
+      orderIndex,
+    });
 
     addLog(state, "speech", `${aiPlayer.name}：${composed.line}`, {
       playerId: aiPlayer.id,
@@ -1171,7 +1248,7 @@ export function runPrivateWhisper(state, { targetId, humanLine, intentHint = QUE
   refreshAIBeliefs(state);
 
   const memory = ensurePairMemory(state, target.id, human.id);
-  const sameEvilTeam = target.team === "evil" && human.team === "evil";
+  const sameEvilTeam = areKnownAllies(state, target, human);
   const composed = sameEvilTeam
     ? composeEvilAllianceResponse(state, target, human, analysis)
     : composePrivateResponse(state, target, human, analysis, question, memory, rng);
@@ -1199,6 +1276,21 @@ export function runPrivateWhisper(state, { targetId, humanLine, intentHint = QUE
     line: composed.response,
     focusId: composed.focusId,
     private: true,
+    viewerId: human.id,
+    targetId: human.id,
+  });
+  recordPrivateWhisperForAgents(state, {
+    speakerId: human.id,
+    targetId: target.id,
+    text: question,
+    intent: analysis.intent,
+  });
+  recordPrivateWhisperForAgents(state, {
+    speakerId: target.id,
+    targetId: human.id,
+    text: composed.response,
+    intent: analysis.intent,
+    focusId: composed.focusId,
   });
 
   pushTimeline(state, {
@@ -1317,7 +1409,7 @@ export function decideAIVote(voter, nominee, state, rng = Math.random) {
   }
 
   if (voter.team === "evil") {
-    if (nominee.team === "evil") {
+    if (areKnownAllies(state, voter, nominee)) {
       return suspicion > 0.9 && rng() < 0.08;
     }
     const shift = personaThresholdShift(voter.aiPersona ?? PERSONA_TYPES.STEADY);
@@ -1382,9 +1474,33 @@ export function chooseAINomination(state) {
   return proposals[0];
 }
 
-export function getAIInsightRows(state) {
-  refreshAIBeliefs(state);
+function snapshotAIBeliefFields(state) {
   return state.players
+    .filter((entry) => !entry.isHuman)
+    .map((player) => ({
+      id: player.id,
+      suspicion: structuredClone(player.suspicion ?? {}),
+      reasonFlags: structuredClone(player.reasonFlags ?? {}),
+      dialogueBias: structuredClone(player.dialogueBias ?? {}),
+    }));
+}
+
+function restoreAIBeliefFields(state, snapshot) {
+  snapshot.forEach((entry) => {
+    const player = getPlayerById(state, entry.id);
+    if (!player) {
+      return;
+    }
+    player.suspicion = entry.suspicion;
+    player.reasonFlags = entry.reasonFlags;
+    player.dialogueBias = entry.dialogueBias;
+  });
+}
+
+export function getAIInsightRows(state) {
+  const snapshot = snapshotAIBeliefFields(state);
+  refreshAIBeliefs(state);
+  const rows = state.players
     .filter((entry) => !entry.isHuman)
     .map((aiPlayer) => {
       const top = getTopTarget(aiPlayer, state);
@@ -1397,4 +1513,6 @@ export function getAIInsightRows(state) {
         reason: top ? summarizeReason(aiPlayer, top.player.id) : "暂无线索",
       };
     });
+  restoreAIBeliefFields(state, snapshot);
+  return rows;
 }
