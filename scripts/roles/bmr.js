@@ -584,21 +584,50 @@ export function runBadMoonRisingNight(ctx) {
       (entry) =>
         entry.alive &&
         getEffectiveRoleId(entry) === BMR.LUNATIC &&
-        isRoleNightWindowOpen(state, BMR.LUNATIC, state.night) &&
-        !isAbilityBlocked(entry, state)
+        isRoleNightWindowOpen(state, state.bmr.lunaticFakeDemonRoleById?.[entry.id] ?? entry.apparentRoleId ?? BMR.LUNATIC, state.night)
     )
     .forEach((lunatic) => {
       markWokeTonight(state, lunatic, "lunatic");
-      const target = pickNightTargets(
-        state,
-        lunatic,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== lunatic.id) },
-        rng
-      )[0];
-      if (target) {
-        addPrivateInfo(state, lunatic, `[第${state.night}夜] 你尝试“攻击”了 ${target.name}（疯子幻觉行动）。`);
+      const perceivedDemonRoleId = state.bmr.lunaticFakeDemonRoleById?.[lunatic.id] ?? lunatic.apparentRoleId ?? BMR.LUNATIC;
+      const planned = lunatic.isHuman
+        ? consumeHumanNightPlan(state, lunatic, {
+            allowSelf: false,
+            allowDead: false,
+            minTargets: 0,
+            maxTargets: perceivedDemonRoleId === BMR.SHABALOTH ? 2 : perceivedDemonRoleId === BMR.PO ? 3 : 1,
+          })
+        : null;
+      let targets = planned?.targets ?? [];
+      if (planned?.mode === "charge" || planned?.mode === "none") {
+        targets = [];
       }
+      if (targets.length === 0 && planned?.mode !== "charge" && planned?.mode !== "none") {
+        targets = pickNightTargets(
+          state,
+          lunatic,
+          perceivedDemonRoleId === BMR.SHABALOTH ? 2 : 1,
+          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== lunatic.id) },
+          rng
+        );
+      }
+      state.bmr.lunaticLastTargetsById[lunatic.id] = targets.map((entry) => entry.id);
+      if (planned?.mode === "charge") {
+        addPrivateInfo(state, lunatic, `[第${state.night}夜] 你选择了不攻击并“蓄力”（疯子幻觉行动）。`);
+      } else if (targets.length > 0) {
+        addPrivateInfo(
+          state,
+          lunatic,
+          `[第${state.night}夜] 你尝试“攻击”了 ${targets.map((entry) => entry.name).join(" / ")}（疯子幻觉行动）。`
+        );
+      }
+      const demonInfo = targets.length > 0
+        ? `${lunatic.name} 今晚选择了 ${targets.map((entry) => entry.name).join(" / ")}。`
+        : `${lunatic.name} 今晚没有选择击杀目标。`;
+      state.players
+        .filter((entry) => entry.category === "demon")
+        .forEach((demonPlayer) => {
+          addPrivateInfo(state, demonPlayer, `[第${state.night}夜] 疯子行动情报：${demonInfo}`);
+        });
     });
 
   const demon = getAliveDemons(state)[0];
@@ -751,9 +780,18 @@ function onSetup(ctx) {
         state.players.filter((entry) => entry.id !== lunatic.id),
         Math.min(state.setupCounts.minion, Math.max(1, state.players.length - 1))
       );
-      const fakeBluffs = sample(allRoles.filter((entry) => entry.category === "townsfolk"), 3)
-        .map((entry) => entry.name)
-        .join(" / ");
+      const fakeBluffRoles = sample(allRoles.filter((entry) => entry.category === "townsfolk"), 3);
+      const fakeBluffs = fakeBluffRoles.map((entry) => entry.name).join(" / ");
+      if (fakeDemon) {
+        lunatic.apparentRoleId = fakeDemon.id;
+        lunatic.apparentRoleName = fakeDemon.name;
+        lunatic.apparentRoleIcon = fakeDemon.icon ?? null;
+        lunatic.apparentCategory = fakeDemon.category;
+        lunatic.apparentTeam = fakeDemon.team;
+        state.bmr.lunaticFakeDemonRoleById[lunatic.id] = fakeDemon.id;
+      }
+      state.bmr.lunaticFakeMinionIdsById[lunatic.id] = fakeMinions.map((entry) => entry.id);
+      state.bmr.lunaticFakeBluffRoleIdsById[lunatic.id] = fakeBluffRoles.map((entry) => entry.id);
       addPrivateInfo(
         state,
         lunatic,
@@ -762,6 +800,18 @@ function onSetup(ctx) {
           .join(" / ")}。不在场善良角色：${fakeBluffs}。`
       );
     });
+
+  const lunatics = state.players.filter((entry) => entry.roleId === BMR.LUNATIC);
+  const lunaticSummary = lunatics
+    .map((entry) => `${entry.name}（以为自己是 ${entry.apparentRoleName ?? "恶魔"}）`)
+    .join(" / ");
+  if (lunaticSummary) {
+    state.players
+      .filter((entry) => entry.category === "demon")
+      .forEach((demon) => {
+        addPrivateInfo(state, demon, `[开局] 你知道疯子信息：${lunaticSummary}。`);
+      });
+  }
 }
 
 function refreshTeaLadyProtection(ctx) {

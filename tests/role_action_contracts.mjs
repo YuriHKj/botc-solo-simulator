@@ -5,6 +5,7 @@ import {
   createNewGame,
   getHumanDayActionState,
   getHumanNightActionState,
+  getPerceivedRoleId,
   getPendingStorytellerActionState,
   markPublicDiscussionRound,
   resolveNominationAndVote,
@@ -95,6 +96,43 @@ function testPoChargeAndMultiKill() {
   runNight(state, fixedRng());
   assert.equal(state.bmr.poCharged, false, "charged Po should reset after attacking");
   targets.forEach((target) => assert.equal(target.alive, false, "chosen Po target should die"));
+}
+
+function testLunaticUsesPerceivedDemonActionWithoutKilling() {
+  const state = startGame("bmr", "lunatic");
+  assert.equal(human(state).roleId, "lunatic", "human should objectively be Lunatic");
+  assert.notEqual(getPerceivedRoleId(human(state)), "lunatic", "human Lunatic should perceive a demon role");
+
+  runNight(state, fixedRng());
+  const action = getHumanNightActionState(state);
+  assert.equal(action.available, true, action.reason);
+  assert.equal(action.roleId, getPerceivedRoleId(human(state)), "Lunatic UI should use perceived demon action");
+
+  const targets = state.players
+    .filter((entry) => !entry.isHuman && entry.alive)
+    .slice(0, action.maxTargetCount ?? action.targetCount ?? 1);
+  const targetIds = targets.map((entry) => entry.id);
+  const planInput =
+    action.inputType === "charge-or-targets"
+      ? { mode: "kill", targetIds: targetIds.slice(0, Math.max(1, action.minTargetCount ?? 1)) }
+      : { targetIds: targetIds.slice(0, action.targetCount ?? 1) };
+  const result = setHumanNightActionPlan(state, planInput);
+  assert.equal(result.ok, true, result.reason);
+
+  const trueDemon = state.players.find((entry) => entry.category === "demon");
+  if (trueDemon) {
+    trueDemon.roleId = "zombuul";
+    trueDemon.roleName = "Zombuul";
+    state.events.executions.push({ day: state.day, nomineeId: "test", died: true });
+  }
+  runNight(state, fixedRng());
+
+  const chosenIds = state.bmr.lunaticLastTargetsById[human(state).id] ?? [];
+  assert.ok(chosenIds.length > 0, "Lunatic choice should be recorded for demon information");
+  chosenIds.forEach((targetId) => {
+    const target = state.players.find((entry) => entry.id === targetId);
+    assert.equal(target?.alive, true, "Lunatic perceived attack should not kill targets");
+  });
 }
 
 function testPhilosopherRoleChoice() {
@@ -258,6 +296,7 @@ function testKlutzQueuesStorytellerAction() {
 [
   testGamblerPlayerRole,
   testPoChargeAndMultiKill,
+  testLunaticUsesPerceivedDemonActionWithoutKilling,
   testPhilosopherRoleChoice,
   testArtistQuestion,
   testCerenovusPlayerRole,

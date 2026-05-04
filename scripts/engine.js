@@ -176,6 +176,8 @@ function makePlayerBase(playerId, name, seatIndex, isHuman) {
     apparentRoleId: null,
     apparentRoleName: null,
     apparentRoleIcon: null,
+    apparentCategory: null,
+    apparentTeam: null,
     category: null,
     team: null,
     tags: [],
@@ -195,6 +197,8 @@ function setRole(player, roleEntry) {
   player.apparentRoleId = roleEntry.id;
   player.apparentRoleName = roleEntry.name;
   player.apparentRoleIcon = roleEntry.icon ?? null;
+  player.apparentCategory = roleEntry.category;
+  player.apparentTeam = roleEntry.team;
   player.category = roleEntry.category;
   player.team = roleEntry.team;
   player.tags = [...roleEntry.tags];
@@ -244,6 +248,8 @@ function assignDrunkMask(state, rng = Math.random) {
     player.apparentRoleId = maskRole.id;
     player.apparentRoleName = maskRole.name;
     player.apparentRoleIcon = maskRole.icon ?? null;
+    player.apparentCategory = maskRole.category;
+    player.apparentTeam = maskRole.team;
   });
 }
 
@@ -599,11 +605,25 @@ export function getEffectiveRoleId(player) {
   return player.roleId === TB.DRUNK ? player.apparentRoleId : player.roleId;
 }
 
+export function getPerceivedRoleId(player) {
+  if (!player) {
+    return null;
+  }
+  return player.apparentRoleId ?? player.roleId;
+}
+
 export function getEffectiveRoleName(player) {
   if (!player) {
     return null;
   }
   return player.roleId === TB.DRUNK ? player.apparentRoleName : player.roleName;
+}
+
+export function getPerceivedRoleName(player) {
+  if (!player) {
+    return null;
+  }
+  return player.apparentRoleName ?? player.roleName;
 }
 
 
@@ -615,6 +635,13 @@ function getEffectiveRoleIcon(player) {
   return player.roleId === TB.DRUNK ? player.apparentRoleIcon : player.roleIcon;
 }
 
+function getPerceivedRoleIcon(player) {
+  if (!player) {
+    return null;
+  }
+  return player.apparentRoleIcon ?? player.roleIcon;
+}
+
 export function publicRoleIcon(state, player, grimoireView) {
   if (!player) {
     return null;
@@ -623,7 +650,7 @@ export function publicRoleIcon(state, player, grimoireView) {
     return player.roleIcon;
   }
   if (player.isHuman) {
-    return player.roleIcon ?? getEffectiveRoleIcon(player);
+    return getPerceivedRoleIcon(player);
   }
   if (player.publicClaimRoleId) {
     const role = getRoleById(state.scriptId, player.publicClaimRoleId);
@@ -969,8 +996,8 @@ export function getHumanNightActionState(state) {
   }
 
   const nightNumber = nextNightNumber(state);
-  const roleId = getEffectiveRoleId(human);
-  const roleName = getEffectiveRoleName(human) ?? human.roleName;
+  const roleId = getPerceivedRoleId(human);
+  const roleName = getPerceivedRoleName(human) ?? human.roleName;
   const rule = normalizeActionRuleForState(state, roleId, getHumanNightRule(state, roleId, nightNumber));
   if (!rule) {
     return { available: false, reason: `第${nightNumber}夜你没有可选的主动夜间操作。` };
@@ -1016,8 +1043,8 @@ export function getHumanDayActionState(state) {
     return { available: false, reason: "你已死亡，无法发动白天主动技能。" };
   }
 
-  const roleId = getEffectiveRoleId(human);
-  const roleName = getEffectiveRoleName(human) ?? human.roleName;
+  const roleId = getPerceivedRoleId(human);
+  const roleName = getPerceivedRoleName(human) ?? human.roleName;
   const rule = normalizeActionRuleForState(state, roleId, HUMAN_DAY_RULES_BY_SCRIPT[state.scriptId]?.[roleId]);
   if (!rule) {
     return { available: false, reason: "你的角色当前没有白天主动技能。" };
@@ -1081,6 +1108,10 @@ function createBMRState() {
     lastDayOutsiderExecuted: false,
     lastDayMinionExecuted: false,
     wokeTonightByPlayerId: {},
+    lunaticFakeDemonRoleById: {},
+    lunaticFakeMinionIdsById: {},
+    lunaticFakeBluffRoleIdsById: {},
+    lunaticLastTargetsById: {},
     abilityInterferenceCountLastNight: 0,
   };
 }
@@ -1439,7 +1470,8 @@ function consumeHumanNightPlan(state, actor, { allowSelf = false, allowDead = fa
   if (!plan) {
     return null;
   }
-  if (plan.night !== state.night || plan.roleId !== getEffectiveRoleId(actor)) {
+  const validRoleIds = new Set([getEffectiveRoleId(actor), getPerceivedRoleId(actor)].filter(Boolean));
+  if (plan.night !== state.night || !validRoleIds.has(plan.roleId)) {
     return null;
   }
 
@@ -1565,7 +1597,7 @@ export function publicRoleLabel(state, player, grimoireView) {
     return publicRoleLabelForGrimoire(player);
   }
   if (player.isHuman) {
-    return player.roleName ?? getEffectiveRoleName(player);
+    return getPerceivedRoleName(player) ?? player.roleName;
   }
   if (player.publicClaimRoleId) {
     const role = getAllRoles(state.scriptId).find((entry) => entry.id === player.publicClaimRoleId);
@@ -1650,6 +1682,8 @@ function swapHumanToPreferredRole(players, preferredHumanRoleId) {
     apparentRoleId: human.apparentRoleId,
     apparentRoleName: human.apparentRoleName,
     apparentRoleIcon: human.apparentRoleIcon,
+    apparentCategory: human.apparentCategory,
+    apparentTeam: human.apparentTeam,
     category: human.category,
     team: human.team,
     tags: [...(human.tags ?? [])],
@@ -1661,6 +1695,8 @@ function swapHumanToPreferredRole(players, preferredHumanRoleId) {
   human.apparentRoleId = holder.apparentRoleId;
   human.apparentRoleName = holder.apparentRoleName;
   human.apparentRoleIcon = holder.apparentRoleIcon;
+  human.apparentCategory = holder.apparentCategory;
+  human.apparentTeam = holder.apparentTeam;
   human.category = holder.category;
   human.team = holder.team;
   human.tags = [...(holder.tags ?? [])];
@@ -1671,6 +1707,8 @@ function swapHumanToPreferredRole(players, preferredHumanRoleId) {
   holder.apparentRoleId = humanSnapshot.apparentRoleId;
   holder.apparentRoleName = humanSnapshot.apparentRoleName;
   holder.apparentRoleIcon = humanSnapshot.apparentRoleIcon;
+  holder.apparentCategory = humanSnapshot.apparentCategory;
+  holder.apparentTeam = humanSnapshot.apparentTeam;
   holder.category = humanSnapshot.category;
   holder.team = humanSnapshot.team;
   holder.tags = [...(humanSnapshot.tags ?? [])];
@@ -1762,7 +1800,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
   );
 
   if (human) {
-    const shownRole = getEffectiveRoleName(human) ?? human.roleName;
+    const shownRole = getPerceivedRoleName(human) ?? getEffectiveRoleName(human) ?? human.roleName;
     addLog(state, "setup", `你的身份是 ${shownRole}。`, { private: true, playerId: human.id });
   }
   if (preferredHumanRoleId) {
@@ -1770,7 +1808,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       state,
       "setup",
       preferredApplied
-        ? `测试模式：已指定你的身份为 ${getEffectiveRoleName(human) ?? human?.roleName ?? preferredHumanRoleId}。`
+        ? `测试模式：已指定你的身份为 ${getPerceivedRoleName(human) ?? getEffectiveRoleName(human) ?? human?.roleName ?? preferredHumanRoleId}。`
         : "测试模式：自选身份未命中，已回退随机发牌。",
       { private: true, playerId: human?.id }
     );

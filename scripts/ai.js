@@ -1,5 +1,5 @@
 import { clamp, getAllRoles, getRoleById, REASON_SNIPPETS, sample } from "./data.js";
-import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
+import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPerceivedRoleId, getPlayerById } from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
 import {
@@ -329,6 +329,10 @@ function roleForPlayer(state, player) {
   return getRoleById(state.scriptId, getEffectiveRoleId(player) ?? player?.roleId) ?? null;
 }
 
+function perceivedRoleForPlayer(state, player) {
+  return getRoleById(state.scriptId, getPerceivedRoleId(player) ?? getEffectiveRoleId(player) ?? player?.roleId) ?? null;
+}
+
 function isEarlyInfoRole(role) {
   return !!role?.tags?.includes("info") && (role.tags.includes("firstNight") || role.tags.includes("recurring"));
 }
@@ -339,6 +343,58 @@ function isPowerRole(role) {
 
 function isSafeLowInfoRole(role) {
   return !!role && role.team === "good" && (role.category === "outsider" || role.tags.includes("social") || role.tags.includes("defense"));
+}
+
+export function getAIScriptPressureProfile(state) {
+  const roleIds = new Set(getAllRoles(state.scriptId).map((role) => role.id));
+  return {
+    hasGodfather: roleIds.has("godfather"),
+    hasFangGu: roleIds.has("fang-gu"),
+    hasBaron: roleIds.has("baron"),
+    hasDrunk: roleIds.has("drunk"),
+    hasRecluse: roleIds.has("recluse"),
+    outsiderClaimsRisky: roleIds.has("godfather") || roleIds.has("fang-gu"),
+    outsiderClaimsPlausible: roleIds.has("baron") || roleIds.has("drunk") || roleIds.has("fang-gu"),
+    outsiderBluffsValuable: roleIds.has("godfather") || roleIds.has("fang-gu") || roleIds.has("baron"),
+    cognitiveCoverPlausible: roleIds.has("drunk") || roleIds.has("lunatic"),
+    misregistrationPlausible: roleIds.has("recluse") || roleIds.has("spy"),
+  };
+}
+
+function bluffRoleScore(state, role) {
+  if (!role) {
+    return 0;
+  }
+  const profile = getAIScriptPressureProfile(state);
+  let score = 0;
+  if (role.category === "outsider") {
+    score += profile.outsiderBluffsValuable ? 0.42 : 0.08;
+    if (profile.hasGodfather && role.tags.includes("risk")) {
+      score += 0.08;
+    }
+    if (profile.hasFangGu) {
+      score += 0.12;
+    }
+  }
+  if (role.tags.includes("info") && !role.tags.includes("recurring")) {
+    score += profile.cognitiveCoverPlausible ? 0.18 : 0.08;
+  }
+  if (role.tags.includes("social") || role.tags.includes("defense")) {
+    score += 0.12;
+  }
+  if (role.tags.includes("lateGame") || role.tags.includes("protect") || role.tags.includes("revive")) {
+    score -= 0.12;
+  }
+  return score;
+}
+
+function chooseScriptAwareBluffRoleId(state, bluffPool, rng = Math.random) {
+  const candidates = (bluffPool ?? [])
+    .map((roleId) => getRoleById(state.scriptId, roleId))
+    .filter(Boolean)
+    .map((role) => ({ role, score: bluffRoleScore(state, role) + rng() * 0.08 }))
+    .sort((a, b) => b.score - a.score);
+  return candidates[0]?.role?.id ?? sample(bluffPool, 1, rng)[0] ?? null;
 }
 
 function applyClaimSignals(state, aiPlayer) {
@@ -915,7 +971,9 @@ function pickClaimRole(state, aiPlayer, rng = Math.random) {
     return null;
   }
 
-  if (aiPlayer.team === "evil") {
+  const agent = getAIAgent(state, aiPlayer);
+  const believesEvil = aiPlayer.team === "evil" || agent?.knownSelfTeam === "evil";
+  if (believesEvil) {
     let bluffPool = getKnownBluffRoleIds(state, aiPlayer);
     if (bluffPool.length === 0) {
       bluffPool = getAllRoles(state.scriptId)
@@ -925,11 +983,11 @@ function pickClaimRole(state, aiPlayer, rng = Math.random) {
     if (bluffPool.length > 0) {
       const unused = bluffPool.filter((roleId) => !state.players.some((entry) => entry.publicClaimRoleId === roleId));
       const pool = unused.length > 0 ? unused : bluffPool;
-      return sample(pool, 1, rng)[0] ?? null;
+      return chooseScriptAwareBluffRoleId(state, pool, rng);
     }
   }
 
-  const perceived = getEffectiveRoleId(aiPlayer) ?? aiPlayer.roleId;
+  const perceived = getPerceivedRoleId(aiPlayer) ?? getEffectiveRoleId(aiPlayer) ?? aiPlayer.roleId;
   return perceived ?? null;
 }
 
@@ -939,19 +997,30 @@ function choosePublicClaimRole(state, aiPlayer, roundInDay, rng = Math.random) {
   }
 
   const actualRole = roleForPlayer(state, aiPlayer);
+  const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? actualRole;
+  const profile = getAIScriptPressureProfile(state);
   const suspicion = aiPlayer.suspicion?.[aiPlayer.id] ?? evilPrior(state, aiPlayer);
   const day = state.day ?? 1;
   const pressure = suspicion >= 0.62;
   const forcedLate = day >= 2 && (roundInDay >= 2 || suspicion >= 0.52);
 
   let chance = 0.08;
-  if (actualRole?.category === "outsider") {
+  if (perceivedRole?.category === "outsider") {
     chance += day === 1 ? 0.28 : 0.18;
+    if (profile.outsiderClaimsRisky) {
+      chance -= day === 1 ? 0.13 : 0.06;
+    }
+    if (profile.outsiderClaimsPlausible) {
+      chance += 0.06;
+    }
   }
-  if (isEarlyInfoRole(actualRole)) {
+  if (isEarlyInfoRole(perceivedRole)) {
     chance += day === 1 ? 0.12 : 0.2;
+    if (profile.hasDrunk && day === 1) {
+      chance -= 0.04;
+    }
   }
-  if (isPowerRole(actualRole)) {
+  if (isPowerRole(perceivedRole)) {
     chance -= day === 1 ? 0.22 : 0.1;
   }
   if (pressure) {
@@ -963,7 +1032,9 @@ function choosePublicClaimRole(state, aiPlayer, roundInDay, rng = Math.random) {
   if (!aiPlayer.alive) {
     chance += 0.1;
   }
-  if (aiPlayer.team === "evil") {
+  const agent = getAIAgent(state, aiPlayer);
+  const believesEvil = aiPlayer.team === "evil" || agent?.knownSelfTeam === "evil";
+  if (believesEvil) {
     const bluffRoles = getKnownBluffRoleIds(state, aiPlayer)
       .map((roleId) => getRoleById(state.scriptId, roleId))
       .filter(Boolean);
@@ -986,16 +1057,23 @@ function maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng = Math.rando
   if (aiPlayer.publicClaimRoleId || roundInDay > 2) {
     return "";
   }
-  const role = roleForPlayer(state, aiPlayer);
+  const role = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
+  const profile = getAIScriptPressureProfile(state);
   if (roundInDay > 1 && rng() > 0.42) {
     return "";
   }
   if (role?.category === "outsider") {
-    const lines = [
+    const lines = profile.outsiderClaimsRisky
+      ? [
+          "我这边偏外来者/低信息量，但有教父或方古这类收益点时，我先不给具体身份。",
+          "我可以承认自己偏外来者范围，不过今天不建议把外来者当成免费处决位。",
+          "外来者信息在这个剧本里会被邪恶方利用，我先给范围，具体身份等需要时再补。",
+        ]
+      : [
       "我这边偏低信息量位置，今天可以给范围，但不急着把具体风险说死。",
       "我是偏外来者/低信息位的口径，今天不建议逼所有功能位全跳。",
       "我这边不是强信息位，如果今天要处决我可以再补更具体身份。",
-    ];
+      ];
     return sample(lines, 1, rng)[0] ?? "";
   }
   if (isEarlyInfoRole(role)) {

@@ -40,8 +40,8 @@ function createAgent(player) {
   return {
     version: AGENT_SCHEMA_VERSION,
     ownerId: player.id,
-    knownSelfRoleId: player.roleId ?? null,
-    knownSelfTeam: player.team ?? null,
+    knownSelfRoleId: player.apparentRoleId ?? player.roleId ?? null,
+    knownSelfTeam: player.apparentTeam ?? player.team ?? null,
     knownAllyIds: [],
     knownDemonId: null,
     knownMinionIds: [],
@@ -241,11 +241,19 @@ export function ensureAIAgents(state) {
       const existing = state.aiAgents[player.id] ?? createAgent(player);
       existing.version = AGENT_SCHEMA_VERSION;
       existing.ownerId = player.id;
-      existing.knownSelfRoleId = existing.knownSelfRoleId ?? player.roleId ?? null;
-      existing.knownSelfTeam = existing.knownSelfTeam ?? player.team ?? null;
+      existing.knownSelfRoleId = existing.knownSelfRoleId ?? player.apparentRoleId ?? player.roleId ?? null;
+      existing.knownSelfTeam = existing.knownSelfTeam ?? player.apparentTeam ?? player.team ?? null;
       existing.knownAllyIds = unique(existing.knownAllyIds);
       existing.knownMinionIds = unique(existing.knownMinionIds);
       existing.knownBluffRoleIds = unique(existing.knownBluffRoleIds);
+      if (player.roleId === "lunatic" && state.bmr) {
+        const fakeMinionIds = unique(state.bmr.lunaticFakeMinionIdsById?.[player.id] ?? []);
+        const fakeBluffRoleIds = unique(state.bmr.lunaticFakeBluffRoleIdsById?.[player.id] ?? []);
+        existing.knownAllyIds = unique([...existing.knownAllyIds, ...fakeMinionIds]);
+        existing.knownMinionIds = unique([...existing.knownMinionIds, ...fakeMinionIds]);
+        existing.knownDemonId = existing.knownDemonId ?? player.id;
+        existing.knownBluffRoleIds = unique([...existing.knownBluffRoleIds, ...fakeBluffRoleIds]);
+      }
       existing.observations = Array.isArray(existing.observations) ? existing.observations : [];
       existing.evidenceBook = Array.isArray(existing.evidenceBook) ? existing.evidenceBook : [];
       existing.beliefTrailByPlayerId = existing.beliefTrailByPlayerId ?? {};

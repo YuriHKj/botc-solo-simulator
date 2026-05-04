@@ -9,6 +9,7 @@ import {
 } from "../scripts/engine.js";
 import {
   chooseAINomination,
+  getAIScriptPressureProfile,
   getAIInsightRows,
   initializeAI,
   refreshAIBeliefs,
@@ -172,9 +173,44 @@ function testDayOnePublicDiscussionDoesNotMassClaim() {
   const softDisclosure = (state.events.speeches ?? []).some(
     (speech) =>
       !speech.private &&
-      /有一点早期信息|低信息量位置|不建议今天逼强功能位|不摊身份|全跳身份/.test(speech.line ?? "")
+      /有一点早期信息|低信息量位置|偏外来者|不建议今天逼强功能位|不摊身份|全跳身份|不是强信息位/.test(speech.line ?? "")
   );
   assert.ok(softDisclosure, "day one public discussion should allow soft role/info disclosure without hard-claiming");
+}
+
+function testScriptPressureProfileRecognizesOutsiderIncentives() {
+  const tb = createNewGame({ scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman" }, fixedRng());
+  const bmr = createNewGame({ scriptId: "bmr", playerCount: 9, preferredHumanRoleId: "grandmother" }, fixedRng());
+  const snv = createNewGame({ scriptId: "snv", playerCount: 9, preferredHumanRoleId: "clockmaker" }, fixedRng());
+
+  assert.equal(getAIScriptPressureProfile(tb).outsiderClaimsPlausible, true, "TB should account for Baron/Drunk outsider ambiguity");
+  assert.equal(getAIScriptPressureProfile(bmr).outsiderClaimsRisky, true, "BMR should account for Godfather outsider pressure");
+  assert.equal(getAIScriptPressureProfile(snv).outsiderBluffsValuable, true, "SnV should account for Fang Gu outsider bluff value");
+}
+
+function testLunaticAgentUsesPerceivedDemonKnowledge() {
+  const state = createNewGame({ scriptId: "bmr", playerCount: 9, preferredHumanRoleId: "grandmother" }, fixedRng());
+  const lunatic = state.players.find((player) => !player.isHuman);
+  assert.ok(lunatic, "expected AI player to convert into Lunatic fixture");
+
+  lunatic.roleId = "lunatic";
+  lunatic.roleName = "Lunatic";
+  lunatic.category = "outsider";
+  lunatic.team = "good";
+  lunatic.apparentRoleId = "po";
+  lunatic.apparentRoleName = "Po";
+  lunatic.apparentCategory = "demon";
+  lunatic.apparentTeam = "evil";
+  state.bmr.lunaticFakeDemonRoleById[lunatic.id] = "po";
+  state.bmr.lunaticFakeMinionIdsById[lunatic.id] = [state.players.find((player) => player.id !== lunatic.id).id];
+  state.bmr.lunaticFakeBluffRoleIdsById[lunatic.id] = ["tinker", "moonchild", "gambler"];
+
+  initializeAI(state);
+  const agent = getAIAgent(state, lunatic);
+  assert.equal(agent.knownSelfRoleId, "po", "Lunatic agent should know perceived demon role, not actual Lunatic");
+  assert.equal(agent.knownSelfTeam, "evil", "Lunatic agent should believe they are evil");
+  assert.ok(agent.knownBluffRoleIds.includes("tinker"), "Lunatic agent should receive fake demon bluffs");
+  assert.ok(agent.knownAllyIds.length > 0, "Lunatic agent should receive fake minion allies");
 }
 
 function testPrivateWhisperBecomesPrivateObservationOnlyForParticipant() {
@@ -414,6 +450,8 @@ function testBeliefRefreshConsumesAgentObservations() {
   testNightInfoBecomesPrivateObservation,
   testPublicDiscussionBecomesPublicObservations,
   testDayOnePublicDiscussionDoesNotMassClaim,
+  testScriptPressureProfileRecognizesOutsiderIncentives,
+  testLunaticAgentUsesPerceivedDemonKnowledge,
   testPrivateWhisperBecomesPrivateObservationOnlyForParticipant,
   testDeadAICanStillPrivateWhisper,
   testDeadAICanStillJoinPublicDiscussion,
