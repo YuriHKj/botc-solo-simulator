@@ -1538,6 +1538,27 @@ select:focus-visible {
   }
 }
 
+@keyframes speakingCardPulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.012);
+  }
+}
+
+@keyframes typingCaret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
 @keyframes boardPhaseShift {
   0% {
     filter: brightness(1);
@@ -2965,6 +2986,7 @@ button:disabled {
 }
 
 .chat-bubble {
+  position: relative;
   border-radius: 12px;
   border: 1px solid rgba(255, 225, 170, 0.24);
   background: rgba(8, 12, 18, 0.78);
@@ -2983,7 +3005,42 @@ button:disabled {
 
 .chat-ai-line .chat-bubble {
   border-color: rgba(255, 204, 136, 0.32);
-  background: rgba(22, 14, 10, 0.74);
+  background:
+    linear-gradient(180deg, rgba(48, 29, 13, 0.86), rgba(17, 11, 7, 0.82)),
+    radial-gradient(circle at 10% 0%, rgba(255, 216, 143, 0.12), transparent 48%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 241, 207, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.chat-ai-line .chat-bubble::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 18px;
+  width: 13px;
+  height: 13px;
+  transform: rotate(45deg);
+  border-left: 1px solid rgba(255, 204, 136, 0.28);
+  border-bottom: 1px solid rgba(255, 204, 136, 0.28);
+  background: rgba(38, 23, 12, 0.9);
+}
+
+#chatDramaModal.typing .chat-ai-line .chat-bubble::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 0.9em;
+  margin-left: 3px;
+  border-right: 2px solid rgba(255, 235, 190, 0.92);
+  transform: translateY(2px);
+  animation: typingCaret 0.7s steps(1, end) infinite;
+}
+
+#chatDramaModal.typing .chat-portrait {
+  animation:
+    portraitIdle 3.8s ease-in-out infinite,
+    speakingPulse 0.9s ease-in-out infinite;
 }
 
 .chat-drama-controls {
@@ -3486,6 +3543,20 @@ body.debug-layout .center-bottom {
     0 0 0 1px rgba(174, 230, 255, 0.34),
     0 10px 20px rgba(0, 0, 0, 0.42),
     0 0 16px rgba(103, 196, 255, 0.24);
+  animation:
+    debateIn 0.28s ease both,
+    speakingCardPulse 1.1s ease-in-out infinite;
+}
+
+.debate-item.speaking-now .debate-text::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 0.9em;
+  margin-left: 3px;
+  border-right: 2px solid rgba(255, 231, 184, 0.9);
+  transform: translateY(2px);
+  animation: typingCaret 0.7s steps(1, end) infinite;
 }
 
 .app-shell.viewport-wide #leftPanel,

@@ -4,6 +4,7 @@
   getAIInsightRows,
   initializeAI,
   runAIDiscussion,
+  runAIProactiveWhispers,
   runPrivateWhisper,
 } from "./ai.js";
 import { getAllRoles, SCRIPT_DEFINITIONS } from "./data.js";
@@ -118,6 +119,31 @@ function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = 
     },
   });
   return true;
+}
+
+function runProactiveAIWhispersIfReady({ showFirst = false } = {}) {
+  if (!state || state.gameOver || state.phase !== "day" || state.dayStage !== "private") {
+    return [];
+  }
+  const messages = runAIProactiveWhispers(state, rng);
+  if (messages.length === 0) {
+    return [];
+  }
+  if (showFirst) {
+    showPrivateDialogue({ ...messages[0], keepPrompt: true });
+  }
+  showToast(`${messages.length} 名玩家主动找你私聊。`);
+  refresh();
+  return messages;
+}
+
+function handleAfterNightResolution() {
+  const hasPendingActions = handlePendingStorytellerActions({
+    onDrained: () => runProactiveAIWhispersIfReady({ showFirst: true }),
+  });
+  if (!hasPendingActions) {
+    runProactiveAIWhispersIfReady({ showFirst: true });
+  }
 }
 
 function clampNum(value, min, max, fallback) {
@@ -268,6 +294,7 @@ function hydrateLoadedState(loadedState) {
   loadedState.aiDialogue.activeSpeech = loadedState.aiDialogue.activeSpeech ?? null;
   loadedState.aiDialogue.lastPublicFocusBySpeaker = loadedState.aiDialogue.lastPublicFocusBySpeaker ?? {};
   loadedState.aiDialogue.lastPublicTemplateBySpeaker = loadedState.aiDialogue.lastPublicTemplateBySpeaker ?? {};
+  loadedState.aiDialogue.proactivePrivateByDay = loadedState.aiDialogue.proactivePrivateByDay ?? {};
   loadedState.aiAgents = loadedState.aiAgents ?? {};
   loadedState.utteranceArchive = loadedState.utteranceArchive ?? createEmptyUtteranceArchive();
   ensureUtteranceArchive(loadedState);
@@ -372,7 +399,7 @@ function runNightWithStorytellerPrompt() {
   if (!action.available) {
     state.pendingHumanInfo = [];
     runNight(state, rng);
-    handlePendingStorytellerActions();
+    handleAfterNightResolution();
     return;
   }
 
@@ -386,14 +413,14 @@ function runNightWithStorytellerPrompt() {
       showToast(`已确认夜间行动：${result.targetNames}`);
       state.pendingHumanInfo = [];
       runNight(state, rng);
-      handlePendingStorytellerActions();
+      handleAfterNightResolution();
       return { ok: true };
     },
     onSkip: () => {
       showToast("本夜未手动选择目标，系统将按默认逻辑结算。");
       state.pendingHumanInfo = [];
       runNight(state, rng);
-      handlePendingStorytellerActions();
+      handleAfterNightResolution();
     },
   });
 }

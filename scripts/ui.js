@@ -85,6 +85,7 @@ const QUICK_WHISPER_PROMPTS = QUICK_WHISPER_PROMPT_META.map((entry) => entry.tex
 let selectedQuickWhisperPrompt = QUICK_WHISPER_PROMPTS[0];
 let selectedChatDramaPrompt = QUICK_WHISPER_PROMPTS[0];
 let publicPlaybackTimer = null;
+let chatDramaTypingTimer = null;
 const publicPlayback = {
   key: "",
   day: 0,
@@ -780,12 +781,12 @@ function ensurePublicPlayback(state, timeline) {
       renderDebateStage(lastRenderedState);
     }
     if (publicPlayback.visibleOrder < publicPlayback.maxOrder) {
-      publicPlaybackTimer = setTimeout(advance, 480);
+      publicPlaybackTimer = setTimeout(advance, 920);
       return;
     }
     publicPlaybackTimer = null;
   };
-  publicPlaybackTimer = setTimeout(advance, 180);
+  publicPlaybackTimer = setTimeout(advance, 260);
 }
 
 function shouldQueueDebateItem(item) {
@@ -1997,6 +1998,11 @@ function closeChatDramaModal() {
     return;
   }
   chatDramaTargetId = "";
+  if (chatDramaTypingTimer) {
+    clearInterval(chatDramaTypingTimer);
+    chatDramaTypingTimer = null;
+  }
+  dom.chatDramaModal.classList.remove("typing");
   dom.chatDramaModal.classList.remove("show");
 }
 
@@ -2018,12 +2024,54 @@ function updateChatDramaComposerState(canWhisper = false) {
   if (dom.chatDramaHint) {
     if (!hasTarget) {
       dom.chatDramaHint.textContent = "当前没有可继续追问的私聊对象。";
+    } else if (dom.chatDramaModal?.classList.contains("typing")) {
+      dom.chatDramaHint.textContent = "对方正在组织语言，等他说完再继续追问。";
     } else if (!canWhisper) {
       dom.chatDramaHint.textContent = "当前不在私聊阶段，无法继续追问。";
     } else {
       dom.chatDramaHint.textContent = `你正在和 ${dom.chatDramaSpeaker?.textContent ?? "--"} 私聊，可继续追问。`;
     }
   }
+}
+
+function playChatDramaResponse(response, { animated = true } = {}) {
+  if (!dom.chatDramaResponse) {
+    return;
+  }
+  if (chatDramaTypingTimer) {
+    clearInterval(chatDramaTypingTimer);
+    chatDramaTypingTimer = null;
+  }
+
+  const fullText = `${response ?? "我再想想。"}`
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!animated || fullText.length <= 8) {
+    dom.chatDramaResponse.textContent = fullText;
+    dom.chatDramaModal?.classList.remove("typing");
+    updateChatDramaComposerState(
+      !!lastRenderedState && lastRenderedState.phase === "day" && lastRenderedState.dayStage === "private" && !lastRenderedState.gameOver
+    );
+    return;
+  }
+
+  dom.chatDramaResponse.textContent = "";
+  dom.chatDramaModal?.classList.add("typing");
+  updateChatDramaComposerState(false);
+  let cursor = 0;
+  const step = Math.max(1, Math.ceil(fullText.length / 48));
+  chatDramaTypingTimer = setInterval(() => {
+    cursor = Math.min(fullText.length, cursor + step);
+    dom.chatDramaResponse.textContent = fullText.slice(0, cursor);
+    if (cursor >= fullText.length) {
+      clearInterval(chatDramaTypingTimer);
+      chatDramaTypingTimer = null;
+      dom.chatDramaModal?.classList.remove("typing");
+      updateChatDramaComposerState(
+        !!lastRenderedState && lastRenderedState.phase === "day" && lastRenderedState.dayStage === "private" && !lastRenderedState.gameOver
+      );
+    }
+  }, 28);
 }
 
 function openChatDramaModal(payload) {
@@ -2035,9 +2083,7 @@ function openChatDramaModal(payload) {
   const speakerName = `${payload?.targetName ?? seat}`;
   const personaText = payload?.personaLabel ? `${payload.personaLabel}风格` : "普通风格";
   const question = `${payload?.question ?? "你最怀疑谁？"}`.trim();
-  const response = `${payload?.response ?? "我再想想。"}`
-    .replace(/\s+/g, " ")
-    .trim();
+  const response = `${payload?.response ?? "我再想想。"}`;
 
   const hue = ((Number(payload?.targetSeat ?? 1) * 37) % 360 + 360) % 360;
   dom.chatPortrait.style.setProperty("--portrait-hue", `${hue}`);
@@ -2047,7 +2093,7 @@ function openChatDramaModal(payload) {
   dom.chatDramaTitle.textContent = `私聊 · ${speakerName}`;
   dom.chatDramaSpeaker.textContent = speakerName;
   dom.chatDramaQuestion.textContent = question;
-  dom.chatDramaResponse.textContent = response;
+  dom.chatDramaResponse.textContent = "";
   if (dom.chatDramaInput) {
     dom.chatDramaInput.value = `${payload?.prefillExtra ?? ""}`.trim();
   }
@@ -2064,6 +2110,7 @@ function openChatDramaModal(payload) {
   void dom.chatDramaModal.offsetWidth;
   dom.chatDramaModal.classList.add("chat-refresh");
   dom.chatDramaModal.classList.add("show");
+  playChatDramaResponse(response, { animated: payload?.response !== undefined });
 }
 
 function handleNightActionDismiss() {

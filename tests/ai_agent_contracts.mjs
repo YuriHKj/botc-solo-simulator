@@ -14,6 +14,7 @@ import {
   initializeAI,
   refreshAIBeliefs,
   runAIDiscussion,
+  runAIProactiveWhispers,
   runPrivateWhisper,
 } from "../scripts/ai.js";
 import {
@@ -247,6 +248,27 @@ function testPrivateWhisperBecomesPrivateObservationOnlyForParticipant() {
   );
 }
 
+function testEvilAllyClaimQuestionRevealsRealAndBluffIdentity() {
+  const rng = fixedRng();
+  const state = createNewGame({ scriptId: "tb", playerCount: 9, preferredHumanRoleId: "imp" }, rng);
+  initializeAI(state);
+  runNight(state, rng);
+
+  const evilAlly = state.players.find((player) => !player.isHuman && player.team === "evil");
+  assert.ok(evilAlly, "expected evil AI ally for human demon");
+
+  const result = runPrivateWhisper(
+    state,
+    { targetId: evilAlly.id, humanLine: "你是什么身份？", intentHint: "claim" },
+    fixedRng(223)
+  );
+
+  assert.equal(result.ok, true, result.reason);
+  assert.match(result.response, /自己人/, "evil ally should explicitly acknowledge shared team in private");
+  assert.match(result.response, /真实身份/, "evil ally should reveal true identity to evil teammate when asked role");
+  assert.match(result.response, /台面|伪装/, "evil ally should discuss public bluff cover when asked role");
+}
+
 function testDeadAICanStillPrivateWhisper() {
   const state = makeTBState();
   const target = state.players.find((player) => !player.isHuman);
@@ -294,6 +316,57 @@ function testDeadAICanStillJoinPublicDiscussion() {
   assert.ok(
     state.events.speeches.some((entry) => entry.playerId === deadAI.id && !entry.private),
     "dead AI should still be able to speak in public discussion"
+  );
+}
+
+function testAIProactivelyWhispersWithoutConsumingHumanLimit() {
+  const state = makeTBState();
+  const human = state.players.find((player) => player.isHuman);
+  const target = state.players.find((player) => !player.isHuman && player.privateNotes.length > 0);
+  assert.ok(human, "expected human player");
+  assert.ok(target, "expected an AI with shareable private information");
+
+  const beforeUsed = state.dayStageMeta.privateUsed;
+  const beforeTargeted = [...(state.dayStageMeta.privateTargets ?? [])];
+  const messages = runAIProactiveWhispers(state, fixedRng(228));
+
+  assert.ok(messages.length > 0, "AI should proactively private-whisper when it has useful information");
+  assert.equal(state.dayStageMeta.privateUsed, beforeUsed, "proactive AI whispers should not consume human private slots");
+  assert.deepEqual(
+    state.dayStageMeta.privateTargets ?? [],
+    beforeTargeted,
+    "proactive AI whispers should not mark a human-initiated private target"
+  );
+  assert.ok(
+    state.events.speeches.some((entry) => entry.private && entry.proactive && entry.playerId !== human.id),
+    "proactive private whisper should be stored as private speech"
+  );
+  assert.ok(
+    state.aiDialogue.timeline.some((entry) => entry.mode === "whisper-in" && entry.proactive),
+    "proactive private whisper should appear in the dialogue timeline"
+  );
+}
+
+function testDeadAIPublicDiscussionClaimsAggressively() {
+  const state = makeTBState();
+  const deadAI = state.players.find((player) => !player.isHuman);
+  assert.ok(deadAI, "expected dead AI speaker");
+
+  deadAI.alive = false;
+  deadAI.deathReason = "test-death";
+
+  const result = advanceDayStage(state, "public");
+  assert.equal(result.ok, true, result.reason);
+  runAIDiscussion(state, () => 0.01);
+
+  assert.ok(deadAI.publicClaimRoleId, "dead AI should usually hard-claim instead of staying hidden");
+  assert.ok(
+    (state.events.claims ?? []).some((entry) => entry.playerId === deadAI.id && !entry.private),
+    "dead AI claim should be recorded as public claim evidence"
+  );
+  assert.ok(
+    (state.events.speeches ?? []).some((entry) => entry.playerId === deadAI.id && /我已经死了/.test(entry.line ?? "")),
+    "dead AI public speech should explain that it is sharing post-death information"
   );
 }
 
@@ -453,8 +526,11 @@ function testBeliefRefreshConsumesAgentObservations() {
   testScriptPressureProfileRecognizesOutsiderIncentives,
   testLunaticAgentUsesPerceivedDemonKnowledge,
   testPrivateWhisperBecomesPrivateObservationOnlyForParticipant,
+  testEvilAllyClaimQuestionRevealsRealAndBluffIdentity,
   testDeadAICanStillPrivateWhisper,
   testDeadAICanStillJoinPublicDiscussion,
+  testAIProactivelyWhispersWithoutConsumingHumanLimit,
+  testDeadAIPublicDiscussionClaimsAggressively,
   testNominationAndVoteBecomePublicObservations,
   testAINominationCanPressureNominateWithLowEvidence,
   testObservationWritesEvidenceBook,
