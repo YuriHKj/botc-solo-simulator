@@ -77,6 +77,72 @@ function testGamblerPlayerRole() {
   );
 }
 
+function testCourtierChoosesRoleNotPlayer() {
+  const state = startGame("bmr", "courtier");
+  runNight(state, fixedRng());
+  state.players
+    .filter((entry) => ["sailor", "innkeeper"].includes(entry.roleId) || (!entry.isHuman && entry.roleId === "courtier"))
+    .forEach((entry) => {
+      entry.roleId = "fool";
+      entry.roleName = "Fool";
+    });
+  human(state).poisoned = false;
+
+  const action = getHumanNightActionState(state);
+  assert.equal(action.available, true, action.reason);
+  assert.equal(action.inputType, "role");
+  const result = setHumanNightActionPlan(state, { roleId: "po" });
+  assert.equal(result.ok, true, result.reason);
+  runNight(state, fixedRng());
+
+  assert.ok(
+    Number(state.bmr.suppressedByRoleId.po ?? 0) >= state.night,
+    "Courtier should suppress the selected role rather than a selected player"
+  );
+}
+
+function testGodfatherBonusKillUsesHumanTarget() {
+  const state = startGame("bmr", "godfather");
+  runNight(state, fixedRng());
+  state.bmr.lastDayOutsiderExecuted = true;
+
+  const action = getHumanNightActionState(state);
+  assert.equal(action.available, true, action.reason);
+  assert.equal(action.roleId, "godfather");
+  assert.equal(action.inputType, "player-target");
+
+  const target = firstOther(state, (entry) => entry.alive && entry.category !== "demon");
+  const planned = setHumanNightActionPlan(state, { targetIds: [target.id] });
+  assert.equal(planned.ok, true, planned.reason);
+  runNight(state, fixedRng());
+
+  assert.ok(
+    state.events.nightDeaths.some((entry) => entry.reason === "godfather-bonus-kill" && entry.playerId === target.id),
+    "human Godfather bonus kill should consume the selected target"
+  );
+}
+
+function testGossipDayStatementAction() {
+  const state = startGame("bmr", "gossip");
+  runNight(state, fixedRng());
+  assert.equal(advanceDayStage(state, "public").ok, true);
+
+  const action = getHumanDayActionState(state);
+  assert.equal(action.available, true, action.reason);
+  assert.equal(action.roleId, "gossip");
+  assert.equal(action.inputType, "question");
+
+  const seat = human(state).seatIndex + 1;
+  const result = setHumanDayActionPlan(state, { question: `${seat}号是善良玩家` });
+  assert.equal(result.ok, true, result.reason);
+  runNight(state, fixedRng());
+
+  assert.ok(
+    state.logs.some((entry) => entry.type === "day-skill" && /Gossip 声明已判定/.test(entry.message)),
+    "Gossip statement should be adjudicated at end of day"
+  );
+}
+
 function testPoChargeAndMultiKill() {
   const state = startGame("bmr", "po");
   runNight(state, fixedRng());
@@ -295,6 +361,9 @@ function testKlutzQueuesStorytellerAction() {
 
 [
   testGamblerPlayerRole,
+  testCourtierChoosesRoleNotPlayer,
+  testGodfatherBonusKillUsesHumanTarget,
+  testGossipDayStatementAction,
   testPoChargeAndMultiKill,
   testLunaticUsesPerceivedDemonActionWithoutKilling,
   testPhilosopherRoleChoice,

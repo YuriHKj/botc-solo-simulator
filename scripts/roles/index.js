@@ -1,4 +1,4 @@
-﻿import { BMR_ROLE_ACTION_RULES, BMR_ROLE_DEFINITIONS, BMR_RULE_HANDLERS, runBadMoonRisingNight } from "./bmr.js";
+import { BMR_DAY_ACTION_RULES, BMR_ROLE_ACTION_RULES, BMR_ROLE_DEFINITIONS, BMR_RULE_HANDLERS, runBadMoonRisingNight } from "./bmr.js";
 import { SNV_DAY_ACTION_RULES, SNV_ROLE_ACTION_RULES, SNV_ROLE_DEFINITIONS, SNV_RULE_HANDLERS, runSectsAndVioletsNight } from "./snv.js";
 import { TB_DAY_ACTION_RULES, TB_ROLE_ACTION_RULES, TB_ROLE_DEFINITIONS, TB_RULE_HANDLERS, runTroubleBrewingNight } from "./tb.js";
 
@@ -16,7 +16,7 @@ export const ROLE_ACTION_RULES_BY_SCRIPT = {
 
 export const ROLE_DAY_ACTION_RULES_BY_SCRIPT = {
   tb: TB_DAY_ACTION_RULES,
-  bmr: {},
+  bmr: BMR_DAY_ACTION_RULES,
   snv: SNV_DAY_ACTION_RULES,
 };
 

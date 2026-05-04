@@ -2,7 +2,8 @@
   "name": "botc-solo-simulator",
   "version": "0.2.0",
   "description": "Blood on the Clocktower single-player simulator",
-  "main": "electron/main.js",
+  "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "electron:start": "electron .",
     "electron:win": "electron-builder --win nsis",

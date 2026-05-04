@@ -79,13 +79,24 @@ export const BMR_ROLE_ACTION_RULES = {
     },
   },
   [BMR.COURTIER]: {
-    kind: "player-target",
-    targetCount: 1,
+    kind: "role-choice",
+    inputType: "role",
+    targetCount: 0,
     allowSelf: false,
     allowDead: false,
     minNight: 2,
+    firstNight: false,
     maxUses: 1,
-    prompt: "Choose 1 living player; their role will be suppressed by Courtier.",
+    prompt: "Choose 1 character. That character is drunk for 3 nights and 3 days.",
+    interaction: {
+      title: "侍臣的沉醉封印",
+      subtitle: "选择一个角色，而不是选择一名玩家。该角色能力失效 3 夜 3 天。",
+      style: "ward",
+      badge: "选择角色",
+      helper: "官方规则中侍臣指定的是角色名；若该角色不在场，也会消耗本次能力。",
+      confirmText: "压制该角色",
+      skipText: "让系统代选角色",
+    },
   },
   [BMR.PROFESSOR]: {
     kind: "player-target",
@@ -165,6 +176,25 @@ export const BMR_ROLE_ACTION_RULES = {
       skipText: "让系统代选",
     },
   },
+  [BMR.GODFATHER]: {
+    kind: "player-target",
+    targetCount: 1,
+    allowSelf: false,
+    allowDead: false,
+    minNight: 2,
+    firstNight: false,
+    prompt: "An Outsider died today. Choose 1 living player to kill.",
+    interaction: {
+      title: "教父的额外清算",
+      subtitle: "今天有外来者死亡，因此今晚你会醒来选择一名玩家死亡。",
+      style: "demon",
+      badge: "外来者死亡触发",
+      targetLabels: ["额外死亡"],
+      helper: "只有当天有外来者死亡时才会出现这个行动；首夜只会获得外来者信息，不会杀人。",
+      confirmText: "确认清算",
+      skipText: "让系统代选",
+    },
+  },
   [BMR.ZOMBUUL]: {
     kind: "player-target",
     targetCount: 1,
@@ -183,6 +213,30 @@ export const BMR_ROLE_ACTION_RULES = {
   },
 };
 
+export const BMR_DAY_ACTION_RULES = {
+  [BMR.GOSSIP]: {
+    kind: "statement",
+    inputType: "question",
+    targetCount: 0,
+    allowSelf: true,
+    allowDead: true,
+    minDay: 1,
+    maxUses: 1,
+    usageScope: "day",
+    allowedStages: ["public", "nomination"],
+    prompt: "公开发表 1 条 Gossip 声明。如果声明为真，今晚会有一名玩家死亡。",
+    interaction: {
+      title: "流言蜚语的声明",
+      subtitle: "写下一条公开声明。若 Storyteller 判定为真，今晚额外死亡一名玩家。",
+      style: "divination",
+      badge: "每日一次",
+      helper: "当前本地裁判能识别座位+阵营/类别/角色等常见声明；复杂声明会交给 Storyteller 启发式判定。",
+      confirmText: "公开声明",
+      skipText: "今天不传流言",
+    },
+  },
+};
+
 export const BMR_ROLE_DEFINITIONS = Object.freeze({
   [BMR.GRANDMOTHER]: { id: BMR.GRANDMOTHER, scriptAgnostic: true, phaseHooks: { firstNight: "engine:simplified" } },
   [BMR.SAILOR]: { id: BMR.SAILOR, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.SAILOR], phaseHooks: { eachNight: "engine:simplified" } },
@@ -190,7 +244,7 @@ export const BMR_ROLE_DEFINITIONS = Object.freeze({
   [BMR.EXORCIST]: { id: BMR.EXORCIST, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.EXORCIST], phaseHooks: { otherNight: "engine:simplified" } },
   [BMR.INNKEEPER]: { id: BMR.INNKEEPER, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.INNKEEPER], phaseHooks: { otherNight: "engine:simplified" } },
   [BMR.GAMBLER]: { id: BMR.GAMBLER, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.GAMBLER], phaseHooks: { otherNight: "engine:simplified" } },
-  [BMR.GOSSIP]: { id: BMR.GOSSIP, scriptAgnostic: true, phaseHooks: { dayAction: "engine:simplified" } },
+  [BMR.GOSSIP]: { id: BMR.GOSSIP, scriptAgnostic: true, dayAction: BMR_DAY_ACTION_RULES[BMR.GOSSIP], phaseHooks: { dayAction: "engine:simplified" } },
   [BMR.COURTIER]: { id: BMR.COURTIER, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.COURTIER], phaseHooks: { otherNight: "engine:simplified" } },
   [BMR.PROFESSOR]: { id: BMR.PROFESSOR, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.PROFESSOR], phaseHooks: { otherNight: "engine:simplified" } },
   [BMR.MINSTREL]: { id: BMR.MINSTREL, scriptAgnostic: true, phaseHooks: { onMinionExecution: "engine:simplified" } },
@@ -201,7 +255,7 @@ export const BMR_ROLE_DEFINITIONS = Object.freeze({
   [BMR.MOONCHILD]: { id: BMR.MOONCHILD, scriptAgnostic: true, phaseHooks: { onDeath: "engine:simplified" } },
   [BMR.GOON]: { id: BMR.GOON, scriptAgnostic: true, phaseHooks: { onTargeted: "engine:simplified" } },
   [BMR.LUNATIC]: { id: BMR.LUNATIC, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.LUNATIC], phaseHooks: { setup: "engine:simplified", otherNight: "engine:simplified" } },
-  [BMR.GODFATHER]: { id: BMR.GODFATHER, scriptAgnostic: true, phaseHooks: { setup: "engine:simplified", otherNight: "engine:simplified" } },
+  [BMR.GODFATHER]: { id: BMR.GODFATHER, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.GODFATHER], phaseHooks: { setup: "engine:simplified", otherNight: "engine:simplified" } },
   [BMR.DEVILS_ADVOCATE]: { id: BMR.DEVILS_ADVOCATE, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.DEVILS_ADVOCATE], phaseHooks: { eachNight: "engine:simplified" } },
   [BMR.ASSASSIN]: { id: BMR.ASSASSIN, scriptAgnostic: true, action: BMR_ROLE_ACTION_RULES[BMR.ASSASSIN], phaseHooks: { eachNight: "engine:simplified" } },
   [BMR.MASTERMIND]: { id: BMR.MASTERMIND, scriptAgnostic: true, phaseHooks: { onDemonExecution: "engine:simplified" } },
@@ -378,21 +432,43 @@ export function runBadMoonRisingNight(ctx) {
       if (bmr.courtierUsedByIds.includes(courtier.id)) {
         return;
       }
-      const target = pickNightTargets(
-        state,
-        courtier,
-        1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== courtier.id) },
-        rng
-      )[0];
-      if (!target) {
+      const humanSelectedRoleId = courtier.isHuman
+        ? state.humanNightPlan?.selectedRoleId ?? courtier.courtierPlannedRoleId ?? bmr.courtierPlannedRoleById?.[courtier.id] ?? null
+        : null;
+      let planned = courtier.isHuman
+        ? consumeHumanNightPlan(state, courtier, { allowSelf: false, allowDead: false, minTargets: 0, maxTargets: 0 })
+        : null;
+      if (
+        !planned &&
+        courtier.isHuman &&
+        state.humanNightPlan?.night === state.night &&
+        state.humanNightPlan.roleId === BMR.COURTIER &&
+        state.humanNightPlan.selectedRoleId
+      ) {
+        planned = { ...state.humanNightPlan };
+        state.humanNightPlan = null;
+      }
+      const roleId =
+        humanSelectedRoleId ??
+        planned?.selectedRoleId ??
+        chooseOne(
+          state.players
+            .filter((entry) => entry.id !== courtier.id)
+            .map((entry) => getEffectiveRoleId(entry))
+            .filter(Boolean),
+          rng
+        );
+      if (!roleId) {
         return;
       }
-      const roleId = getEffectiveRoleId(target);
+      if (bmr.courtierPlannedRoleById) {
+        delete bmr.courtierPlannedRoleById[courtier.id];
+      }
+      delete courtier.courtierPlannedRoleId;
       bmr.courtierUsedByIds.push(courtier.id);
       bmr.suppressedByRoleId[roleId] = Math.max(Number(bmr.suppressedByRoleId[roleId] ?? 0), state.night + 2);
       addAbilityInterference(state, state.players.filter((entry) => getEffectiveRoleId(entry) === roleId).length);
-      addLog(state, "night-effect", `Courtier 压制了角色 ${target.roleName}。`, {
+      addLog(state, "night-effect", `Courtier 压制了角色 ${roleId}。`, {
         by: courtier.id,
         targetRoleId: roleId,
       });
@@ -562,7 +638,10 @@ export function runBadMoonRisingNight(ctx) {
     if (godfathers.length > 0) {
       const killer = godfathers[0];
       markWokeTonight(state, killer, "godfather");
-      const target = chooseRandomAliveExcluding(state, [killer.id], rng);
+      const planned = killer.isHuman
+        ? consumeHumanNightPlanTargets(state, killer, 1, { allowSelf: false, allowDead: false })
+        : null;
+      const target = planned?.[0] ?? chooseRandomAliveExcluding(state, [killer.id], rng);
       if (target) {
         processNightDeath(state, target, "godfather-bonus-kill", { by: killer.id }, rng);
       }
@@ -1047,16 +1126,113 @@ function onAfterDeath(ctx, { victim }) {
   triggerMoonchildChoice(ctx, victim);
 }
 
+function normalizeStatementText(text) {
+  return `${text ?? ""}`.trim().toLowerCase();
+}
+
+function mentionedSeatPlayer(state, text) {
+  const match = normalizeStatementText(text).match(/(?:#|seat\s*)?(\d+)\s*(?:号|號|seat)?/i);
+  if (!match) {
+    return null;
+  }
+  const seat = Number(match[1]);
+  if (!Number.isFinite(seat)) {
+    return null;
+  }
+  return state.players.find((entry) => entry.seatIndex + 1 === seat) ?? null;
+}
+
+function statementMentions(text, patterns) {
+  const normalized = normalizeStatementText(text);
+  return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function evaluateKnownGossipStatement(ctx, statementText) {
+  const { state, getAllRoles, getEffectiveRoleId } = ctx;
+  const text = normalizeStatementText(statementText);
+  if (!text) {
+    return null;
+  }
+
+  const target = mentionedSeatPlayer(state, text);
+  if (target) {
+    if (statementMentions(text, ["邪恶", "evil", "坏人"])) {
+      return target.team === "evil";
+    }
+    if (statementMentions(text, ["善良", "good", "好人"])) {
+      return target.team === "good";
+    }
+    if (statementMentions(text, ["恶魔", "demon"])) {
+      return target.category === "demon";
+    }
+    if (statementMentions(text, ["爪牙", "minion"])) {
+      return target.category === "minion";
+    }
+    if (statementMentions(text, ["外来者", "outsider"])) {
+      return target.category === "outsider";
+    }
+    if (statementMentions(text, ["镇民", "townsfolk"])) {
+      return target.category === "townsfolk";
+    }
+    if (statementMentions(text, ["死亡", "死了", "dead"])) {
+      return !target.alive;
+    }
+    if (statementMentions(text, ["存活", "活着", "alive"])) {
+      return target.alive;
+    }
+
+    const role = getAllRoles(state.scriptId).find((entry) => {
+      const names = [entry.id, entry.name, entry.englishName].filter(Boolean).map((value) => `${value}`.toLowerCase());
+      return names.some((name) => name && text.includes(name));
+    });
+    if (role) {
+      return getEffectiveRoleId(target) === role.id;
+    }
+  }
+
+  if (statementMentions(text, ["没有恶魔", "no demon"])) {
+    return !state.players.some((entry) => entry.category === "demon");
+  }
+  if (statementMentions(text, ["有恶魔", "has demon", "there is a demon"])) {
+    return state.players.some((entry) => entry.category === "demon");
+  }
+  if (statementMentions(text, ["没有爪牙", "no minion"])) {
+    return !state.players.some((entry) => entry.category === "minion");
+  }
+  if (statementMentions(text, ["有爪牙", "has minion", "there is a minion"])) {
+    return state.players.some((entry) => entry.category === "minion");
+  }
+  return null;
+}
+
 function onEndOfDay(ctx) {
   const { state, rng, addLog, getEffectiveRoleId, isAbilityBlocked } = ctx;
   if (!state.bmr) {
     return;
   }
+  const statementsToday = state.bmr.gossipStatementsByDay?.[state.day] ?? {};
   const gossips = state.players.filter(
     (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.GOSSIP && !isAbilityBlocked(entry)
   );
   let addedKills = 0;
   gossips.forEach((gossip) => {
+    const submitted = statementsToday[gossip.id];
+    if (submitted && !submitted.resolved) {
+      const evaluated = evaluateKnownGossipStatement(ctx, submitted.text);
+      const trueStatement = evaluated === null ? rng() < 0.5 : !!evaluated;
+      submitted.resolved = true;
+      submitted.trueStatement = trueStatement;
+      submitted.heuristic = evaluated === null;
+      if (trueStatement) {
+        addedKills += 1;
+      }
+      addLog(state, "day-skill", `Gossip 声明已判定：${trueStatement ? "为真" : "不为真"}。`, {
+        day: state.day,
+        playerId: gossip.id,
+        heuristic: evaluated === null,
+      });
+      return;
+    }
     const spokeToday = state.events.speeches.some((entry) => entry.day === state.day && entry.playerId === gossip.id);
     if (!spokeToday && gossip.isHuman) {
       return;

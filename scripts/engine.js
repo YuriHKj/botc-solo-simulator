@@ -821,6 +821,20 @@ function getHumanNightRule(state, roleId, nightNumber) {
   if (!rule) {
     return null;
   }
+  if (nightNumber <= 1 && rule.firstNight === false) {
+    return null;
+  }
+  if (nightNumber > 1 && rule.otherNight === false) {
+    return null;
+  }
+  if (
+    state.scriptId === "bmr" &&
+    roleId === BMR.GODFATHER &&
+    !state.bmr?.godfatherBonusKillTonight &&
+    !(state.phase !== "night" && state.bmr?.lastDayOutsiderExecuted)
+  ) {
+    return null;
+  }
   const firstNightOrder = getNightOrderRoleIds(state.scriptId, 1);
   const otherNightOrder = getNightOrderRoleIds(state.scriptId, 2);
   const appearsFirstNight = firstNightOrder.includes(roleId);
@@ -829,7 +843,7 @@ function getHumanNightRule(state, roleId, nightNumber) {
   let minNight = rule.minNight ?? 1;
   if (!appearsFirstNight && appearsOtherNight) {
     minNight = Math.max(minNight, 2);
-  } else if (appearsFirstNight) {
+  } else if (appearsFirstNight && rule.firstNight !== false) {
     minNight = Math.min(minNight, 1);
   }
 
@@ -849,6 +863,20 @@ function isRoleNightWindowOpen(state, roleId, nightNumber = state.night) {
   if (!rule) {
     return true;
   }
+  if (nightNumber <= 1 && rule.firstNight === false) {
+    return false;
+  }
+  if (nightNumber > 1 && rule.otherNight === false) {
+    return false;
+  }
+  if (
+    state.scriptId === "bmr" &&
+    roleId === BMR.GODFATHER &&
+    !state.bmr?.godfatherBonusKillTonight &&
+    !(state.phase !== "night" && state.bmr?.lastDayOutsiderExecuted)
+  ) {
+    return false;
+  }
   const firstNightOrder = getNightOrderRoleIds(state.scriptId, 1);
   const otherNightOrder = getNightOrderRoleIds(state.scriptId, 2);
   const appearsFirstNight = firstNightOrder.includes(roleId);
@@ -857,7 +885,7 @@ function isRoleNightWindowOpen(state, roleId, nightNumber = state.night) {
   let minNight = rule.minNight ?? 1;
   if (!appearsFirstNight && appearsOtherNight) {
     minNight = Math.max(minNight, 2);
-  } else if (appearsFirstNight) {
+  } else if (appearsFirstNight && rule.firstNight !== false) {
     minNight = Math.min(minNight, 1);
   }
 
@@ -878,6 +906,16 @@ function markHumanAbilityUsed(state, roleId) {
   }
   state.humanAbilityUsage = state.humanAbilityUsage ?? {};
   state.humanAbilityUsage[roleId] = getHumanAbilityUsageCount(state, roleId) + 1;
+}
+
+function humanActionUsageKey(state, roleId, rule, actionKind) {
+  if (rule?.usageScope === "day") {
+    return `${roleId}:day:${state.day}`;
+  }
+  if (rule?.usageScope === "night") {
+    return `${roleId}:night:${nextNightNumber(state)}`;
+  }
+  return roleId;
 }
 
 function playerTargetOptions(state, human, rule) {
@@ -957,7 +995,9 @@ function currentHumanPlanForAction(state, actionKind, actionKey, roleId) {
 
 function humanActionPayload(state, human, roleId, roleName, rule, options, selectedTargetIds = [], extra = {}) {
   const role = getRoleById(state.scriptId, roleId);
-  const usedCount = getHumanAbilityUsageCount(state, roleId);
+  const actionKind = extra.dayNumber ? "day" : "night";
+  const usageKey = humanActionUsageKey(state, roleId, rule, actionKind);
+  const usedCount = getHumanAbilityUsageCount(state, usageKey);
   const maxUses = Number.isFinite(rule.maxUses) ? rule.maxUses : null;
   const inputType = actionInputType(rule);
   return {
@@ -973,6 +1013,7 @@ function humanActionPayload(state, human, roleId, roleName, rule, options, selec
     allowDead: rule.allowDead,
     prompt: rule.prompt,
     interaction: rule.interaction ?? null,
+    usageKey,
     usedCount,
     maxUses,
     options,
@@ -1002,7 +1043,8 @@ export function getHumanNightActionState(state) {
   if (!rule) {
     return { available: false, reason: `第${nightNumber}夜你没有可选的主动夜间操作。` };
   }
-  const usedCount = getHumanAbilityUsageCount(state, roleId);
+  const usageKey = humanActionUsageKey(state, roleId, rule, "night");
+  const usedCount = getHumanAbilityUsageCount(state, usageKey);
   const maxUses = Number.isFinite(rule.maxUses) ? rule.maxUses : null;
   if (maxUses !== null && usedCount >= maxUses) {
     return { available: false, reason: `${roleName} 的主动技能已用尽（${usedCount}/${maxUses}）。` };
@@ -1053,7 +1095,8 @@ export function getHumanDayActionState(state) {
   if (!allowedStages.includes(state.dayStage)) {
     return { available: false, reason: "当前阶段不能发动该白天技能。" };
   }
-  const usedCount = getHumanAbilityUsageCount(state, roleId);
+  const usageKey = humanActionUsageKey(state, roleId, rule, "day");
+  const usedCount = getHumanAbilityUsageCount(state, usageKey);
   const maxUses = Number.isFinite(rule.maxUses) ? rule.maxUses : null;
   if (maxUses !== null && usedCount >= maxUses) {
     return { available: false, reason: `${roleName} 的主动技能已用尽（${usedCount}/${maxUses}）。` };
@@ -1086,6 +1129,7 @@ function createBMRState() {
     assassinUsedByIds: [],
     professorUsedByIds: [],
     courtierUsedByIds: [],
+    courtierPlannedRoleById: {},
     suppressedByRoleId: {},
     pukkaPoisonedId: null,
     poCharged: false,
@@ -1096,6 +1140,7 @@ function createBMRState() {
     godfatherOutsiderIds: [],
     godfatherBonusKillTonight: false,
     gossipPendingKills: 0,
+    gossipStatementsByDay: {},
     moonchildPendingById: {},
     moonchildResolvedById: {},
     foolSavedById: {},
@@ -1330,6 +1375,14 @@ export function setHumanNightActionPlan(state, input = {}) {
 
   const targetNames = describeActionPlan(state, action, plan);
   const human = getHumanPlayer(state);
+  if (state.scriptId === "bmr" && action.roleId === BMR.COURTIER && plan.roleId) {
+    state.bmr = state.bmr ?? createBMRState();
+    state.bmr.courtierPlannedRoleById = state.bmr.courtierPlannedRoleById ?? {};
+    state.bmr.courtierPlannedRoleById[human?.id] = plan.roleId;
+    if (human) {
+      human.courtierPlannedRoleId = plan.roleId;
+    }
+  }
   addLog(state, "night-plan", `[夜间预设] 第${action.nightNumber}夜 ${action.roleName} -> ${targetNames}`, {
     private: true,
     playerId: human?.id,
@@ -1369,7 +1422,17 @@ export function setHumanDayActionPlan(state, input = {}) {
       resolved: false,
       guesses: [...(plan.guesses ?? [])],
     };
-    markHumanAbilityUsed(state, action.roleId);
+    markHumanAbilityUsed(state, action.usageKey ?? action.roleId);
+  } else if (state.scriptId === "bmr" && action.roleId === BMR.GOSSIP) {
+    state.bmr = state.bmr ?? createBMRState();
+    state.bmr.gossipStatementsByDay = state.bmr.gossipStatementsByDay ?? {};
+    state.bmr.gossipStatementsByDay[action.dayNumber] = state.bmr.gossipStatementsByDay[action.dayNumber] ?? {};
+    state.bmr.gossipStatementsByDay[action.dayNumber][human.id] = {
+      day: action.dayNumber,
+      text: plan.question,
+      resolved: false,
+    };
+    markHumanAbilityUsed(state, action.usageKey ?? action.roleId);
   }
   const summary = describeActionPlan(state, action, plan);
   addLog(state, "day-plan", `[白天行动] 第${action.dayNumber}天 ${action.roleName} -> ${summary}`, {
@@ -2417,6 +2480,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     getEffectiveRoleId,
     getNightOrderRoleIds,
     getPlayerById,
+    getRoleById,
     playerChoiceOptions,
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
     isRoleNightWindowOpen,
