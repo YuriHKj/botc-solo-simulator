@@ -94,6 +94,7 @@ const QUICK_WHISPER_PROMPT_META = [
   { text: "你对当前局势的站边是什么？", intentHint: "plan" },
 ];
 const QUICK_WHISPER_PROMPTS = QUICK_WHISPER_PROMPT_META.map((entry) => entry.text);
+const CHAT_DRAMA_PRIMARY_PROMPT_COUNT = 8;
 let selectedQuickWhisperPrompt = QUICK_WHISPER_PROMPTS[0];
 let selectedChatDramaPrompt = QUICK_WHISPER_PROMPTS[0];
 let publicPlaybackTimer = null;
@@ -1596,7 +1597,12 @@ function renderChatDramaQuickButtons() {
   }
   dom.chatDramaQuickGrid.innerHTML = "";
 
-  QUICK_WHISPER_PROMPTS.forEach((prompt) => {
+  const primaryPrompts = QUICK_WHISPER_PROMPTS.slice(0, CHAT_DRAMA_PRIMARY_PROMPT_COUNT);
+  const prompts = primaryPrompts.includes(selectedChatDramaPrompt)
+    ? primaryPrompts
+    : [...primaryPrompts, selectedChatDramaPrompt].filter(Boolean);
+
+  prompts.forEach((prompt) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "quick-ask-btn chat-drama-quick-btn";

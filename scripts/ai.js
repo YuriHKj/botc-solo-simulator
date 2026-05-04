@@ -2,6 +2,7 @@ import { clamp, getAllRoles, getRoleById, REASON_SNIPPETS, sample } from "./data
 import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPerceivedRoleId, getPlayerById } from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
+import AI_SPEECH_CORPUS from "./ai_speech_corpus.json" with { type: "json" };
 import {
   areKnownAllies,
   clearAgentBeliefTrail,
@@ -1378,6 +1379,188 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
   };
 }
 
+function pickCorpusLine(lines, rng = Math.random) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return "";
+  }
+  return lines[Math.floor(rng() * lines.length)] ?? lines[0] ?? "";
+}
+
+function corpusLines(path, fallback = []) {
+  const value = `${path ?? ""}`
+    .split(".")
+    .filter(Boolean)
+    .reduce((node, key) => node?.[key], AI_SPEECH_CORPUS);
+  return Array.isArray(value) && value.length > 0 ? value : fallback;
+}
+
+function formatCorpusLine(template, values = {}) {
+  return `${template ?? ""}`.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => `${values[key] ?? ""}`);
+}
+
+function pickCorpusTemplate(path, values = {}, rng = Math.random, fallback = []) {
+  return formatCorpusLine(pickCorpusLine(corpusLines(path, fallback), rng), values);
+}
+
+function humanSeatList(players, emptyText = "暂时没看到") {
+  if (!Array.isArray(players) || players.length === 0) {
+    return emptyText;
+  }
+  return players
+    .slice()
+    .sort((a, b) => a.seatIndex - b.seatIndex)
+    .map((entry) => `${entry.seatIndex + 1}号`)
+    .join("、");
+}
+
+function roleLabelForSpeech(state, roleId) {
+  return roleId ? roleNameById(state, roleId) : "";
+}
+
+function evidenceToHumanLine(evidence) {
+  const clean = (evidence ?? [])
+    .map((entry) => `${entry ?? ""}`.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (clean.length === 0) {
+    return "我手里没有硬证据，主要是站边和发言节奏不太对";
+  }
+  return clean.join("；");
+}
+
+function composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, original, rng = Math.random) {
+  const agent = getAIAgent(state, aiPlayer);
+  const knownAllyIds = new Set(agent?.knownAllyIds ?? []);
+  const demon = agent?.knownDemonId ? getPlayerById(state, agent.knownDemonId) : null;
+  const minions = (agent?.knownMinionIds ?? []).map((id) => getPlayerById(state, id)).filter(Boolean);
+  const ranked = rankTargets(aiPlayer, state, 5);
+  const focus =
+    (original?.focusId ? ranked.find((entry) => entry.player.id === original.focusId) : null) ??
+    ranked.find((entry) => !knownAllyIds.has(entry.player.id)) ??
+    ranked[0] ??
+    null;
+  const focusPlayer = focus?.player ?? null;
+  const evidence = focusPlayer ? collectEvidence(state, aiPlayer, focusPlayer) : [];
+  const actualRoleName = roleLabelForSpeech(state, getEffectiveRoleId(aiPlayer) ?? aiPlayer.roleId);
+  const bluffRoleId = aiPlayer.publicClaimRoleId || chooseScriptAwareBluffRoleId(state, getKnownBluffRoleIds(state, aiPlayer), rng);
+  const bluffName = roleLabelForSpeech(state, bluffRoleId);
+
+  const lines = [
+    pickCorpusTemplate("private.evilAlliance.openers", {}, rng, ["自己人，我直接说。"]),
+  ];
+
+  if (aiPlayer.category === "demon") {
+    lines.push(
+      pickCorpusTemplate(
+        "private.evilAlliance.demonMinionInfo",
+        { minions: humanSeatList(minions, "没有爪牙位") },
+        rng,
+        ["我看到的爪牙是 {minions}。"]
+      )
+    );
+  } else {
+    const otherMinions = minions.filter((entry) => entry.id !== aiPlayer.id);
+    lines.push(
+      pickCorpusTemplate(
+        "private.evilAlliance.minionTeamInfo",
+        {
+          demonSeat: demon ? `${demon.seatIndex + 1}号` : "未知",
+          otherMinions: humanSeatList(otherMinions, "我这边没看到别的"),
+        },
+        rng,
+        ["我知道的恶魔是 {demonSeat}；其他爪牙 {otherMinions}。"]
+      )
+    );
+  }
+
+  if (analysis.intent === QUESTION_INTENT.CLAIM) {
+    if (actualRoleName) {
+      lines.push(`我真实身份是 ${actualRoleName}。`);
+    }
+    if (bluffName) {
+      aiPlayer.publicClaimRoleId = aiPlayer.publicClaimRoleId || bluffRoleId;
+      lines.push(
+        pickCorpusTemplate(
+          "private.evilAlliance.bluffCover",
+          { bluffName },
+          rng,
+          ["台面上我先往 {bluffName} 这个方向装，你别第一时间替我背书。"]
+        )
+      );
+    } else {
+      lines.push(
+        pickCorpusTemplate(
+          "private.evilAlliance.noBluffCover",
+          {},
+          rng,
+          ["台面上我先不报真实身份，伪装会看公聊里缺什么再补。"]
+        )
+      );
+    }
+  }
+
+  if (focusPlayer) {
+    const reasonText = evidenceToHumanLine(evidence);
+    lines.push(
+      pickCorpusTemplate(
+        "private.evilAlliance.targetPressure",
+        { targetName: focusPlayer.name },
+        rng,
+        ["今天我们可以先把 {targetName} 放到讨论中心，不一定马上出，但要让 ta 多说。"]
+      )
+    );
+    lines.push(
+      pickCorpusTemplate(
+        "private.evilAlliance.targetReason",
+        { reasonText },
+        rng,
+        ["能说出口的理由就用这个：{reasonText}。"]
+      )
+    );
+  } else {
+    lines.push(
+      pickCorpusTemplate(
+        "private.evilAlliance.noTarget",
+        {},
+        rng,
+        ["目前没有特别顺手的好人目标，先听公聊里谁先露破绽。"]
+      )
+    );
+  }
+
+  return {
+    ...original,
+    response: lines.filter(Boolean).join(" "),
+  };
+}
+
+function lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, original, rng = Math.random) {
+  const text = `${original?.response ?? ""}`.trim();
+  if (!text) {
+    return original;
+  }
+  const opener = pickCorpusTemplate("private.generic.openers", {}, rng, ["我先说人话版。"]);
+  const cleaned = text
+    .replace(/^这个问题我明白了。?\s*/u, "")
+    .replace(/^我按证据顺序说。?\s*/u, "")
+    .replace(/^我先给你短结论。?\s*/u, "")
+    .replace(/^我把当前信息压缩一下。?\s*/u, "");
+  if (cleaned.startsWith(opener)) {
+    return { ...original, response: cleaned };
+  }
+  return {
+    ...original,
+    response: `${opener} ${cleaned}`,
+  };
+}
+
+function humanizePrivateComposedResponse(state, aiPlayer, human, analysis, original, rng = Math.random, options = {}) {
+  if (options.sameEvilTeam) {
+    return composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, original, rng);
+  }
+  return lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, original, rng);
+}
+
 function nextPublicRound(state) {
   const dialogue = ensureDialogueState(state);
   const dayKey = `${state.day}`;
@@ -2097,9 +2280,10 @@ export function runPrivateWhisper(state, { targetId, humanLine, intentHint = QUE
 
   const memory = ensurePairMemory(state, target.id, human.id);
   const sameEvilTeam = areKnownAllies(state, target, human);
-  const composed = sameEvilTeam
+  const rawComposed = sameEvilTeam
     ? composeEvilAllianceResponse(state, target, human, analysis, rng)
     : composePrivateResponse(state, target, human, analysis, question, memory, rng);
+  const composed = humanizePrivateComposedResponse(state, target, human, analysis, rawComposed, rng, { sameEvilTeam });
   const responseSignals = predictDialogueSignals(composed.response);
 
   addLog(state, "whisper", `你 -> ${target.name}：${question}`, {
