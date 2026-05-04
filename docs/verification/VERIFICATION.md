@@ -70,6 +70,65 @@ npm test
 
 备注：Node 仍提示 `package.json` 未声明 `"type": "module"`，这是既有 warning，不影响本轮测试结果。
 
+## 本轮验证（CR-2026-05-04-03）
+
+### 1) AI 社交契约回归
+
+```powershell
+npm run test:ai-agents
+```
+
+结果：通过。
+
+覆盖内容：
+
+- 死亡 AI 可以被私聊。
+- 死亡 AI 的私聊仍会写入 `private-whisper` observation/evidence。
+- 死亡 AI 可以参与公聊。
+- 私聊快捷问题已补充身份、身份范围、硬信息、夜间信息等路径。
+
+## 本轮验证（CR-2026-05-04-04）
+
+### 1) AI 公聊报身份节奏回归
+
+```powershell
+npm run test:ai-agents
+```
+
+结果：通过。
+
+覆盖内容：
+
+- 第一天公聊不会让所有 AI 同时完整公开身份。
+- 第一天公聊可以产生“有信息但不完整报身份 / 低信息量范围 / 不建议逼强功能位全跳”等软披露发言。
+
+## 本轮验证（CR-2026-05-04-05）
+
+### 1) AI 压力提名回归
+
+```powershell
+npm run test:ai-agents
+```
+
+结果：通过。
+
+覆盖内容：
+
+- Day 1 已经发生公聊后，即使证据较低，AI 也能生成压力提名 proposal。
+- 压力提名会带 `pressure` 标记和“压力提名”理由。
+- AI 自动提名不会选择死亡玩家。
+- AI 自动提名仍要求提名者存活。
+
+### 2) 全量回归
+
+```powershell
+npm test
+```
+
+结果：通过。
+
+备注：Node 仍提示 `package.json` 未声明 `"type": "module"`，这是既有 warning，不影响本轮测试结果。
+
 ## 本轮验证（CR-2026-04-21-04）
 ### 1) 语法检查
 ```powershell

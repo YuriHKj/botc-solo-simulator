@@ -1,4 +1,4 @@
-import { clamp, getAllRoles, REASON_SNIPPETS, sample } from "./data.js";
+import { clamp, getAllRoles, getRoleById, REASON_SNIPPETS, sample } from "./data.js";
 import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
@@ -323,6 +323,22 @@ function normalizeSuspicion(aiPlayer) {
 function roleNameById(state, roleId) {
   const role = getAllRoles(state.scriptId).find((entry) => entry.id === roleId);
   return role?.name ?? roleId;
+}
+
+function roleForPlayer(state, player) {
+  return getRoleById(state.scriptId, getEffectiveRoleId(player) ?? player?.roleId) ?? null;
+}
+
+function isEarlyInfoRole(role) {
+  return !!role?.tags?.includes("info") && (role.tags.includes("firstNight") || role.tags.includes("recurring"));
+}
+
+function isPowerRole(role) {
+  return !!role?.tags?.some((tag) => ["protect", "revive", "burst", "control", "transform", "demonBackup"].includes(tag));
+}
+
+function isSafeLowInfoRole(role) {
+  return !!role && role.team === "good" && (role.category === "outsider" || role.tags.includes("social") || role.tags.includes("defense"));
 }
 
 function applyClaimSignals(state, aiPlayer) {
@@ -917,6 +933,90 @@ function pickClaimRole(state, aiPlayer, rng = Math.random) {
   return perceived ?? null;
 }
 
+function choosePublicClaimRole(state, aiPlayer, roundInDay, rng = Math.random) {
+  if (aiPlayer.publicClaimRoleId) {
+    return null;
+  }
+
+  const actualRole = roleForPlayer(state, aiPlayer);
+  const suspicion = aiPlayer.suspicion?.[aiPlayer.id] ?? evilPrior(state, aiPlayer);
+  const day = state.day ?? 1;
+  const pressure = suspicion >= 0.62;
+  const forcedLate = day >= 2 && (roundInDay >= 2 || suspicion >= 0.52);
+
+  let chance = 0.08;
+  if (actualRole?.category === "outsider") {
+    chance += day === 1 ? 0.28 : 0.18;
+  }
+  if (isEarlyInfoRole(actualRole)) {
+    chance += day === 1 ? 0.12 : 0.2;
+  }
+  if (isPowerRole(actualRole)) {
+    chance -= day === 1 ? 0.22 : 0.1;
+  }
+  if (pressure) {
+    chance += 0.32;
+  }
+  if (forcedLate) {
+    chance += 0.18;
+  }
+  if (!aiPlayer.alive) {
+    chance += 0.1;
+  }
+  if (aiPlayer.team === "evil") {
+    const bluffRoles = getKnownBluffRoleIds(state, aiPlayer)
+      .map((roleId) => getRoleById(state.scriptId, roleId))
+      .filter(Boolean);
+    if (bluffRoles.some(isSafeLowInfoRole)) {
+      chance += 0.08;
+    } else {
+      chance -= 0.1;
+    }
+  }
+
+  chance = clamp(chance, 0.02, day === 1 ? 0.48 : 0.72);
+  if (rng() > chance) {
+    return null;
+  }
+
+  return pickClaimRole(state, aiPlayer, rng);
+}
+
+function maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng = Math.random) {
+  if (aiPlayer.publicClaimRoleId || roundInDay > 2) {
+    return "";
+  }
+  const role = roleForPlayer(state, aiPlayer);
+  if (roundInDay > 1 && rng() > 0.42) {
+    return "";
+  }
+  if (role?.category === "outsider") {
+    const lines = [
+      "我这边偏低信息量位置，今天可以给范围，但不急着把具体风险说死。",
+      "我是偏外来者/低信息位的口径，今天不建议逼所有功能位全跳。",
+      "我这边不是强信息位，如果今天要处决我可以再补更具体身份。",
+    ];
+    return sample(lines, 1, rng)[0] ?? "";
+  }
+  if (isEarlyInfoRole(role)) {
+    const lines = [
+      "我有一点早期信息，但第一天先不完整报身份。",
+      "我手里有可交叉验证的信息，先看大家口径再决定是否摊开。",
+      "我不是空白位，但现在全跳身份会让夜里太好刀。",
+    ];
+    return sample(lines, 1, rng)[0] ?? "";
+  }
+  if (isPowerRole(role)) {
+    const lines = [
+      "我不建议今天逼强功能位交全身份，先用信息和票型压人。",
+      "我暂时不摊身份，今天先看谁在逼信息位裸跳。",
+      "我会保留身份细节，必要时到提名前再补。",
+    ];
+    return sample(lines, 1, rng)[0] ?? "";
+  }
+  return "";
+}
+
 function maybePrivateClaim(state, aiPlayer, human, rng = Math.random) {
   if (aiPlayer.publicClaimRoleId || rng() >= 0.35) {
     return "";
@@ -1089,6 +1189,7 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random) {
 
   const evidence = collectEvidence(state, aiPlayer, top.player);
   const scorePct = Math.round(top.score * 100);
+  const disclosureLine = maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng);
 
   const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
   const hardPressThreshold = 0.58 + personaThresholdShift(persona);
@@ -1120,10 +1221,11 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random) {
 
   const chosen = sample(templates, 1, rng)[0];
   const tail = sample(tails, 1, rng)[0];
+  const prefix = disclosureLine ? `${disclosureLine} ` : "";
 
   return {
     templateId: chosen.id,
-    line: `${chosen.text} ${tail}`,
+    line: `${prefix}${chosen.text} ${tail}`,
     focusId: top.player.id,
     score: top.score,
   };
@@ -1179,13 +1281,13 @@ export function runAIDiscussion(state, rng = Math.random) {
   const dialogue = ensureDialogueState(state);
   const roundInDay = nextPublicRound(state);
 
-  const aliveAIs = getAlivePlayers(state)
+  const speakingAIs = state.players
     .filter((entry) => !entry.isHuman)
     .sort((a, b) => a.seatIndex - b.seatIndex);
-  const speakers = rotateBy(aliveAIs, Math.max(0, roundInDay - 1));
+  const speakers = rotateBy(speakingAIs, Math.max(0, roundInDay - 1));
 
   speakers.forEach((aiPlayer, orderIndex) => {
-    const claimRoleId = pickClaimRole(state, aiPlayer, rng);
+    const claimRoleId = choosePublicClaimRole(state, aiPlayer, roundInDay, rng);
     if (claimRoleId) {
       aiPlayer.publicClaimRoleId = claimRoleId;
       const claim = { day: state.day, playerId: aiPlayer.id, roleId: claimRoleId, private: false };
@@ -1270,10 +1372,6 @@ export function runPrivateWhisper(state, { targetId, humanLine, intentHint = QUE
   if (!human || !target || target.isHuman) {
     return { ok: false, reason: "私聊目标无效。" };
   }
-  if (!target.alive) {
-    return { ok: false, reason: "目标已死亡，无法私聊。" };
-  }
-
   const slot = consumePrivateChat(state, target.id);
   if (!slot.ok) {
     return { ok: false, reason: slot.reason };
@@ -1478,42 +1576,133 @@ function expectedSupportFor(state, nomineeId) {
     }, 0);
 }
 
+function nominationThreshold(state) {
+  const aliveCount = getAlivePlayers(state).length;
+  const day = state.day ?? 1;
+  const publicRounds = state.dayStageMeta?.publicRounds ?? 0;
+  let threshold = day <= 1 ? 0.48 : 0.52;
+  if (publicRounds >= 2) {
+    threshold -= 0.03;
+  }
+  if (aliveCount <= 5) {
+    threshold -= 0.06;
+  } else if (aliveCount <= 7) {
+    threshold -= 0.03;
+  }
+  return clamp(threshold, 0.38, 0.58);
+}
+
+function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold) {
+  const score = aiPlayer.suspicion?.[target.id] ?? 0.5;
+  if (evidenceCount > 0) {
+    return `压力提名：已有 ${evidenceCount} 条个人证据，怀疑 ${Math.round(score * 100)}%，达到 ${Math.round(threshold * 100)}% 的行动线。`;
+  }
+  if (support > 0) {
+    return `压力提名：硬证据不足，但预计有 ${support} 个 AI 倾向支持，先看票型和反应。`;
+  }
+  return `压力提名：硬证据不足，但连续空过收益太低，先把最高疑点位放上台。`;
+}
+
+function buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex, options = {}) {
+  const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
+  const support = expectedSupportFor(state, candidate.player.id);
+  const highConfidence = candidate.score >= 0.56 && !options.forcePressure;
+  return {
+    nominatorId: aiPlayer.id,
+    nomineeId: candidate.player.id,
+    confidence: candidate.score,
+    support,
+    evidenceCount,
+    pressure: !highConfidence,
+    threshold,
+    rankIndex,
+    reason: highConfidence
+      ? `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，已达到常规提名线。`
+      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold),
+  };
+}
+
+function sortNominationProposals(proposals) {
+  proposals.sort((a, b) => {
+    if (a.pressure !== b.pressure) {
+      return a.pressure ? 1 : -1;
+    }
+    if (b.support !== a.support) {
+      return b.support - a.support;
+    }
+    if (b.evidenceCount !== a.evidenceCount) {
+      return b.evidenceCount - a.evidenceCount;
+    }
+    return b.confidence - a.confidence;
+  });
+  return proposals;
+}
+
+function choosePressureFallbackNomination(state, candidates, threshold) {
+  const aliveCount = getAlivePlayers(state).length;
+  const day = state.day ?? 1;
+  const publicRounds = state.dayStageMeta?.publicRounds ?? 0;
+  const shouldForcePressure = day <= 1 || publicRounds >= 1 || aliveCount <= 5;
+  const fallbackFloor = aliveCount <= 5 ? 0.34 : day <= 1 ? 0.2 : 0.42;
+  const fallbackProposals = [];
+
+  candidates.forEach((aiPlayer) => {
+    const candidate = rankTargets(aiPlayer, state, state.players.length)
+      .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
+      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player))
+      .find((entry) => shouldForcePressure || entry.score >= fallbackFloor);
+
+    if (!candidate || (!shouldForcePressure && candidate.score < fallbackFloor)) {
+      return;
+    }
+
+    fallbackProposals.push(
+      buildNominationProposal(state, aiPlayer, candidate, Math.min(threshold, fallbackFloor), 0, {
+        forcePressure: true,
+      })
+    );
+  });
+
+  if (fallbackProposals.length === 0) {
+    return null;
+  }
+
+  return sortNominationProposals(fallbackProposals)[0];
+}
+
 export function chooseAINomination(state) {
   if (state.phase !== "day" || state.gameOver) {
     return null;
   }
 
   refreshAIBeliefs(state);
+  const threshold = nominationThreshold(state);
   const candidates = state.players.filter((entry) => entry.alive && !entry.isHuman && !entry.nominatedToday);
   const proposals = [];
 
   candidates.forEach((aiPlayer) => {
-    const top = getTopTarget(aiPlayer, state);
-    if (!top || top.score < 0.56 || top.player.beenNominatedToday) {
-      return;
-    }
-
-    const support = expectedSupportFor(state, top.player.id);
-    proposals.push({
-      nominatorId: aiPlayer.id,
-      nomineeId: top.player.id,
-      confidence: top.score,
-      support,
-    });
+    rankTargets(aiPlayer, state, state.players.length)
+      .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
+      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player))
+      .slice(0, 3)
+      .forEach((candidate, rankIndex) => {
+        const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
+        const support = expectedSupportFor(state, candidate.player.id);
+        const hasEvidence = evidenceCount > 0 || support > 0;
+        const highConfidence = candidate.score >= 0.56;
+        const pressureEligible = candidate.score >= threshold && (hasEvidence || state.day <= 1 || getAlivePlayers(state).length <= 5);
+        if (!highConfidence && !pressureEligible) {
+          return;
+        }
+        proposals.push(buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex));
+      });
   });
 
   if (proposals.length === 0) {
-    return null;
+    return choosePressureFallbackNomination(state, candidates, threshold);
   }
 
-  proposals.sort((a, b) => {
-    if (b.support !== a.support) {
-      return b.support - a.support;
-    }
-    return b.confidence - a.confidence;
-  });
-
-  return proposals[0];
+  return sortNominationProposals(proposals)[0];
 }
 
 function snapshotAIBeliefFields(state) {

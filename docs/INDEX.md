@@ -53,6 +53,8 @@
 
 - `docs/plans/PLANS.md`
   早期计划与完成勾选，只作为历史记录。
+- `docs/plans/AI_SOCIAL_TODO_2026-05-04.md`
+  AI 私聊、公聊报身份、死人聊天、压力提名和外来者伪装策略 TODO。
 - `docs/requirements/CHANGE_REQUESTS.md`
   早期变更请求记录。部分“已完成”表示当时版本完成，不代表官方级细节完全满足。
 - `docs/design/TB_RULE_COVERAGE.md`

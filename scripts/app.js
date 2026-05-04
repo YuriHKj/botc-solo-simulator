@@ -558,11 +558,12 @@ function aiNomination({ humanVoteYes }) {
 
     const proposal = chooseAINomination(state);
     if (!proposal) {
-      showToast("AI 暂未形成足够把握的提名。你可以手动提名或跳过本日。");
+      showToast("AI 暂未形成可执行提名。你可以手动提名或跳过本日。");
       refresh();
       return;
     }
 
+    showToast(proposal.reason ?? (proposal.pressure ? "AI 发起压力提名，先看反应和票型。" : "AI 发起自动提名。"));
     executeNomination({
       nominatorId: proposal.nominatorId,
       nomineeId: proposal.nomineeId,

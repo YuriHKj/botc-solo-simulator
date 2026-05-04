@@ -8,6 +8,7 @@ import {
   runNight,
 } from "../scripts/engine.js";
 import {
+  chooseAINomination,
   getAIInsightRows,
   initializeAI,
   refreshAIBeliefs,
@@ -158,6 +159,24 @@ function testPublicDiscussionBecomesPublicObservations() {
     });
 }
 
+function testDayOnePublicDiscussionDoesNotMassClaim() {
+  const state = makeTBState();
+  const result = advanceDayStage(state, "public");
+  assert.equal(result.ok, true, result.reason);
+  runAIDiscussion(state, fixedRng(444));
+
+  const aiCount = state.players.filter((player) => !player.isHuman).length;
+  const publicClaims = (state.events.claims ?? []).filter((claim) => !claim.private && claim.day === state.day);
+  assert.ok(publicClaims.length < aiCount, "day one public discussion should not make every AI hard-claim");
+
+  const softDisclosure = (state.events.speeches ?? []).some(
+    (speech) =>
+      !speech.private &&
+      /有一点早期信息|低信息量位置|不建议今天逼强功能位|不摊身份|全跳身份/.test(speech.line ?? "")
+  );
+  assert.ok(softDisclosure, "day one public discussion should allow soft role/info disclosure without hard-claiming");
+}
+
 function testPrivateWhisperBecomesPrivateObservationOnlyForParticipant() {
   const state = makeTBState();
   const target = state.players.find((player) => !player.isHuman && player.alive);
@@ -189,6 +208,56 @@ function testPrivateWhisperBecomesPrivateObservationOnlyForParticipant() {
     evidenceKinds(state, outsider, "private-whisper").length,
     0,
     "unrelated AI should not receive private-whisper evidence"
+  );
+}
+
+function testDeadAICanStillPrivateWhisper() {
+  const state = makeTBState();
+  const target = state.players.find((player) => !player.isHuman);
+  const outsider = state.players.find((player) => !player.isHuman && player.id !== target.id);
+  assert.ok(target, "expected dead whisper target");
+  assert.ok(outsider, "expected unrelated AI");
+
+  target.alive = false;
+  target.deathReason = "test-death";
+
+  const result = runPrivateWhisper(
+    state,
+    { targetId: target.id, humanLine: "你是什么身份？", intentHint: "claim" },
+    fixedRng(224)
+  );
+
+  assert.equal(result.ok, true, result.reason);
+  assert.ok(
+    observationKinds(getAIAgent(state, target), "private-whisper").length > 0,
+    "dead AI should still receive private-whisper observations"
+  );
+  assert.ok(
+    evidenceKinds(state, target, "private-whisper").length > 0,
+    "dead AI private chat should still become evidence"
+  );
+  assert.equal(
+    observationKinds(getAIAgent(state, outsider), "private-whisper").length,
+    0,
+    "dead AI whisper should not leak to unrelated AIs"
+  );
+}
+
+function testDeadAICanStillJoinPublicDiscussion() {
+  const state = makeTBState();
+  const deadAI = state.players.find((player) => !player.isHuman);
+  assert.ok(deadAI, "expected AI speaker");
+
+  deadAI.alive = false;
+  deadAI.deathReason = "test-death";
+
+  const result = advanceDayStage(state, "public");
+  assert.equal(result.ok, true, result.reason);
+  runAIDiscussion(state, fixedRng(226));
+
+  assert.ok(
+    state.events.speeches.some((entry) => entry.playerId === deadAI.id && !entry.private),
+    "dead AI should still be able to speak in public discussion"
   );
 }
 
@@ -229,6 +298,37 @@ function testNominationAndVoteBecomePublicObservations() {
         `${player.name} should store vote evidence as reliable public procedure`
       );
     });
+}
+
+function testAINominationCanPressureNominateWithLowEvidence() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  markPublicDiscussionRound(state);
+  advanceDayStage(state, "nomination");
+
+  state.players
+    .filter((player) => !player.isHuman)
+    .forEach((player) => {
+      player.suspicion = {};
+      state.players.forEach((target) => {
+        player.suspicion[target.id] = target.id === player.id ? 0.01 : 0.49;
+      });
+      player.reasonFlags = {};
+    });
+
+  const deadTarget = state.players.find((player) => !player.isHuman && player.alive);
+  assert.ok(deadTarget, "expected target to mark dead");
+  deadTarget.alive = false;
+
+  const proposal = chooseAINomination(state);
+  assert.ok(proposal, "AI should produce a pressure nomination on day one instead of always passing");
+  assert.equal(proposal.pressure, true, "low-evidence nomination should be marked as pressure");
+  assert.ok(proposal.reason.includes("压力提名"), "pressure nomination should explain its intent");
+
+  const nominee = state.players.find((player) => player.id === proposal.nomineeId);
+  const nominator = state.players.find((player) => player.id === proposal.nominatorId);
+  assert.ok(nominee?.alive, "AI should not nominate a dead player");
+  assert.ok(nominator?.alive, "AI should use a living nominator");
 }
 
 function testObservationWritesEvidenceBook() {
@@ -313,8 +413,12 @@ function testBeliefRefreshConsumesAgentObservations() {
   testInsightRowsDoNotMutatePlayerBeliefs,
   testNightInfoBecomesPrivateObservation,
   testPublicDiscussionBecomesPublicObservations,
+  testDayOnePublicDiscussionDoesNotMassClaim,
   testPrivateWhisperBecomesPrivateObservationOnlyForParticipant,
+  testDeadAICanStillPrivateWhisper,
+  testDeadAICanStillJoinPublicDiscussion,
   testNominationAndVoteBecomePublicObservations,
+  testAINominationCanPressureNominateWithLowEvidence,
   testObservationWritesEvidenceBook,
   testBeliefRefreshConsumesAgentObservations,
 ].forEach((test) => test());

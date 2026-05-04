@@ -65,13 +65,20 @@ let selectedReviewAIId = "";
 const selectedReviewTargetByAI = {};
 const seenDebateIds = new Set();
 const QUICK_WHISPER_PROMPT_META = [
+  { text: "你是什么身份？", intentHint: "claim" },
+  { text: "你愿意给身份范围吗？", intentHint: "claim" },
+  { text: "你愿意和我交换身份吗？", intentHint: "claim" },
+  { text: "你有没有硬信息能证明自己？", intentHint: "claim" },
+  { text: "你昨晚拿到了什么信息？", intentHint: "night" },
+  { text: "你的首夜信息是什么？", intentHint: "night" },
   { text: "你最怀疑谁？", intentHint: "suspect" },
   { text: "你今天会提名谁？", intentHint: "vote" },
   { text: "你今天会投谁？", intentHint: "vote" },
-  { text: "你昨晚拿到了什么信息？", intentHint: "night" },
   { text: "你觉得我现在最该查谁？", intentHint: "plan" },
   { text: "给我两个你判断的关键理由。", intentHint: "reason" },
+  { text: "你今天为什么这么站边？", intentHint: "reason" },
   { text: "你觉得谁在带坏节奏？", intentHint: "suspect" },
+  { text: "你觉得谁的身份最不像？", intentHint: "suspect" },
   { text: "你对当前局势的站边是什么？", intentHint: "plan" },
 ];
 const QUICK_WHISPER_PROMPTS = QUICK_WHISPER_PROMPT_META.map((entry) => entry.text);
@@ -1421,8 +1428,11 @@ function renderNominationOptions(state) {
 
 function renderWhisperTargets(state) {
   const candidates = state.players
-    .filter((entry) => entry.alive && !entry.isHuman)
-    .map((entry) => ({ id: entry.id, label: seatDisplayName(entry, false) }));
+    .filter((entry) => !entry.isHuman)
+    .map((entry) => ({
+      id: entry.id,
+      label: `${seatDisplayName(entry, false)}${entry.alive ? "" : "（死亡）"}`,
+    }));
 
   fillSelect(dom.whisperTarget, candidates, dom.whisperTarget.value || candidates[0]?.id);
 }
@@ -1517,7 +1527,7 @@ function openWhisperComposer(state, targetId, options = {}) {
   const fallbackTargetId = `${dom.whisperTarget?.value ?? ""}`.trim();
   const resolvedTargetId = preferredTargetId || fallbackTargetId;
   const target = state.players.find((entry) => entry.id === resolvedTargetId);
-  if (!target || target.isHuman || !target.alive) {
+  if (!target || target.isHuman) {
     showToast("私聊目标无效。");
     return false;
   }
