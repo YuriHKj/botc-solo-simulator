@@ -4,6 +4,7 @@ import {
   advanceDayStage,
   createNewGame,
   markPublicDiscussionRound,
+  privateChatLimitForDay,
   resolveNominationAndVote,
   runNight,
 } from "../scripts/engine.js";
@@ -14,6 +15,7 @@ import {
   initializeAI,
   refreshAIBeliefs,
   runAIDiscussion,
+  runAIToAIPrivateWhispers,
   runAIProactiveWhispers,
   runPrivateWhisper,
 } from "../scripts/ai.js";
@@ -347,6 +349,142 @@ function testAIProactivelyWhispersWithoutConsumingHumanLimit() {
   );
 }
 
+function testPrivateChatFollowUpsDoNotConsumeDailySlots() {
+  const state = makeTBState();
+  const target = state.players.find((player) => !player.isHuman);
+  assert.ok(target, "expected private whisper target");
+  assert.equal(privateChatLimitForDay(1, state.players.length), 5, "day 1 private chat cap should be 5");
+  assert.equal(privateChatLimitForDay(2, state.players.length), 4, "day 2 private chat cap should decay to 4");
+  assert.equal(privateChatLimitForDay(3, state.players.length), 3, "day 3 private chat cap should decay to 3");
+  assert.equal(privateChatLimitForDay(4, state.players.length), 2, "day 4 private chat cap should decay to 2");
+  assert.equal(privateChatLimitForDay(5, state.players.length), 1, "later private chat cap should bottom out at 1");
+  assert.equal(state.dayStageMeta.privateLimit, 5, "day 1 initialized private chat limit should be 5");
+
+  const first = runPrivateWhisper(
+    state,
+    { targetId: target.id, humanLine: "你是什么身份？", intentHint: "claim" },
+    fixedRng(2281)
+  );
+  assert.equal(first.ok, true, first.reason);
+  assert.equal(first.followUp, false, "first contact should consume a daily private slot");
+  assert.equal(state.dayStageMeta.privateUsed, 1, "first contact should count as one private chat");
+
+  const second = runPrivateWhisper(
+    state,
+    { targetId: target.id, humanLine: "再具体一点，你昨晚得到了什么信息？", intentHint: "night" },
+    fixedRng(2282)
+  );
+  assert.equal(second.ok, true, second.reason);
+  assert.equal(second.followUp, true, "same active target should count as a follow-up");
+  assert.equal(state.dayStageMeta.privateUsed, 1, "follow-up should not consume another daily private slot");
+  assert.equal(second.followUpUsed, 1, "first follow-up should be tracked");
+
+  const third = runPrivateWhisper(
+    state,
+    { targetId: target.id, humanLine: "你现在最怀疑谁？", intentHint: "suspect" },
+    fixedRng(2283)
+  );
+  assert.equal(third.ok, true, third.reason);
+  assert.equal(third.followUp, true, "second follow-up should still be allowed");
+  assert.equal(state.dayStageMeta.privateUsed, 1, "second follow-up should not consume another daily private slot");
+  assert.equal(third.followUpUsed, 2, "second follow-up should be tracked");
+
+  const fourth = runPrivateWhisper(
+    state,
+    { targetId: target.id, humanLine: "最后再问一句。", intentHint: "generic" },
+    fixedRng(2284)
+  );
+  assert.equal(fourth.ok, false, "third extra follow-up should be rejected");
+  assert.match(fourth.reason, /追问|follow/i, "rejection should explain follow-up exhaustion");
+  assert.equal(state.dayStageMeta.privateUsed, 1, "rejected follow-up should not consume a slot");
+}
+
+function testDayStanceMemoryPersistsWithinDay() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  runAIDiscussion(state, fixedRng(2285));
+  runAIDiscussion(state, fixedRng(2286));
+
+  const dayBucket = state.aiDialogue.dayStanceMemory?.[`${state.day}`] ?? {};
+  const aiId = Object.keys(dayBucket)[0];
+  assert.ok(aiId, "public discussion should write day stance memory for at least one AI");
+  const targetEntries = Object.values(dayBucket[aiId] ?? {});
+  assert.ok(targetEntries.length > 0, "day stance memory should contain target stance entries");
+  assert.ok(
+    targetEntries.some((entry) => entry.turns >= 1 && ["press", "suspect", "watch", "trust"].includes(entry.stance)),
+    "day stance memory should store stable stance labels"
+  );
+}
+
+function testAIToAIPrivateWhisperWritesParticipantObservationsOnly() {
+  const state = makeTBState();
+  const beforeUsed = state.dayStageMeta.privateUsed;
+  const beforeTargeted = [...(state.dayStageMeta.privateTargets ?? [])];
+
+  const messages = runAIToAIPrivateWhispers(state, fixedRng(229));
+  assert.ok(messages.length > 0, "AI should privately exchange useful information with other AIs");
+
+  const first = messages[0];
+  const speaker = state.players.find((player) => player.id === first.speakerId);
+  const target = state.players.find((player) => player.id === first.targetId);
+  const unrelated = state.players.find(
+    (player) => !player.isHuman && player.id !== first.speakerId && player.id !== first.targetId
+  );
+
+  assert.ok(speaker, "expected AI-AI speaker");
+  assert.ok(target, "expected AI-AI target");
+  assert.ok(unrelated, "expected unrelated AI observer");
+  assert.equal(state.dayStageMeta.privateUsed, beforeUsed, "AI-AI private whispers should not consume human slots");
+  assert.deepEqual(
+    state.dayStageMeta.privateTargets ?? [],
+    beforeTargeted,
+    "AI-AI private whispers should not mark human private targets"
+  );
+
+  const speakerWhispers = observationKinds(getAIAgent(state, speaker), "private-whisper");
+  const targetWhispers = observationKinds(getAIAgent(state, target), "private-whisper");
+  const unrelatedWhispers = observationKinds(getAIAgent(state, unrelated), "private-whisper");
+
+  assert.ok(
+    speakerWhispers.some((entry) => entry.text === first.response && entry.payload?.targetId === target.id),
+    "speaker should keep its AI-AI whisper as a private observation"
+  );
+  assert.ok(
+    targetWhispers.some((entry) => entry.text === first.response && entry.payload?.speakerId === speaker.id),
+    "target should receive the AI-AI whisper as a private observation"
+  );
+  assert.equal(
+    unrelatedWhispers.some((entry) => entry.text === first.response),
+    false,
+    "unrelated AIs should not receive the AI-AI private whisper"
+  );
+  assert.ok(
+    evidenceKinds(state, target, "private-whisper").some((entry) => entry.text === first.response),
+    "AI-AI private whisper should enter the target evidence book"
+  );
+  assert.ok(
+    state.events.speeches.some(
+      (entry) =>
+        entry.aiToAi &&
+        entry.hiddenFromHuman &&
+        entry.private &&
+        entry.playerId === speaker.id &&
+        entry.targetId === target.id
+    ),
+    "AI-AI private whisper should be stored as hidden private speech"
+  );
+  assert.equal(
+    state.aiDialogue.timeline.some((entry) => entry.text === first.response),
+    false,
+    "AI-AI private whisper content should not leak into the human-facing dialogue timeline"
+  );
+  assert.equal(
+    JSON.stringify(state.logs).includes(first.response),
+    false,
+    "human event log should only show redacted AI-AI private activity"
+  );
+}
+
 function testDeadAIPublicDiscussionClaimsAggressively() {
   const state = makeTBState();
   const deadAI = state.players.find((player) => !player.isHuman);
@@ -530,6 +668,9 @@ function testBeliefRefreshConsumesAgentObservations() {
   testDeadAICanStillPrivateWhisper,
   testDeadAICanStillJoinPublicDiscussion,
   testAIProactivelyWhispersWithoutConsumingHumanLimit,
+  testPrivateChatFollowUpsDoNotConsumeDailySlots,
+  testDayStanceMemoryPersistsWithinDay,
+  testAIToAIPrivateWhisperWritesParticipantObservationsOnly,
   testDeadAIPublicDiscussionClaimsAggressively,
   testNominationAndVoteBecomePublicObservations,
   testAINominationCanPressureNominateWithLowEvidence,

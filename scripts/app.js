@@ -4,6 +4,7 @@
   getAIInsightRows,
   initializeAI,
   runAIDiscussion,
+  runAIToAIPrivateWhispers,
   runAIProactiveWhispers,
   runPrivateWhisper,
 } from "./ai.js";
@@ -126,13 +127,21 @@ function runProactiveAIWhispersIfReady({ showFirst = false } = {}) {
     return [];
   }
   const messages = runAIProactiveWhispers(state, rng);
-  if (messages.length === 0) {
+  const peerMessages = runAIToAIPrivateWhispers(state, rng);
+  if (messages.length === 0 && peerMessages.length === 0) {
     return [];
   }
-  if (showFirst) {
+  if (showFirst && messages.length > 0) {
     showPrivateDialogue({ ...messages[0], keepPrompt: true });
   }
-  showToast(`${messages.length} 名玩家主动找你私聊。`);
+  const toastParts = [];
+  if (messages.length > 0) {
+    toastParts.push(`${messages.length} 名玩家主动找你私聊`);
+  }
+  if (peerMessages.length > 0) {
+    toastParts.push(`${peerMessages.length} 组 AI 进行了私聊`);
+  }
+  showToast(`${toastParts.join("，")}。`);
   refresh();
   return messages;
 }
@@ -276,9 +285,15 @@ function hydrateLoadedState(loadedState) {
   loadedState.dayStageMeta = loadedState.dayStageMeta ?? {
     privateUsed: 0,
     privateLimit: 0,
+    privateFollowUpUsed: 0,
+    privateFollowUpLimit: 2,
+    activePrivateTargetId: null,
     publicRounds: 0,
     privateTargets: [],
   };
+  loadedState.dayStageMeta.privateFollowUpUsed = loadedState.dayStageMeta.privateFollowUpUsed ?? 0;
+  loadedState.dayStageMeta.privateFollowUpLimit = loadedState.dayStageMeta.privateFollowUpLimit ?? 2;
+  loadedState.dayStageMeta.activePrivateTargetId = loadedState.dayStageMeta.activePrivateTargetId ?? null;
   loadedState.humanNightPlan = loadedState.humanNightPlan ?? null;
   loadedState.humanAbilityUsage = loadedState.humanAbilityUsage ?? {};
   loadedState.grimoireNotes = loadedState.grimoireNotes ?? {};
@@ -291,10 +306,12 @@ function hydrateLoadedState(loadedState) {
   loadedState.aiDialogue.timeline = Array.isArray(loadedState.aiDialogue.timeline) ? loadedState.aiDialogue.timeline : [];
   loadedState.aiDialogue.publicRoundByDay = loadedState.aiDialogue.publicRoundByDay ?? {};
   loadedState.aiDialogue.dailyFocusLock = loadedState.aiDialogue.dailyFocusLock ?? {};
+  loadedState.aiDialogue.dayStanceMemory = loadedState.aiDialogue.dayStanceMemory ?? {};
   loadedState.aiDialogue.activeSpeech = loadedState.aiDialogue.activeSpeech ?? null;
   loadedState.aiDialogue.lastPublicFocusBySpeaker = loadedState.aiDialogue.lastPublicFocusBySpeaker ?? {};
   loadedState.aiDialogue.lastPublicTemplateBySpeaker = loadedState.aiDialogue.lastPublicTemplateBySpeaker ?? {};
   loadedState.aiDialogue.proactivePrivateByDay = loadedState.aiDialogue.proactivePrivateByDay ?? {};
+  loadedState.aiDialogue.aiPrivateByDay = loadedState.aiDialogue.aiPrivateByDay ?? {};
   loadedState.aiAgents = loadedState.aiAgents ?? {};
   loadedState.utteranceArchive = loadedState.utteranceArchive ?? createEmptyUtteranceArchive();
   ensureUtteranceArchive(loadedState);
@@ -475,7 +492,10 @@ function doWhisper({ targetId, message, intentHint = "generic" }) {
       response: result.response,
       keepPrompt: true,
     });
-    showToast(`私聊完成：${result.targetName}（剩余 ${result.remaining}/${result.limit}）`);
+    const slotText = result.followUp
+      ? `追问 ${result.followUpUsed}/${result.followUpLimit}，私聊额度剩余 ${result.remaining}/${result.limit}`
+      : `剩余 ${result.remaining}/${result.limit}，可追问 ${result.followUpLimit} 次`;
+    showToast(`私聊完成：${result.targetName}（${slotText}）`);
     refresh();
   } catch (error) {
     const text = error instanceof Error ? error.message : "私聊失败。";

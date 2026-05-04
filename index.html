@@ -155,8 +155,17 @@
 
         <section class="panel debate-stage">
           <div class="debate-stage-head">
-            <h2>对话舞台</h2>
-            <div id="debateMeta" class="debate-meta">等待玩家行动…</div>
+            <div class="debate-stage-title">
+              <h2>对话舞台</h2>
+              <div id="debateMeta" class="debate-meta">等待玩家行动…</div>
+            </div>
+            <div class="debate-controls" aria-label="公聊播放控制">
+              <div id="debateProgressTrack" class="debate-progress-track" aria-hidden="true">
+                <div id="debateProgressFill" class="debate-progress-fill"></div>
+              </div>
+              <button id="btnDebateSpeed" type="button" class="debate-control-btn" title="切换公聊播放速度">速度 1x</button>
+              <button id="btnDebateSkip" type="button" class="debate-control-btn" title="跳过当前公聊动画">跳过</button>
+            </div>
           </div>
           <div id="debateTimeline" class="debate-timeline"></div>
         </section>
@@ -387,12 +396,15 @@
         <div class="chat-drama-body">
           <div class="chat-portrait-wrap">
             <div id="chatPortrait" class="chat-portrait">
+              <div id="chatPortraitArt" class="chat-portrait-art" aria-hidden="true"></div>
+              <div class="chat-portrait-vignette" aria-hidden="true"></div>
               <div id="chatPortraitSeat" class="chat-portrait-seat">2号</div>
               <div id="chatPortraitName" class="chat-portrait-name">2号</div>
               <div id="chatPortraitPersona" class="chat-portrait-persona">稳健风格</div>
             </div>
           </div>
           <div class="chat-lines">
+            <div id="chatDramaContext" class="chat-drama-context">私聊内容仅对双方可见。</div>
             <div class="chat-line chat-player-line">
               <div class="chat-speaker">你</div>
               <div id="chatDramaQuestion" class="chat-bubble">你最怀疑谁？</div>

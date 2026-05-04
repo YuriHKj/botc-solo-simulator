@@ -1765,6 +1765,9 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
     dayStageMeta: {
       privateUsed: 0,
       privateLimit: 0,
+      privateFollowUpUsed: 0,
+      privateFollowUpLimit: 2,
+      activePrivateTargetId: null,
       publicRounds: 0,
       privateTargets: [],
     },
@@ -2018,6 +2021,9 @@ function startNightPhase(state) {
   state.dayStage = "none";
   state.dayStageMeta.privateUsed = 0;
   state.dayStageMeta.privateLimit = 0;
+  state.dayStageMeta.privateFollowUpUsed = 0;
+  state.dayStageMeta.privateFollowUpLimit = 2;
+  state.dayStageMeta.activePrivateTargetId = null;
   state.dayStageMeta.publicRounds = 0;
   state.dayStageMeta.privateTargets = [];
   state.night += 1;
@@ -2065,10 +2071,7 @@ function startNightPhase(state) {
 
 export function privateChatLimitForDay(day, aliveCount) {
   const safeDay = Math.max(1, Number(day) || 1);
-  const safeAlive = Math.max(0, Number(aliveCount) || 0);
-  const dayDecay = Math.max(1, 4 - safeDay);
-  const crowdBonus = safeAlive >= 10 ? 1 : 0;
-  return clamp(dayDecay + crowdBonus, 1, 4);
+  return clamp(6 - safeDay, 1, 5);
 }
 
 function initDayStage(state) {
@@ -2077,6 +2080,9 @@ function initDayStage(state) {
   state.dayStage = "private";
   state.dayStageMeta.privateUsed = 0;
   state.dayStageMeta.privateLimit = privateLimit;
+  state.dayStageMeta.privateFollowUpUsed = 0;
+  state.dayStageMeta.privateFollowUpLimit = 2;
+  state.dayStageMeta.activePrivateTargetId = null;
   state.dayStageMeta.publicRounds = 0;
   state.dayStageMeta.privateTargets = [];
   addLog(state, "hint", `白天流程：先私聊（${privateLimit}次）-> 再公聊 -> 最后提名。`, {});
@@ -2146,6 +2152,28 @@ export function consumePrivateChat(state, targetId) {
     return { ok: false, reason: "当前不在私聊阶段。" };
   }
 
+  state.dayStageMeta.privateFollowUpLimit = state.dayStageMeta.privateFollowUpLimit ?? 2;
+  state.dayStageMeta.privateFollowUpUsed = state.dayStageMeta.privateFollowUpUsed ?? 0;
+  const activeTargetId = state.dayStageMeta.activePrivateTargetId ?? null;
+  const isFollowUp = !!targetId && activeTargetId === targetId;
+  if (isFollowUp) {
+    const followUpLimit = state.dayStageMeta.privateFollowUpLimit ?? 2;
+    const followUpUsed = state.dayStageMeta.privateFollowUpUsed ?? 0;
+    if (followUpUsed >= followUpLimit) {
+      return { ok: false, reason: `本轮私聊追问次数已用完（${followUpUsed}/${followUpLimit}）。` };
+    }
+    state.dayStageMeta.privateFollowUpUsed += 1;
+    return {
+      ok: true,
+      followUp: true,
+      followUpUsed: state.dayStageMeta.privateFollowUpUsed,
+      followUpLimit,
+      used: state.dayStageMeta.privateUsed ?? 0,
+      limit: state.dayStageMeta.privateLimit ?? 0,
+      remaining: Math.max(0, (state.dayStageMeta.privateLimit ?? 0) - (state.dayStageMeta.privateUsed ?? 0)),
+    };
+  }
+
   const limit = state.dayStageMeta.privateLimit ?? 0;
   const used = state.dayStageMeta.privateUsed ?? 0;
   if (used >= limit) {
@@ -2153,6 +2181,8 @@ export function consumePrivateChat(state, targetId) {
   }
 
   state.dayStageMeta.privateUsed += 1;
+  state.dayStageMeta.activePrivateTargetId = targetId ?? null;
+  state.dayStageMeta.privateFollowUpUsed = 0;
   if (targetId) {
     state.dayStageMeta.privateTargets = state.dayStageMeta.privateTargets ?? [];
     state.dayStageMeta.privateTargets.push(targetId);
@@ -2160,6 +2190,9 @@ export function consumePrivateChat(state, targetId) {
 
   return {
     ok: true,
+    followUp: false,
+    followUpUsed: 0,
+    followUpLimit: state.dayStageMeta.privateFollowUpLimit ?? 2,
     used: state.dayStageMeta.privateUsed,
     limit,
     remaining: Math.max(0, limit - state.dayStageMeta.privateUsed),

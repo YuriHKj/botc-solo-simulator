@@ -50,6 +50,18 @@ const SHROUD_ICON = `${WEB_ASSET_ROOT}/shroud1.png`;
 const REMINDER_BASE_ICON = `${WEB_ASSET_ROOT}/reminder1.png`;
 const PLUS_ICON = `${WEB_ASSET_ROOT}/icons/plus1.png`;
 const REMOVE_ICON = `${WEB_ASSET_ROOT}/icons/x.png`;
+const PORTRAIT_ASSETS = [
+  "./assets/reference_scraped/home/ext/oss.gstonegames.com/data_file/clocktower/home_page/center1.png",
+  "./assets/reference_scraped/home/ext/oss.gstonegames.com/data_file/clocktower/home_page/center2.png",
+  "./assets/reference_scraped/home/ext/oss.gstonegames.com/data_file/clocktower/home_page/center3.png",
+  "./assets/reference_scraped/home/ext/oss.gstonegames.com/data_file/clocktower/home_page/center4.png",
+  "./assets/reference_scraped/home/ext/oss.gstonegames.com/data_file/clocktower/home_page/center5.png",
+];
+const PUBLIC_PLAYBACK_SPEEDS = [
+  { label: "1x", delay: 920, initialDelay: 260 },
+  { label: "2x", delay: 420, initialDelay: 120 },
+  { label: "4x", delay: 130, initialDelay: 40 },
+];
 
 let currentScriptId = "tb";
 let sheetScriptId = "tb";
@@ -92,6 +104,7 @@ const publicPlayback = {
   roundInDay: 0,
   visibleOrder: Number.POSITIVE_INFINITY,
   maxOrder: -1,
+  speedIndex: 0,
 };
 const WHISPER_INTENT_LABELS = {
   suspect: "怀疑判断",
@@ -125,6 +138,11 @@ function playerNameById(state, playerId) {
   return state.players.find((entry) => entry.id === playerId)?.name ?? playerId ?? "--";
 }
 
+function portraitAssetForSeat(seatNumber) {
+  const safeSeat = Number.isFinite(seatNumber) ? Math.max(1, Math.floor(seatNumber)) : 1;
+  return PORTRAIT_ASSETS[(safeSeat - 1) % PORTRAIT_ASSETS.length];
+}
+
 function compactText(text, maxLength = 22) {
   const clean = `${text ?? ""}`.replace(/\s+/g, " ").trim();
   if (clean.length <= maxLength) {
@@ -138,6 +156,96 @@ function stopPublicPlayback() {
     clearTimeout(publicPlaybackTimer);
     publicPlaybackTimer = null;
   }
+}
+
+function publicPlaybackSpeed() {
+  return PUBLIC_PLAYBACK_SPEEDS[publicPlayback.speedIndex] ?? PUBLIC_PLAYBACK_SPEEDS[0];
+}
+
+function publicPlaybackDelay(initial = false) {
+  const speed = publicPlaybackSpeed();
+  return initial ? speed.initialDelay : speed.delay;
+}
+
+function updateDebatePlaybackControls() {
+  if (!dom.btnDebateSpeed || !dom.btnDebateSkip || !dom.debateProgressFill) {
+    return;
+  }
+  const active = publicPlayback.key !== "" && Number.isFinite(publicPlayback.maxOrder) && publicPlayback.maxOrder >= 0;
+  const complete = !active || publicPlayback.visibleOrder >= publicPlayback.maxOrder;
+  const total = active ? publicPlayback.maxOrder + 1 : 1;
+  const shown = active ? Math.max(0, Math.min(total, publicPlayback.visibleOrder + 1)) : 0;
+  const pct = total > 0 ? Math.round((shown / total) * 100) : 0;
+
+  dom.btnDebateSpeed.textContent = `速度 ${publicPlaybackSpeed().label}`;
+  dom.btnDebateSpeed.disabled = !active;
+  dom.btnDebateSkip.disabled = complete;
+  dom.debateProgressFill.style.width = `${pct}%`;
+  dom.debateProgressFill.classList.toggle("complete", complete && active);
+}
+
+function publicRoundItems(state) {
+  if (!state?.aiDialogue?.timeline || publicPlayback.key === "") {
+    return [];
+  }
+  return state.aiDialogue.timeline.filter(
+    (entry) =>
+      entry.mode === "public" &&
+      entry.day === publicPlayback.day &&
+      entry.roundInDay === publicPlayback.roundInDay
+  );
+}
+
+function activePublicPlaybackItem(state) {
+  if (publicPlayback.key === "" || !Number.isFinite(publicPlayback.visibleOrder) || publicPlayback.visibleOrder < 0) {
+    return null;
+  }
+  return (
+    publicRoundItems(state).find((entry) => entry.orderIndex === publicPlayback.visibleOrder) ??
+    null
+  );
+}
+
+function advancePublicPlayback() {
+  publicPlayback.visibleOrder += 1;
+  if (lastRenderedState) {
+    renderDebateStage(lastRenderedState);
+  }
+  if (publicPlayback.visibleOrder < publicPlayback.maxOrder) {
+    publicPlaybackTimer = setTimeout(advancePublicPlayback, publicPlaybackDelay(false));
+    return;
+  }
+  publicPlaybackTimer = null;
+  updateDebatePlaybackControls();
+}
+
+function schedulePublicPlayback(initial = false) {
+  stopPublicPlayback();
+  if (publicPlayback.key === "" || publicPlayback.visibleOrder >= publicPlayback.maxOrder) {
+    updateDebatePlaybackControls();
+    return;
+  }
+  publicPlaybackTimer = setTimeout(advancePublicPlayback, publicPlaybackDelay(initial));
+}
+
+function skipPublicPlayback() {
+  if (publicPlayback.key === "") {
+    return;
+  }
+  stopPublicPlayback();
+  publicPlayback.visibleOrder = publicPlayback.maxOrder;
+  if (lastRenderedState) {
+    renderDebateStage(lastRenderedState);
+  }
+  updateDebatePlaybackControls();
+}
+
+function cyclePublicPlaybackSpeed() {
+  publicPlayback.speedIndex = (publicPlayback.speedIndex + 1) % PUBLIC_PLAYBACK_SPEEDS.length;
+  if (publicPlaybackTimer) {
+    schedulePublicPlayback(false);
+  }
+  updateDebatePlaybackControls();
 }
 
 function loadSidebarState() {
@@ -560,7 +668,15 @@ function createDeathShroud(player) {
   return node;
 }
 
-function makePlayerToken(state, player, averageSuspicion = null, size = 112, speakingText = "", shouldRevealFlip = false) {
+function makePlayerToken(
+  state,
+  player,
+  averageSuspicion = null,
+  size = 112,
+  speakingText = "",
+  shouldRevealFlip = false,
+  highlightMode = ""
+) {
   const token = document.createElement("div");
   token.className = "player-token";
   token.style.setProperty("--token-size", `${size}px`);
@@ -595,6 +711,11 @@ function makePlayerToken(state, player, averageSuspicion = null, size = 112, spe
   }
   if (speakingText) {
     token.classList.add("speaking");
+  }
+  if (highlightMode === "speaker") {
+    token.classList.add("token-spotlight-speaker");
+  } else if (highlightMode === "target") {
+    token.classList.add("token-spotlight-target");
   }
   if (shouldRevealFlip) {
     token.classList.add("token-flip-reveal");
@@ -686,6 +807,7 @@ function renderCircle(state, aiInsights) {
   const suspicionMap = {};
   const activeSpeech = currentSpotlightSpeech(state);
   const speakingPlayerId = activeSpeech?.speakerId ?? null;
+  const targetPlayerId = activeSpeech?.targetId ?? null;
 
   aiInsights.forEach((row) => {
     const target = state.players.find((entry) => entry.name === row.target);
@@ -719,7 +841,16 @@ function renderCircle(state, aiInsights) {
       : null;
 
     const speakingText = player.id === speakingPlayerId ? `${activeSpeech?.text ?? ""}` : "";
-    const token = makePlayerToken(state, player, avg, metrics.size, speakingText, revealHumanRole && player.isHuman);
+    const highlightMode = player.id === speakingPlayerId ? "speaker" : player.id === targetPlayerId ? "target" : "";
+    const token = makePlayerToken(
+      state,
+      player,
+      avg,
+      metrics.size,
+      speakingText,
+      revealHumanRole && player.isHuman,
+      highlightMode
+    );
     token.style.left = `${x}%`;
     token.style.top = `${y}%`;
     dom.grimoire.appendChild(token);
@@ -730,6 +861,10 @@ function currentSpotlightSpeech(state) {
   const dialogue = state?.aiDialogue ?? null;
   if (!dialogue) {
     return null;
+  }
+  const playbackItem = activePublicPlaybackItem(state);
+  if (playbackItem) {
+    return playbackItem;
   }
   if (state.phase === "day" && state.dayStage === "public") {
     const publicTimeline = (dialogue.timeline ?? []).filter((entry) => entry.mode === "public" && entry.day === state.day);
@@ -774,19 +909,7 @@ function ensurePublicPlayback(state, timeline) {
   publicPlayback.roundInDay = latestPublic.roundInDay;
   publicPlayback.maxOrder = maxOrder;
   publicPlayback.visibleOrder = -1;
-
-  const advance = () => {
-    publicPlayback.visibleOrder += 1;
-    if (lastRenderedState) {
-      renderDebateStage(lastRenderedState);
-    }
-    if (publicPlayback.visibleOrder < publicPlayback.maxOrder) {
-      publicPlaybackTimer = setTimeout(advance, 920);
-      return;
-    }
-    publicPlaybackTimer = null;
-  };
-  publicPlaybackTimer = setTimeout(advance, 260);
+  schedulePublicPlayback(true);
 }
 
 function shouldQueueDebateItem(item) {
@@ -850,6 +973,7 @@ function renderDebateStage(state) {
     empty.textContent = "暂无对话，先进行私聊或公聊。";
     dom.debateTimeline.appendChild(empty);
     dom.debateMeta.textContent = "等待玩家行动…";
+    updateDebatePlaybackControls();
     return;
   }
 
@@ -887,6 +1011,7 @@ function renderDebateStage(state) {
     }
     if (shouldQueueDebateItem(item)) {
       card.classList.add("queued");
+      card.setAttribute("aria-hidden", "true");
     }
     if (isSpeakingDebateItem(item)) {
       card.classList.add("speaking-now");
@@ -941,6 +1066,7 @@ function renderDebateStage(state) {
       }
     });
   }
+  updateDebatePlaybackControls();
 }
 
 function visibleLogs(state) {
@@ -1770,12 +1896,16 @@ function renderHud(state) {
 
   const used = state.dayStageMeta?.privateUsed ?? 0;
   const limit = state.dayStageMeta?.privateLimit ?? 0;
-  dom.stageChip.textContent = state.phase === "day" && state.dayStage === "private" ? `私聊 ${used}/${limit}` : stageLabel(state);
+  const followUsed = state.dayStageMeta?.privateFollowUpUsed ?? 0;
+  const followLimit = state.dayStageMeta?.privateFollowUpLimit ?? 2;
+  const followText = state.dayStageMeta?.activePrivateTargetId ? ` · 追问 ${followUsed}/${followLimit}` : "";
+  dom.stageChip.textContent =
+    state.phase === "day" && state.dayStage === "private" ? `私聊 ${used}/${limit}${followText}` : stageLabel(state);
 
   if (dom.officialScriptLine && dom.officialSetupLine && dom.officialStateLine) {
     const scriptCoreName = state.scriptName.replace(/\(.+\)/, "").trim();
     const ghostVoteAvailable = state.players.filter((entry) => !entry.alive && entry.ghostVoteAvailable).length;
-    const stageText = state.phase === "day" && state.dayStage === "private" ? `私聊 ${used}/${limit}` : compactPhase;
+    const stageText = state.phase === "day" && state.dayStage === "private" ? `私聊 ${used}/${limit}${followText}` : compactPhase;
 
     dom.officialScriptLine.textContent = `${scriptCoreName} by The Pandemonium Institute`;
     dom.officialSetupLine.innerHTML =
@@ -2008,7 +2138,11 @@ function closeChatDramaModal() {
 
 function updateChatDramaComposerState(canWhisper = false) {
   const hasTarget = !!chatDramaTargetId;
-  const enabled = canWhisper && hasTarget;
+  const isActiveThread = lastRenderedState?.dayStageMeta?.activePrivateTargetId === chatDramaTargetId;
+  const followUsed = lastRenderedState?.dayStageMeta?.privateFollowUpUsed ?? 0;
+  const followLimit = lastRenderedState?.dayStageMeta?.privateFollowUpLimit ?? 2;
+  const followUpsExhausted = isActiveThread && followUsed >= followLimit;
+  const enabled = canWhisper && hasTarget && !followUpsExhausted;
   if (dom.btnChatDramaSend) {
     dom.btnChatDramaSend.disabled = !enabled;
   }
@@ -2026,11 +2160,24 @@ function updateChatDramaComposerState(canWhisper = false) {
       dom.chatDramaHint.textContent = "当前没有可继续追问的私聊对象。";
     } else if (dom.chatDramaModal?.classList.contains("typing")) {
       dom.chatDramaHint.textContent = "对方正在组织语言，等他说完再继续追问。";
+    } else if (followUpsExhausted) {
+      dom.chatDramaHint.textContent = "本轮私聊追问次数已用完，可换人或进入公聊。";
     } else if (!canWhisper) {
       dom.chatDramaHint.textContent = "当前不在私聊阶段，无法继续追问。";
     } else {
-      dom.chatDramaHint.textContent = `你正在和 ${dom.chatDramaSpeaker?.textContent ?? "--"} 私聊，可继续追问。`;
+      const suffix = `可继续追问（${followUsed}/${followLimit}）。`;
+      dom.chatDramaHint.textContent = `你正在和 ${dom.chatDramaSpeaker?.textContent ?? "--"} 私聊，${suffix}`;
     }
+  }
+  if (dom.chatDramaContext && lastRenderedState) {
+    const used = lastRenderedState.dayStageMeta?.privateUsed ?? 0;
+    const limit = lastRenderedState.dayStageMeta?.privateLimit ?? 0;
+    const followUsed = lastRenderedState.dayStageMeta?.privateFollowUpUsed ?? 0;
+    const followLimit = lastRenderedState.dayStageMeta?.privateFollowUpLimit ?? 2;
+    dom.chatDramaContext.textContent =
+      lastRenderedState.phase === "day" && lastRenderedState.dayStage === "private"
+        ? `第${lastRenderedState.day}天私聊 · 今日 ${used}/${limit} · 追问 ${followUsed}/${followLimit} · 内容不会进入公聊`
+        : "当前不在私聊阶段，这段对话仅作回顾。";
   }
 }
 
@@ -2087,6 +2234,18 @@ function openChatDramaModal(payload) {
 
   const hue = ((Number(payload?.targetSeat ?? 1) * 37) % 360 + 360) % 360;
   dom.chatPortrait.style.setProperty("--portrait-hue", `${hue}`);
+  dom.chatPortrait.classList.remove("persona-steady", "persona-pressure", "persona-shadow");
+  const personaRaw = `${payload?.personaLabel ?? ""}`;
+  if (/强压|pressure/i.test(personaRaw)) {
+    dom.chatPortrait.classList.add("persona-pressure");
+  } else if (/隐锐|shadow/i.test(personaRaw)) {
+    dom.chatPortrait.classList.add("persona-shadow");
+  } else {
+    dom.chatPortrait.classList.add("persona-steady");
+  }
+  if (dom.chatPortraitArt) {
+    dom.chatPortraitArt.style.backgroundImage = `url("${portraitAssetForSeat(Number(payload?.targetSeat ?? 1))}")`;
+  }
   dom.chatPortraitSeat.textContent = seat;
   dom.chatPortraitName.textContent = speakerName;
   dom.chatPortraitPersona.textContent = personaText;
@@ -2383,6 +2542,9 @@ export function initUI(handlers) {
   dom.guideHint = qs("guideHint");
   dom.debateTimeline = qs("debateTimeline");
   dom.debateMeta = qs("debateMeta");
+  dom.btnDebateSpeed = qs("btnDebateSpeed");
+  dom.btnDebateSkip = qs("btnDebateSkip");
+  dom.debateProgressFill = qs("debateProgressFill");
 
   dom.scriptSheetModal = qs("scriptSheetModal");
   dom.sheetModalTitle = qs("sheetModalTitle");
@@ -2400,12 +2562,14 @@ export function initUI(handlers) {
   dom.chatDramaSpeaker = qs("chatDramaSpeaker");
   dom.chatDramaQuestion = qs("chatDramaQuestion");
   dom.chatDramaResponse = qs("chatDramaResponse");
+  dom.chatDramaContext = qs("chatDramaContext");
   dom.chatDramaQuickGrid = qs("chatDramaQuickGrid");
   dom.chatDramaInput = qs("chatDramaInput");
   dom.chatDramaIntentPreview = qs("chatDramaIntentPreview");
   dom.btnChatDramaSend = qs("btnChatDramaSend");
   dom.chatDramaHint = qs("chatDramaHint");
   dom.chatPortrait = qs("chatPortrait");
+  dom.chatPortraitArt = qs("chatPortraitArt");
   dom.chatPortraitSeat = qs("chatPortraitSeat");
   dom.chatPortraitName = qs("chatPortraitName");
   dom.chatPortraitPersona = qs("chatPortraitPersona");
@@ -2421,6 +2585,8 @@ export function initUI(handlers) {
   dom.btnToggleLeft.addEventListener("click", () => toggleLeftSidebar());
   dom.btnToggleRight.addEventListener("click", () => toggleRightSidebar());
   dom.btnToggleBottom?.addEventListener("click", () => toggleBottomPanels());
+  dom.btnDebateSpeed?.addEventListener("click", () => cyclePublicPlaybackSpeed());
+  dom.btnDebateSkip?.addEventListener("click", () => skipPublicPlayback());
   dom.btnCollapseLeftPanel?.addEventListener("click", () => toggleLeftSidebar());
   dom.btnCollapseRightPanel?.addEventListener("click", () => toggleRightSidebar());
   dom.btnToggleLeftDensity?.addEventListener("click", () => toggleLeftDensity());
