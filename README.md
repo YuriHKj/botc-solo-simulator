@@ -9,6 +9,8 @@
 这是一个快速迭代中的原型，而不是完整商业级游戏。
 
 - 桌面版基于 Electron，可打包为 Windows `.exe`。
+- Unity prototype 已进入可运行 demo 阶段：Unity 负责魔典 UI、面板和动画承载，JS Core 仍是唯一规则/AI/权限引擎。
+- Unity 构建版已支持自启动 JS Core bridge；直接运行 `unity-build/BOTC_Unity_Prototype.exe` 时会优先使用随包的 Node runtime，不需要额外手动启动后端。
 - 局内 UI 以“魔典”为核心，支持座位环、角色 token、死亡帷幕、提醒物、恶魔伪装、事件日志、夜间行动弹窗和脚本手册。
 - 当前主要支持三个官方基础剧本：
   - 暗流涌动 / Trouble Brewing
@@ -29,6 +31,8 @@
 - 邪恶队友私聊“问身份”时会交真实身份、台面伪装和配合口径。
 - 公聊加入时序播放；私聊弹窗加入类似推理游戏的对话框、打字式回复和说话状态。
 - 玩家可直接在魔典 token 上添加角色标记和 reminder。
+- Unity demo 已接入可点击 action bridge：选 token、私聊、公聊、提名投票、夜间/白天行动、Storyteller 队列、剧本手册和魔典标记都通过 `unity_action.json` 回传 JS Core。
+- Storyteller 队列支持真实规则触发的被动信息、死亡触发信息、单目标选择和多目标选择；Unity demo smoke 覆盖 `sage-info`、`ravenkeeper-info`、`barber-swap`。
 - 事件日志记录公开事件、主视角夜间信息、私聊和关键流程。
 - 本地轻量语料/模型管线可用于改善 AI 的发言意图识别、投票倾向和表达风格。
 
@@ -63,6 +67,28 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
 - `docs/packaging/WINDOWS_EXE.md`
 - `docs/packaging/RELEASE_20260430.md`
 
+### Unity 可玩 Demo
+
+如果已有 `unity-build/BOTC_Unity_Prototype.exe`，可以直接启动 exe。构建版会尝试从自身 `StreamingAssets/BotcJsRuntime/node.exe` 拉起 JS Core bridge，并读取同目录下的 `unity_state.json` / `unity_viewmodel.json`。
+
+开发期推荐从仓库根目录运行：
+
+```powershell
+npm run unity:demo
+```
+
+这会初始化 fresh state、启动 bridge watcher，并打开 Unity build。只初始化数据、不打开窗口：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
+```
+
+更多 Unity 说明见：
+
+- `unity-prototype/README.md`
+- `docs/design/UNITY_SELF_BOOTSTRAP_BRIDGE_2026-05-09.md`
+- `docs/design/UNITY_STORYTELLER_QUEUE_DEMO_ACCEPTANCE_2026-05-09.md`
+
 ## 测试
 
 ```powershell
@@ -72,12 +98,22 @@ npm test
 当前测试覆盖：
 
 - 角色行动接口契约
+- 被动夜间信息与死亡触发 Storyteller 队列
+- 夜晚行动完整性矩阵
 - AI agent observation / evidence book
 - 邪恶方互认与伪装认知
 - 私聊、公聊、提名、投票转 observation
 - AI 主动私聊不消耗玩家私聊次数
 - 死亡 AI 公开交身份
 - 邪恶队友被问身份时交真实身份与伪装口径
+- Electron 打包路径与资源路径契约
+- Unity viewmodel、action bridge、资源同步和可玩 demo smoke
+
+Unity demo smoke 会跑一条可玩闭环，并额外覆盖真实 JS Core Storyteller 队列：
+
+- `sage-info`：信息型队列。
+- `ravenkeeper-info`：单目标队列。
+- `barber-swap`：双目标队列。
 
 ## 项目结构
 
@@ -90,6 +126,9 @@ npm test
 - `scripts/roles/`：按剧本拆分的角色规则模块。
 - `scripts/ai.js`：AI 对话、推理、主动私聊、投票和表达生成。
 - `scripts/ai_agents.js`：AI agent 观察、证据簿、私有/公开信息边界。
+- `scripts/unity_viewmodel.js`：Unity UI 消费的只读 viewmodel 导出。
+- `scripts/unity_action_bridge.mjs`：Unity action 文件到 JS Core 规则调用的桥接层。
+- `unity-prototype/`：Unity 可运行 UI 原型和构建入口。
 - `scripts/ml_runtime*.js`：轻量模型运行时和导出权重。
 - `assets/`：本地素材、剧本 JSON、角色图标和 UI 图片。
 - `docs/`：需求、设计、打包、调研与 QA 文档。

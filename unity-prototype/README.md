@@ -12,6 +12,8 @@
 - 点击 token 更新底部对话舞台。
 - 点击 token、私聊、公聊、提名会写入 `unity_action.json`，由 JS Core 桥接脚本处理后刷新 `unity_viewmodel.json`。
 - 白天 / 夜晚 / 提名阶段通过 JS Core 推进，Unity 只做 UI 预览和动作投递。
+- 构建版可自启动 JS Core bridge：优先使用随包 `StreamingAssets/BotcJsRuntime/node.exe`，缺失时回退到 PATH 中的 `node`。
+- 已接入动态行动表单、Storyteller 队列、剧本手册、角色图标选择器、魔典身份标记和终局反馈。
 - 三首 BGM 按阶段切换：
   - 白天公私聊：`When_the_Clock_Stops`
   - 夜间行动：`Where_Shadows_Scratch_Stone`
@@ -76,17 +78,19 @@ JS Core 桥接脚本会维护：
 - `Assets/StreamingAssets/unity_action_result.json`
 - `Assets/StreamingAssets/unity_viewmodel.json`
 
-开发时建议先启动桥接脚本，再进入 Unity Play Mode：
+开发 Play Mode 时可以手动启动桥接脚本，再进入 Unity：
 
 ```powershell
 npm run unity:bridge
 ```
 
-如果是直接运行已构建的 `unity-build/BOTC_Unity_Prototype.exe`，需要监听 build 版自己的 StreamingAssets 目录：
+如果需要手动调试 build 版 bridge，可监听 build 版自己的 StreamingAssets 目录：
 
 ```powershell
 npm run unity:bridge:build
 ```
+
+一般用户路径不需要手动运行上述命令。直接启动已构建的 `unity-build/BOTC_Unity_Prototype.exe` 时，Unity 会尝试自动拉起内置 bridge。
 
 最小动作闭环：
 
@@ -149,6 +153,16 @@ powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatc
 npm run test:unity-demo-acceptance
 ```
 
+该验收会覆盖：
+
+- fresh state 初始化
+- token 选择
+- 私聊 AI 回复
+- 公聊推进
+- 提名投票
+- 剧本手册
+- 真实 JS Core Storyteller 队列：`sage-info`、`ravenkeeper-info`、`barber-swap`
+
 可选参数：
 
 ```powershell
@@ -157,7 +171,7 @@ powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -Script
 
 ## 后续建议
 
-1. 把夜间角色行动、reminder 编辑、剧本手册也接成 action。
-2. 把私聊弹窗升级为多按钮问题和骗人接口，而不是固定问身份。
-3. 增加投票逐个举手动画，消费 JS Core 返回的 nomination/vote 事件。
-4. Unity 根据 timeline/events 播放动画，例如私聊、提名、投票、夜间行动。
+1. 继续做角色专用的行动表单美术控件，让复杂角色不只依赖通用按钮网格。
+2. 固化 UI 截图回归，至少覆盖 16:9、窄屏和高 DPI 三类窗口。
+3. 把私聊、公聊和投票仪式继续往“底部对话框 + 人物/token 演出”方向打磨。
+4. 在规则边界稳定后再集中打磨 AI 对话口吻和长期记忆复盘。

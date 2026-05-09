@@ -449,3 +449,30 @@
   - TB 间谍、BMR 祖母、BMR 侍女、SnV 贤者非主视角自动信息补 typed `infoPings`。
   - Unity viewmodel 的 `buildRoleAction` 和 `actionForms[]` 保留 Storyteller action `type`，UI 不再需要从 prompt 推断动作类型。
 - 状态：已完成（passive info + death-trigger queue contract pass）。
+
+## CR-2026-05-09-08
+- 请求人：用户
+- 时间：2026-05-09
+- 变更内容：
+  1. Unity demo smoke 需要覆盖真实 JS Core 产生的死亡触发 Storyteller 队列。
+  2. 验收不能只依赖合成 pending action；需要证明真实规则状态能被 Unity bridge 看见并处理。
+  3. 处理后必须验证队列清空、行动 id 写回、私人信息进入 Unity viewmodel。
+- 处理策略：
+  - 扩展 `scripts/unity_demo_acceptance.mjs`，在常规 TB demo smoke 后追加 SnV Sage 死亡触发 fixture。
+  - fixture 通过 JS Core 夜晚流程真实生成 `sage-info` pending Storyteller action，再写入 Unity bridge state 文件。
+  - 经 `storyteller-action` 处理后断言 `pendingStorytellerAction.available` 关闭、`pendingStorytellerActions` 清空、`privateInfo` 可见。
+  - 本轮不改 Unity 视觉或核心规则，仅补齐 demo 验收边界。
+- 状态：已完成（Unity demo Storyteller queue acceptance pass）。
+
+## CR-2026-05-09-09
+- 请求人：用户
+- 时间：2026-05-09
+- 变更内容：
+  1. 在 CR-2026-05-09-08 的基础上，Unity demo smoke 不应只覆盖 `info` 型 Storyteller 队列。
+  2. 需要覆盖真实规则产生的单目标和多目标 Storyteller action，防止 Unity bridge 只在“无需输入”的队列上看起来可用。
+  3. 验收应证明 targetIds 能从 Unity action payload 进入 JS Core resolver，并正确清空队列/写入结果。
+- 处理策略：
+  - 增加真实 TB 守鸦人夜死 fixture，验证 `ravenkeeper-info` 单目标选择经 Unity bridge 写入私人信息。
+  - 增加真实 SnV 理发师死亡 fixture，验证 `barber-swap` 双目标选择经 Unity bridge 交换角色。
+  - 保持 Unity UI/C# 不变，本轮只补 demo smoke 覆盖范围。
+- 状态：已完成（Unity demo target Storyteller queue acceptance pass）。
