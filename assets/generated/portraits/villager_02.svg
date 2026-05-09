@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 560">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c1b24"/>
+      <stop offset="1" stop-color="#07060a"/>
+    </linearGradient>
+    <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency=".02" numOctaves="4"/><feColorMatrix type="saturate" values=".25"/><feBlend in="SourceGraphic" mode="multiply"/></filter>
+  </defs>
+  <rect width="360" height="560" fill="url(#bg)"/>
+  <path d="M34 120c74-65 212-69 294 6v334H34z" fill="#171b27" stroke="#caa66a" stroke-width="5"/>
+  <path d="M54 503c19-131 71-178 130-178 65 0 111 63 125 178z" fill="#2b1015" stroke="#d8b06c" stroke-width="6"/>
+  <path d="M118 225c-8-73 31-129 76-130 42 1 76 54 70 128-6 75-35 113-73 114-41 0-66-37-73-112z" fill="#d1a889" stroke="#0e0b0d" stroke-width="8"/>
+  <path d="M112 179c18-71 59-102 96-101 43 2 73 37 75 103-31-24-70-35-122-15z" fill="#111018" stroke="#08070a" stroke-width="8"/>
+  <path d="M131 242c20 12 35 11 51 0M211 242c15 11 31 11 49 0" fill="none" stroke="#101015" stroke-width="7"/>
+  <path d="M170 286c24 18 53 17 75-2" fill="none" stroke="#502020" stroke-width="8"/>
+  <path d="M74 79l-50 84M318 88l34 82M23 449l71 47M301 446l41 66" stroke="#050507" stroke-width="18" stroke-linecap="round"/>
+  <g filter="url(#ink)"><rect width="360" height="560" fill="transparent"/></g>
+</svg>

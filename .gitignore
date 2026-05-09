@@ -18,6 +18,18 @@ data/**/*.arrow
 data/**/*.zip
 
 # Generated verification artifacts
+output/
+unity-build/
+unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe
+unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe.meta
+unity-prototype/Assets/StreamingAssets/unity_action.json
+unity-prototype/Assets/StreamingAssets/unity_action.json.meta
+unity-prototype/Assets/StreamingAssets/unity_action_result.json
+unity-prototype/Assets/StreamingAssets/unity_action_result.json.meta
+unity-prototype/Assets/StreamingAssets/unity_state.json
+unity-prototype/Assets/StreamingAssets/unity_state.json.meta
+unity-prototype/Assets/StreamingAssets/unity_viewmodel.json
+unity-prototype/Assets/StreamingAssets/unity_viewmodel.json.meta
 docs/verification/*.png
 docs/verification/*.jpg
 docs/verification/*.jpeg

@@ -1,0 +1,36 @@
+{
+  "scriptName": "暗流涌动",
+  "phase": "day",
+  "dayStage": "private",
+  "day": 1,
+  "night": 1,
+  "alive": 9,
+  "dead": 0,
+  "setup": "5民 2外 1爪 1恶",
+  "bluffs": ["厨师", "共情者", "送葬者"],
+  "dialogueTitle": "私聊 · 4号",
+  "dialogueText": "4号压低声音说：我先不把身份摊死，但我能给你一个可验证方向。今天先听 7 号和 8 号怎么解释。",
+  "events": [
+    "[D0] 新局已创建：暗流涌动，9 人。",
+    "[N1] 邪恶互认完成，恶魔获得 3 个伪装。",
+    "[N1] 你的身份是洗衣妇。",
+    "[N1] 你得知：1号与8号中有一名洗衣妇。",
+    "[D1] 天亮了，进入私聊阶段。",
+    "[D1] 4号主动找你私聊。"
+  ],
+  "storytellerQueue": [
+    "洗衣妇：已展示两名玩家和一个角色。",
+    "夜间行动：等待下一位主动角色。"
+  ],
+  "players": [
+    { "seat": 1, "name": "1号", "roleId": "washerwoman", "roleName": "洗衣妇", "revealed": true, "alive": true, "human": true, "suspicion": 23, "reminders": ["守护"] },
+    { "seat": 2, "name": "2号", "roleId": "librarian", "roleName": "图书管理员", "revealed": false, "alive": true, "human": false, "suspicion": 42, "reminders": [] },
+    { "seat": 3, "name": "3号", "roleId": "investigator", "roleName": "调查员", "revealed": false, "alive": true, "human": false, "suspicion": 58, "reminders": ["中毒"] },
+    { "seat": 4, "name": "4号", "roleId": "chef", "roleName": "厨师", "revealed": true, "alive": true, "human": false, "suspicion": 31, "reminders": [] },
+    { "seat": 5, "name": "5号", "roleId": "empath", "roleName": "共情者", "revealed": false, "alive": true, "human": false, "suspicion": 19, "reminders": [] },
+    { "seat": 6, "name": "6号", "roleId": "fortune-teller", "roleName": "占卜师", "revealed": false, "alive": false, "human": false, "suspicion": 65, "reminders": ["鬼票"] },
+    { "seat": 7, "name": "7号", "roleId": "imp", "roleName": "小恶魔", "revealed": false, "alive": true, "human": false, "suspicion": 76, "reminders": [] },
+    { "seat": 8, "name": "8号", "roleId": "washerwoman", "roleName": "洗衣妇", "revealed": false, "alive": true, "human": false, "suspicion": 33, "reminders": [] },
+    { "seat": 9, "name": "9号", "roleId": "librarian", "roleName": "图书管理员", "revealed": false, "alive": true, "human": false, "suspicion": 48, "reminders": [] }
+  ]
+}

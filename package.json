@@ -7,9 +7,25 @@
   "scripts": {
     "electron:start": "electron .",
     "electron:win": "electron-builder --win nsis",
+    "electron:pack": "electron-builder --win --dir",
     "test:role-actions": "node tests/role_action_contracts.mjs",
+    "test:passive-info-queues": "node tests/passive_info_storyteller_queue_contracts.mjs",
+    "test:night-actions": "node tests/night_action_completeness_contracts.mjs",
     "test:ai-agents": "node tests/ai_agent_contracts.mjs",
-    "test": "npm run test:role-actions && npm run test:ai-agents"
+    "test:electron-build": "node tests/electron_build_contracts.cjs",
+    "test:electron-paths": "node tests/electron_path_contracts.cjs",
+    "test:unity-viewmodel": "node tests/unity_viewmodel_contracts.mjs",
+    "test:unity-action-bridge": "node tests/unity_action_bridge_contracts.mjs",
+    "test:unity-demo-acceptance": "node scripts/unity_demo_acceptance.mjs",
+    "test:unity-assets": "node tests/unity_asset_contracts.mjs && node scripts/sync_unity_assets.mjs --check",
+    "test:mojibake": "node tests/mojibake_contracts.mjs",
+    "export:unity-viewmodel": "node scripts/export_unity_viewmodel.mjs",
+    "unity:sync-assets": "node scripts/sync_unity_assets.mjs",
+    "unity:bridge": "node scripts/unity_action_bridge.mjs --watch",
+    "unity:bridge:build": "node scripts/unity_action_bridge.mjs --watch --state=unity-build/BOTC_Unity_Prototype_Data/StreamingAssets/unity_state.json --viewmodel=unity-build/BOTC_Unity_Prototype_Data/StreamingAssets/unity_viewmodel.json --action=unity-build/BOTC_Unity_Prototype_Data/StreamingAssets/unity_action.json --result=unity-build/BOTC_Unity_Prototype_Data/StreamingAssets/unity_action_result.json",
+    "unity:demo:init": "node scripts/unity_action_bridge.mjs --fresh",
+    "unity:demo": "powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh",
+    "test": "npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:ai-agents && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-demo-acceptance && npm run test:mojibake"
   },
   "devDependencies": {
     "electron": "^31.7.7",
@@ -22,6 +38,8 @@
     "files": [
       "index.html",
       "styles.css",
+      "*.mp3",
+      "*.mp4",
       "assets/**/*",
       "scripts/**/*",
       "docs/research/UI_REFERENCE.md",

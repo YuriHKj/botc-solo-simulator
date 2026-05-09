@@ -654,6 +654,27 @@ function testBeliefRefreshConsumesAgentObservations() {
   assert.ok(targetInsight.trail.length > 0, "AI insight rows should expose trail data for recap UI");
 }
 
+function testEvilPrivateNotesDoNotLeakToGoodProactiveWhisper() {
+  const state = makeTBState();
+  const human = state.players.find((player) => player.isHuman);
+  const evilAI = state.players.find((player) => !player.isHuman && player.team === "evil");
+
+  assert.ok(human, "expected human player");
+  assert.ok(evilAI, "expected an evil AI");
+  assert.equal(human.team, "good", "fixture should keep human on good team");
+
+  evilAI.alive = false;
+  evilAI.privateNotes.push("[第1夜] 邪恶互认：你的爪牙是 3号。");
+  evilAI.privateNotes.push("[第1夜] 恶魔伪装（不在场）：厨师 / 共情者 / 送葬者。");
+  evilAI.privateNotes.push("[第1夜] 间谍查看了魔典。");
+
+  const messages = runAIProactiveWhispers(state, fixedRng(777));
+  assert.ok(messages.length > 0, "dead evil AI should be able to initiate a proactive whisper");
+
+  const text = messages.map((entry) => entry.response).join("\n");
+  assert.doesNotMatch(text, /邪恶互认|恶魔伪装|魔典|你的爪牙|不在场/, "evil-only private notes must not leak to a good human");
+}
+
 [
   testEvilRecognitionIsAgentScoped,
   testPrivateClaimsAreNotGlobal,
@@ -676,6 +697,7 @@ function testBeliefRefreshConsumesAgentObservations() {
   testAINominationCanPressureNominateWithLowEvidence,
   testObservationWritesEvidenceBook,
   testBeliefRefreshConsumesAgentObservations,
+  testEvilPrivateNotesDoNotLeakToGoodProactiveWhisper,
 ].forEach((test) => test());
 
 console.log("ai agent contracts ok");

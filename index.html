@@ -88,6 +88,11 @@
           <button id="btnToPublic">进入公聊阶段</button>
 
           <h3>2) 公聊阶段</h3>
+          <label>
+            你的对外声称
+            <select id="publicClaimRoleSelect"></select>
+          </label>
+          <button id="btnPublicClaim">公开声称该身份</button>
           <button id="btnDiscuss">进行一轮公聊</button>
           <button id="btnToNomination">进入提名阶段</button>
 
@@ -150,6 +155,32 @@
             <div id="officialStateLine" class="official-state-line">--</div>
           </section>
           <div id="grimoireBoard" class="grimoire-board"></div>
+          <section id="phaseObjectiveHud" class="phase-objective-hud" aria-live="polite">
+            <span class="phase-objective-kicker">当前目标</span>
+            <strong id="phaseObjectiveTitle">等待开局</strong>
+            <span id="phaseObjectiveHint">点击“开始新游戏”进入第一夜。</span>
+          </section>
+          <section id="storytellerQueueHud" class="storyteller-queue-hud hidden" aria-live="polite">
+            <div class="storyteller-queue-head">
+              <span>Storyteller 队列</span>
+              <strong id="storytellerQueueCount">0</strong>
+            </div>
+            <div id="storytellerQueueList" class="storyteller-queue-list"></div>
+            <button id="btnProcessStorytellerQueue" type="button">处理下一项</button>
+          </section>
+          <section id="timelineRail" class="timeline-rail" aria-live="polite">
+            <div class="timeline-rail-head">
+              <span>白天时间线</span>
+              <strong id="timelineRailMeta">等待行动</strong>
+            </div>
+            <div id="timelineRailList" class="timeline-rail-list"></div>
+          </section>
+          <section id="voteCeremony" class="vote-ceremony hidden" aria-live="polite">
+            <div class="vote-ceremony-kicker">投票结算</div>
+            <div id="voteCeremonyTitle" class="vote-ceremony-title">--</div>
+            <div id="voteCeremonyCount" class="vote-ceremony-count">0 / 0</div>
+            <div id="voteCeremonyVoters" class="vote-ceremony-voters"></div>
+          </section>
           <div id="scriptBadge" class="script-badge">暗流涌动</div>
         </section>
 
@@ -379,6 +410,10 @@
             音效音量 <span id="settingSfxVolumeValue">100%</span>
             <input id="settingSfxVolumeRange" type="range" min="0" max="100" step="5" value="100" />
           </label>
+          <label>
+            背景音乐 <span id="settingMusicVolumeValue">35%</span>
+            <input id="settingMusicVolumeRange" type="range" min="0" max="100" step="5" value="35" />
+          </label>
           <div class="settings-actions">
             <button id="btnToggleFullscreen" type="button">切换全屏</button>
             <button id="btnSaveSettings" type="button">保存设置</button>
@@ -391,7 +426,8 @@
       <div class="sheet-modal-card chat-drama-card panel-soft">
         <div class="sheet-modal-header">
           <h2 id="chatDramaTitle">私聊</h2>
-          <button id="btnCloseChatDrama" type="button" class="sheet-close-btn">关闭</button>
+          <span class="chat-drama-peek-hint">不锁屏 · 可直接查看魔典</span>
+          <button id="btnCloseChatDrama" type="button" class="sheet-close-btn">收起</button>
         </div>
         <div class="chat-drama-body">
           <div class="chat-portrait-wrap">
@@ -416,6 +452,21 @@
             <section class="chat-drama-controls">
               <div class="chat-drama-quick-title">继续追问</div>
               <div id="chatDramaQuickGrid" class="chat-drama-quick-grid"></div>
+              <details class="chat-deception-box">
+                <summary>私下骗人 / 给口径</summary>
+                <label>
+                  私下声称身份
+                  <select id="chatDeceptionRoleSelect"></select>
+                </label>
+                <label>
+                  编一条夜间信息
+                  <input id="chatDeceptionNightInput" type="text" maxlength="120" placeholder="例如：我昨晚看到 3 号和 7 号不同阵营" />
+                </label>
+                <label class="switch-row chat-secret-row">
+                  <input id="chatDeceptionSecretCheck" type="checkbox" />
+                  要求对方暂时保密
+                </label>
+              </details>
               <label class="chat-drama-input-label">
                 补充问法（可选）
                 <input id="chatDramaInput" type="text" maxlength="90" placeholder="例如：只看你最想提名的一位" />
