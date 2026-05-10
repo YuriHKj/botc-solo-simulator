@@ -274,7 +274,18 @@ function testUnityViewModelConsumesInteractiveFields() {
       },
     ],
   };
-  state.pendingStorytellerActions = [{ prompt: "等待洗衣妇选择两名玩家。" }];
+  state.pendingStorytellerActions = [{
+    id: "queue-washerwoman",
+    type: "washerwoman-info",
+    roleId: "washerwoman",
+    roleName: "洗衣妇",
+    inputType: "player-target",
+    targetCount: 2,
+    minTargetCount: 2,
+    maxTargetCount: 2,
+    prompt: "等待洗衣妇选择两名玩家。",
+    options: [{ id: other.id, label: "2号", alive: true }],
+  }];
   state.grimoireNotes = {
     ...(state.grimoireNotes ?? {}),
     [other.id]: { reminders: ["守护", "中毒"] },
@@ -285,6 +296,11 @@ function testUnityViewModelConsumesInteractiveFields() {
   assert.equal(vm.timeline.length, 2);
   assert.equal(vm.timeline[1].targetId, human.id);
   assert.deepEqual(vm.storytellerQueue, ["等待洗衣妇选择两名玩家。"]);
+  assert.equal(vm.storytellerQueueDetails.length, 1);
+  assert.equal(vm.storytellerQueueDetails[0].current, true);
+  assert.equal(vm.storytellerQueueDetails[0].type, "washerwoman-info");
+  assert.equal(vm.storytellerQueueDetails[0].roleName, "洗衣妇");
+  assert.equal(vm.storytellerQueueDetails[0].optionCount, 1);
   assert.ok(exportedOther.reminders.includes("守护"));
   assert.ok(exportedOther.reminders.includes("中毒"));
 }

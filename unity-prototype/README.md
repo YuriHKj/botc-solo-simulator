@@ -147,6 +147,8 @@ powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatc
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
 
+默认启动 build 时会传入 `-screen-fullscreen 1 -screen-width 1920 -screen-height 1080`，让正式 demo 以全屏优先方式运行。开发调试或稳定截图时可加 `-Windowed`；也可用 `-WindowWidth` / `-WindowHeight` 覆盖窗口调试尺寸。
+
 可玩 demo 闭环验收：
 
 ```powershell

@@ -517,6 +517,28 @@ function buildStorytellerQueue(state) {
     .map((action) => cleanText(action.prompt ?? action.title ?? action.kind ?? action.type ?? "待处理行动"));
 }
 
+function buildStorytellerQueueDetails(state) {
+  return safeArray(state?.pendingStorytellerActions)
+    .slice(0, 8)
+    .map((action, index) => ({
+      id: action?.id ?? "",
+      type: action?.type ?? "",
+      roleId: action?.roleId ?? "",
+      roleName: action?.roleName ?? "Storyteller",
+      inputType: action?.inputType ?? "player-target",
+      prompt: cleanText(action?.prompt ?? action?.title ?? action?.type ?? "待处理行动"),
+      phaseLabel: action?.phaseLabel ?? `D${action?.createdDay ?? state?.day ?? 0}/N${action?.createdNight ?? state?.night ?? 0}`,
+      createdDay: action?.createdDay ?? state?.day ?? 0,
+      createdNight: action?.createdNight ?? state?.night ?? 0,
+      createdPhase: action?.createdPhase ?? state?.phase ?? "",
+      minTargetCount: action?.minTargetCount ?? action?.targetCount ?? 0,
+      maxTargetCount: action?.maxTargetCount ?? action?.targetCount ?? 0,
+      targetCount: action?.targetCount ?? 0,
+      optionCount: safeArray(action?.options).length + safeArray(action?.roleOptions).length + safeArray(action?.modes).length,
+      current: index === 0,
+    }));
+}
+
 function buildTimeline(state, limit = 16) {
   return safeArray(state?.aiDialogue?.timeline)
     .slice(-limit)
@@ -613,6 +635,7 @@ export function buildUnityViewModel(state, { aiInsights = [], generatedAt = new 
     dialogueText: dialogue.text,
     events: logs.length > 0 ? logs : ["暂无事件。"],
     storytellerQueue: buildStorytellerQueue(state),
+    storytellerQueueDetails: buildStorytellerQueueDetails(state),
     timeline: buildTimeline(state),
     action: buildActionStatus(state),
     humanNightAction: buildRoleAction(humanNightAction),

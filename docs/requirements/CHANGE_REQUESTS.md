@@ -476,3 +476,117 @@
   - 增加真实 SnV 理发师死亡 fixture，验证 `barber-swap` 双目标选择经 Unity bridge 交换角色。
   - 保持 Unity UI/C# 不变，本轮只补 demo smoke 覆盖范围。
 - 状态：已完成（Unity demo target Storyteller queue acceptance pass）。
+
+## CR-2026-05-09-10
+- 请求人：用户
+- 时间：2026-05-09
+- 变更内容：
+  1. 做 Unity build 用户视角后的 UI 视觉收束，优先处理不需要改 JS Core 协议的可读性问题。
+  2. 构建版默认启动应更稳定、更像可验收 demo，避免全屏默认状态导致自动验收/截图不稳定。
+  3. 剧本手册作为高频大面板，需要减少拥挤、扩大角色图标网格、提升详情和夜晚顺序区域的阅读宽度。
+- 处理策略：
+  - Unity build 入口固定玩家窗口默认值：Windowed、1600x900、可调整窗口。
+  - `tools/run_unity_demo.ps1` 启动 build 时默认带 windowed 参数，并保留 `-Fullscreen` 开关。
+  - 剧本手册面板加宽，左侧角色图标由 3 列改为 4 列，右侧详情/夜序区域重新分配空间。
+  - 不改变 `unity_viewmodel.json` 或 `unity_action.json` 协议，不改变 JS Core 规则。
+- 状态：已完成（Unity visual consolidation pass）。
+
+## CR-2026-05-10-01
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 做 Unity 版 Storyteller 队列专用 UI，不再只用一段长文本摘要承载队列。
+  2. 队列 UI 应清楚区分“队列列表”“当前待处理行动”“可选目标/输入预览”和“处理入口”。
+  3. 本轮只增强 Unity 展示与 viewmodel 可读字段，不改变 JS Core 规则结算和 `storyteller-action` action 语义。
+- 处理策略：
+  - 保留既有 `storytellerQueue[]` 字符串字段，新增 `storytellerQueueDetails[]` 作为 Unity 专用队列卡片数据。
+  - Unity Storyteller 面板改为居中大模态：左侧队列卡片，右侧当前行动详情，底部目标预览和处理按钮。
+  - 当前行动仍通过已有动态行动表单或自动合法选择提交给 JS Core。
+- 状态：已完成（Storyteller queue dedicated UI pass）。
+
+## CR-2026-05-10-02
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 美化 Unity 复杂行动表单，尤其是多目标、身份、模式、问题输入组合在同一表单中时的拥挤问题。
+  2. 表单需要更像正式模态，不再像调试面板；玩家要能快速看出行动类型、要求、当前选择和可提交状态。
+  3. 不改变 JS Core 行动规则、`actionForms[]` 数据来源或 action payload 语义。
+- 处理策略：
+  - 行动表单改为居中宽面板，顶部显示行动摘要，底部固定状态与提交按钮。
+  - 目标选择改为卡片式按钮；身份选择继续使用角色 token；分页容量调整为 5 列 x 2 行。
+  - 模式选择改为更宽的分段按钮，问题输入和信息型行动使用更明确的空/说明状态。
+- 状态：已完成（complex action form visual pass）。
+
+## CR-2026-05-10-03
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 修复 Unity 投票仪式在 13-15 人局中只显示前 12 个 voter token 的问题。
+  2. 保持 JS Core 投票结果为唯一数据源，Unity 只负责完整渲染 `voteCeremony.voters[]`。
+  3. 补 demo 验收，防止以后出现 JS Core 已导出 15 人但 Unity smoke 没覆盖的回归。
+- 处理策略：
+  - `RenderVoteTokenCeremony()` 视觉上限从 12 扩到 15。
+  - 对 13-15 人投票启用更紧凑的 token、椭圆半径和姓名标签尺寸。
+  - `scripts/unity_demo_acceptance.mjs` 增加 15 人 TB 投票夹具，断言 Unity viewmodel 导出 15 名 voter。
+- 状态：已完成（15-player vote ceremony acceptance pass）。
+
+## CR-2026-05-10-04
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. Unity UI 方向继续推进，先补关键 UI 状态的截图 smoke。
+  2. 覆盖主魔典、私聊面板、复杂行动表单、Storyteller 队列、剧本手册、投票仪式和角色选择器。
+  3. 脚本应复用 JS Core / Unity viewmodel 数据，不用鼠标坐标模拟点击，降低验收脆弱性。
+- 处理策略：
+  - Unity 增加命令行专用 `-botc-ui-smoke` 入口，启动时直接打开指定面板。
+  - Unity 增加 `-botc-no-bridge` 入口，截图 smoke 时不自启动 watcher，避免截图期间状态被额外进程刷新。
+  - 新增 JS fixture 生成脚本，为不同 UI 状态写入对应 `unity_state.json` / `unity_viewmodel.json`。
+  - 新增 PowerShell 截图脚本，逐个启动 Unity build 并捕获窗口 PNG 到 `output/unity-ui-smoke-*`。
+  - 截图改为 Unity 内部 `Texture2D.ReadPixels` 输出，避免 Windows DirectX 窗口外部截图出现黑屏。
+  - 首轮 smoke 暴露并修复两个 UI 问题：Storyteller 队列被终局弹窗遮挡、复杂行动表单目标/身份区挤压。
+- 状态：已完成（UI screenshot smoke pass）。
+
+## CR-2026-05-10-05
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. Unity UI 以 1920x1080 全屏作为正式 demo/build 的主验收基线。
+  2. 直接运行 Unity build exe 或 `npm run unity:demo` 时默认进入全屏；窗口化只作为调试和截图复现模式。
+  3. 顶栏、底部动作区、私聊面板、复杂行动表单、Storyteller 队列、剧本手册、投票仪式和角色选择器需要按全屏空间重新排布，减少拥挤与截断。
+  4. 本轮只处理 Unity 表现层、启动参数和文档，不改变 JS Core 规则、AI 或 action/viewmodel 协议。
+- 处理策略：
+  - Unity 构建入口设置 `FullScreenWindow`、1920x1080 默认尺寸。
+  - `tools/run_unity_demo.ps1` 默认传入 fullscreen 参数，新增 `-Windowed` 作为开发调试路径。
+  - `tools/capture_unity_ui_smoke.ps1` 默认截图基线改为 1920x1080，并保留可选 fullscreen 截图开关。
+  - Unity C# 运行时 UI 使用现有 Canvas 1920x1080 reference resolution，放大主要模态面板和底部 dock。
+  - 私聊延续“底部对话框 + 左侧 token 卡 + 右侧对话/compose”的方向；手册、行动表单和角色选择器继续使用角色 token 网格。
+- 状态：已完成（Unity fullscreen-first UI pass）。
+
+## CR-2026-05-10-06
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 优化 AI agent 的私聊/公聊/提名理由，让发言基于自己可见的 evidence/trail，而不是泛模板。
+  2. 私聊证据不得泄漏给未参与 AI；公聊不得直接引用私聊原文。
+  3. 好人视角不得因对话理由看到恶魔 bluff、邪恶互认或隐藏身份。
+  4. 醉酒/中毒夜间信息与玩家私聊声称需要更高污染风险、更低引用可信度。
+- 处理策略：
+  - 新增 dialogue evidence helper，统一生成可放进 AI 发言的安全短理由。
+  - `composePrivateResponse`、`composePublicLine`、`chooseAINomination` 复用同一证据摘要路径。
+  - `recordPrivateInfoForAgent` 与玩家私聊夜间信息声称写入 contamination metadata。
+  - 增加 AI 契约测试与本轮设计审计文档。
+- 状态：已完成（AI evidence-driven dialogue contracts pass）。
+
+## CR-2026-05-10-07
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 做一轮 AI “模拟人类说话”优化，让私聊/公聊更像玩家临场推理，而不是规则摘要或模板公告。
+  2. 本轮只处理最终发言层的表达节奏，不改变 AI 怀疑度、规则结算、证据可见性或 Unity UI。
+  3. 人类化表达必须保留上一轮证据驱动和隐藏信息边界：不能为了口语化编造证据，也不能泄漏私聊/恶魔信息。
+- 处理策略：
+  - 在 `scripts/ai.js` 增加最终发言 cadence polish：去重开场白、加入少量修正/承接语、按 persona 调整口吻。
+  - 私聊回答在保留 evidence summary 的同时加入“我换个说法/说白了”等临场解释痕迹。
+  - 公聊在第二轮或更强压力发言中加入“我的意思是/换句话说”等桌面承接语，减少纯模板感。
+  - 增加契约测试，确保口语化不破坏证据引用和私聊泄漏防线。
+- 状态：已完成（AI human speech cadence pass）。

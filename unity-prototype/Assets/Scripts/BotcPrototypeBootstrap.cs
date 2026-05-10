@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using DiagnosticsProcess = System.Diagnostics.Process;
 using DiagnosticsProcessStartInfo = System.Diagnostics.ProcessStartInfo;
@@ -15,8 +16,8 @@ namespace BotcSolo.UnityPrototype
         private const float RoleIconSize = 78f;
         private const float BridgeTimeoutSeconds = 3f;
         private const float PendingViewModelPollSeconds = 0.35f;
-        private const int ActionChoicePageSize = 8;
-        private const int HandbookRolePageSize = 12;
+        private const int ActionChoicePageSize = 10;
+        private const int HandbookRolePageSize = 15;
 
         private Canvas canvas;
         private Font bodyFont;
@@ -39,6 +40,9 @@ namespace BotcSolo.UnityPrototype
         private RectTransform actionFormPanel;
         private RectTransform actionOptionRoot;
         private RectTransform storytellerPanel;
+        private RectTransform storytellerQueueListRoot;
+        private RectTransform storytellerDetailRoot;
+        private RectTransform storytellerTargetRoot;
         private RectTransform handbookPanel;
         private RectTransform handbookRoleListRoot;
         private RectTransform rolePickerPanel;
@@ -161,6 +165,8 @@ namespace BotcSolo.UnityPrototype
             RememberViewModelTimestamp();
             BuildScene();
             RenderAll();
+            ApplyUiSmokeMode();
+            StartCoroutine(CaptureUiSmokeScreenshotIfRequested());
             SetMood(MoodFromState());
         }
 
@@ -200,6 +206,13 @@ namespace BotcSolo.UnityPrototype
 
         private void StartUnityBridgeIfAvailable()
         {
+            if (CommandLineFlag("-botc-no-bridge"))
+            {
+                bridgeLaunchStatus = "同步：UI smoke 未启动 bridge";
+                bridgeLaunchProblem = false;
+                return;
+            }
+
             if (Application.isEditor)
             {
                 bridgeLaunchStatus = "同步：Editor 手动 bridge";
@@ -343,6 +356,22 @@ namespace BotcSolo.UnityPrototype
             return "\"" + (value ?? "").Replace("\"", "\\\"") + "\"";
         }
 
+        private static bool CommandLineFlag(string name)
+        {
+            return Environment.GetCommandLineArgs().Any((arg) => string.Equals(arg, name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string CommandLineValue(string name)
+        {
+            var args = Environment.GetCommandLineArgs();
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length) return args[i + 1];
+                if (args[i].StartsWith(name + "=", StringComparison.OrdinalIgnoreCase)) return args[i].Substring(name.Length + 1);
+            }
+            return "";
+        }
+
         private void BuildScene()
         {
             EnsureEventSystem();
@@ -395,7 +424,7 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildTopHud()
         {
-            var bar = AddPanel("Top Grimoire Bar", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-780f, -88f), new Vector2(780f, -14f), new Color(0.010f, 0.012f, 0.014f, 0.78f));
+            var bar = AddPanel("Top Grimoire Bar", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-830f, -88f), new Vector2(830f, -14f), new Color(0.010f, 0.012f, 0.014f, 0.78f));
             AddFrame(bar.transform, "Top Bar Frame", 1f, new Color(0.85f, 0.62f, 0.32f, 0.26f));
             AddImage("Top Bar Warm Strip", bar.transform, Vector2.zero, new Vector2(1f, 0.36f), new Vector2(0f, 0f), new Vector2(0f, 1.5f), new Color(0.74f, 0.48f, 0.18f, 0.055f));
 
@@ -413,9 +442,9 @@ namespace BotcSolo.UnityPrototype
             syncStatusPill = AddPanel("Sync Status Pill", bar.transform, Vector2.zero, Vector2.one, new Vector2(730f, 42f), new Vector2(-426f, -8f), new Color(0.05f, 0.09f, 0.07f, 0.46f)).GetComponent<Image>();
             AddFrame(syncStatusPill.transform, "Sync Status Pill Frame", 0.8f, new Color(0.76f, 0.92f, 0.66f, 0.16f));
             syncStatusText = AddText("Sync Status", bar.transform, Vector2.zero, Vector2.one, new Vector2(742f, 42f), new Vector2(-438f, -8f), "", 13, TextAnchor.MiddleRight, FontStyle.Bold);
-            AddButton("新局", bar.transform, new Vector2(1206f, 38f), new Vector2(86f, 36f), () => SelectDialoguePreset("new-game"));
-            AddButton("剧本手册", bar.transform, new Vector2(1328f, 38f), new Vector2(132f, 36f), () => SelectDialoguePreset("handbook"));
-            AddButton("主菜单", bar.transform, new Vector2(1462f, 38f), new Vector2(100f, 36f), () => ToggleMainMenu(true));
+            AddButton("新局", bar.transform, new Vector2(1260f, 38f), new Vector2(86f, 36f), () => SelectDialoguePreset("new-game"));
+            AddButton("剧本手册", bar.transform, new Vector2(1390f, 38f), new Vector2(132f, 36f), () => SelectDialoguePreset("handbook"));
+            AddButton("主菜单", bar.transform, new Vector2(1530f, 38f), new Vector2(100f, 36f), () => ToggleMainMenu(true));
         }
 
         private void BuildGrimoire()
@@ -447,25 +476,25 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildBottomDock()
         {
-            bottomDock = AddPanel("Bottom Dock", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-760f, 12f), new Vector2(760f, 170f), new Color(0.006f, 0.014f, 0.024f, 0.72f)).GetComponent<RectTransform>();
+            bottomDock = AddPanel("Bottom Dock", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-830f, 14f), new Vector2(830f, 174f), new Color(0.006f, 0.014f, 0.024f, 0.70f)).GetComponent<RectTransform>();
             AddFrame(bottomDock, "Bottom Dock Frame", 1f, new Color(0.82f, 0.56f, 0.25f, 0.24f));
-            AddImage("Bottom Left Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(14f, 12f), new Vector2(-1040f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.20f));
-            AddImage("Bottom Middle Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(502f, 12f), new Vector2(-520f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.16f));
-            AddImage("Bottom Actions Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(1014f, 12f), new Vector2(-14f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.18f));
-            AddImage("Bottom Divider Left", bottomDock, Vector2.zero, new Vector2(0f, 1f), new Vector2(486f, 16f), new Vector2(487f, -16f), new Color(0.95f, 0.65f, 0.28f, 0.14f));
-            AddImage("Bottom Divider Right", bottomDock, Vector2.zero, new Vector2(0f, 1f), new Vector2(1000f, 16f), new Vector2(1001f, -16f), new Color(0.95f, 0.65f, 0.28f, 0.14f));
-            objectiveTitleText = AddText("Objective Title", bottomDock, Vector2.zero, Vector2.one, new Vector2(30f, 122f), new Vector2(-1052f, -10f), "阶段目标", 20, TextAnchor.UpperLeft, FontStyle.Bold);
-            objectiveHintText = AddText("Objective Hint", bottomDock, Vector2.zero, Vector2.one, new Vector2(30f, 96f), new Vector2(-1052f, -40f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
-            dialogueTitle = AddText("Dialogue Title", bottomDock, Vector2.zero, Vector2.one, new Vector2(30f, 68f), new Vector2(-1052f, -78f), "对话舞台", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-            dialogueBody = AddText("Dialogue Body", bottomDock, Vector2.zero, Vector2.one, new Vector2(30f, 22f), new Vector2(-1052f, -108f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
-            actionSummaryText = AddText("Action Summary", bottomDock, Vector2.zero, Vector2.one, new Vector2(524f, 24f), new Vector2(-540f, -20f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("私聊", bottomDock, new Vector2(1082f, 110f), new Vector2(116f, 36f), () => SelectDialoguePreset("private"));
-            AddButton("公聊", bottomDock, new Vector2(1212f, 110f), new Vector2(116f, 36f), () => SelectDialoguePreset("public"));
-            AddButton("提名", bottomDock, new Vector2(1342f, 110f), new Vector2(116f, 36f), () => SelectDialoguePreset("nomination"));
-            AddButton("行动", bottomDock, new Vector2(1082f, 58f), new Vector2(116f, 36f), SelectPrimaryAction);
-            AddButton("投票", bottomDock, new Vector2(1212f, 58f), new Vector2(116f, 36f), () => SelectDialoguePreset("vote-panel"));
-            AddButton("更多", bottomDock, new Vector2(1342f, 58f), new Vector2(116f, 36f), ToggleMoreActionsPanel);
-            AddButton("收起", bottomDock, new Vector2(1460f, 136f), new Vector2(72f, 26f), ToggleBottomDock);
+            AddImage("Bottom Left Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(16f, 12f), new Vector2(-1110f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.20f));
+            AddImage("Bottom Middle Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(548f, 12f), new Vector2(-570f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.16f));
+            AddImage("Bottom Actions Wash", bottomDock, Vector2.zero, Vector2.one, new Vector2(1104f, 12f), new Vector2(-16f, -12f), new Color(0.020f, 0.028f, 0.036f, 0.18f));
+            AddImage("Bottom Divider Left", bottomDock, Vector2.zero, new Vector2(0f, 1f), new Vector2(532f, 16f), new Vector2(533f, -16f), new Color(0.95f, 0.65f, 0.28f, 0.14f));
+            AddImage("Bottom Divider Right", bottomDock, Vector2.zero, new Vector2(0f, 1f), new Vector2(1088f, 16f), new Vector2(1089f, -16f), new Color(0.95f, 0.65f, 0.28f, 0.14f));
+            objectiveTitleText = AddText("Objective Title", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 124f), new Vector2(-1124f, -10f), "阶段目标", 21, TextAnchor.UpperLeft, FontStyle.Bold);
+            objectiveHintText = AddText("Objective Hint", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 96f), new Vector2(-1124f, -42f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            dialogueTitle = AddText("Dialogue Title", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 68f), new Vector2(-1124f, -78f), "对话舞台", 19, TextAnchor.UpperLeft, FontStyle.Bold);
+            dialogueBody = AddText("Dialogue Body", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 24f), new Vector2(-1124f, -110f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
+            actionSummaryText = AddText("Action Summary", bottomDock, Vector2.zero, Vector2.one, new Vector2(574f, 24f), new Vector2(-590f, -20f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddButton("私聊", bottomDock, new Vector2(1180f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("private"));
+            AddButton("公聊", bottomDock, new Vector2(1320f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("public"));
+            AddButton("提名", bottomDock, new Vector2(1460f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("nomination"));
+            AddButton("行动", bottomDock, new Vector2(1180f, 58f), new Vector2(124f, 38f), SelectPrimaryAction);
+            AddButton("投票", bottomDock, new Vector2(1320f, 58f), new Vector2(124f, 38f), () => SelectDialoguePreset("vote-panel"));
+            AddButton("更多", bottomDock, new Vector2(1460f, 58f), new Vector2(124f, 38f), ToggleMoreActionsPanel);
+            AddButton("收起", bottomDock, new Vector2(1580f, 138f), new Vector2(72f, 28f), ToggleBottomDock);
             bottomDockToggle = AddButton("对话 / 行动", canvas.transform, new Vector2(960f, 40f), new Vector2(172f, 38f), ToggleBottomDock).GetComponent<RectTransform>();
             bottomDockToggle.gameObject.SetActive(false);
         }
@@ -549,116 +578,122 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildPrivateChatPanel()
         {
-            privateChatPanel = AddPanel("Private Chat Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-540f, 132f), new Vector2(540f, 772f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
+            privateChatPanel = AddPanel("Private Chat Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-640f, 118f), new Vector2(640f, 818f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
             AddFrame(privateChatPanel, "Private Chat Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
             AddImage("Private Chat Header Wash", privateChatPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.075f));
-            AddText("Private Chat Title", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(28f, 584f), new Vector2(-28f, -14f), "私聊面板", 30, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Private Chat Hint", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(850f, 594f), new Vector2(-28f, -20f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            privateTargetText = AddText("Private Target", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(30f, 548f), new Vector2(-28f, -70f), "目标：未选择", 19, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddText("Private Chat Title", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(30f, 642f), new Vector2(-30f, -14f), "私聊面板", 32, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Private Chat Hint", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(1050f, 652f), new Vector2(-30f, -20f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            privateTargetText = AddText("Private Target", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(32f, 606f), new Vector2(-30f, -76f), "目标：未选择", 20, TextAnchor.UpperLeft, FontStyle.Normal);
 
-            privateTargetCardRoot = AddPanel("Private Target Card", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(28f, 76f), new Vector2(-828f, -108f), new Color(0.020f, 0.028f, 0.036f, 0.34f)).GetComponent<RectTransform>();
+            privateTargetCardRoot = AddPanel("Private Target Card", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(28f, 84f), new Vector2(-1000f, -112f), new Color(0.020f, 0.028f, 0.036f, 0.34f)).GetComponent<RectTransform>();
 
-            var privateHistoryWash = AddImage("Private History Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(276f, 264f), new Vector2(-28f, -108f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
+            var privateHistoryWash = AddImage("Private History Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 316f), new Vector2(-34f, -128f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
             AddFrame(privateHistoryWash.transform, "Private History Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            AddText("Private History Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 500f), new Vector2(-52f, -126f), "最近私聊", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateHistoryText = AddText("Private History Text", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 292f), new Vector2(-52f, -176f), "选择一名玩家后显示最近私聊。", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddText("Private History Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 540f), new Vector2(-58f, -132f), "最近私聊", 19, TextAnchor.UpperLeft, FontStyle.Bold);
+            privateHistoryText = AddText("Private History Text", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 348f), new Vector2(-58f, -186f), "选择一名玩家后显示最近私聊。", 15, TextAnchor.UpperLeft, FontStyle.Normal);
             privateHistoryText.color = new Color(0.90f, 0.84f, 0.72f, 0.96f);
             privateHistoryText.gameObject.SetActive(false);
-            privateDialogueRoot = AddPanel("Private Dialogue Bubbles", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 286f), new Vector2(-52f, -172f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
+            privateDialogueRoot = AddPanel("Private Dialogue Bubbles", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 338f), new Vector2(-58f, -178f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
 
-            var composeWash = AddImage("Private Compose Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(276f, 76f), new Vector2(-28f, -364f), new Color(0.020f, 0.028f, 0.036f, 0.30f));
+            var composeWash = AddImage("Private Compose Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 84f), new Vector2(-34f, -392f), new Color(0.020f, 0.028f, 0.036f, 0.30f));
             AddFrame(composeWash.transform, "Private Compose Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            AddText("Private Compose Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 240f), new Vector2(-52f, -378f), "本次私聊内容", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddButton("身份范围", privateChatPanel, new Vector2(432f, 224f), new Vector2(112f, 28f), () => SendPrivateQuickQuestion("你愿意给身份范围吗？", "followup-range"));
-            AddButton("硬信息", privateChatPanel, new Vector2(554f, 224f), new Vector2(104f, 28f), () => SendPrivateQuickQuestion("你有硬信息能证明自己吗？", "followup-proof"));
-            AddButton("昨晚信息", privateChatPanel, new Vector2(676f, 224f), new Vector2(112f, 28f), () => SendPrivateQuickQuestion("你昨晚得到了什么信息？", "followup-night"));
-            AddButton("提名意向", privateChatPanel, new Vector2(806f, 224f), new Vector2(120f, 28f), () => SendPrivateQuickQuestion("你现在想提名谁？", "followup-nomination"));
-            AddText("Claim Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 184f), new Vector2(-780f, -438f), "声称身份", 15, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateClaimRoleText = AddText("Claim Role", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(396f, 182f), new Vector2(-270f, -438f), "不声称", 18, TextAnchor.UpperLeft, FontStyle.Normal);
-            privateClaimRoleGridRoot = AddPanel("Private Claim Role Icon", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(790f, 152f), new Vector2(-206f, -396f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-            AddButton("‹", privateChatPanel, new Vector2(880f, 196f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(-1));
-            AddButton("›", privateChatPanel, new Vector2(934f, 196f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(1));
-            AddText("Night Info Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(300f, 140f), new Vector2(-780f, -482f), "夜间说法", 15, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateNightInput = AddInputField("Private Night Input", privateChatPanel, new Vector2(396f, 126f), new Vector2(1010f, 164f), "例如：我昨晚看到 3 号和 7 号不同阵营");
-            privateSecretToggle = AddToggle("Private Secret Toggle", privateChatPanel, new Vector2(300f, 86f), "请求对方暂时保密");
-            privateStatusText = AddText("Private Status", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(626f, 74f), new Vector2(-276f, -532f), "准备发送给 JS Core。", 14, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddText("Private Compose Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 264f), new Vector2(-58f, -410f), "本次私聊内容", 19, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddButton("身份范围", privateChatPanel, new Vector2(490f, 248f), new Vector2(126f, 30f), () => SendPrivateQuickQuestion("你愿意给身份范围吗？", "followup-range"));
+            AddButton("硬信息", privateChatPanel, new Vector2(628f, 248f), new Vector2(118f, 30f), () => SendPrivateQuickQuestion("你有硬信息能证明自己吗？", "followup-proof"));
+            AddButton("昨晚信息", privateChatPanel, new Vector2(766f, 248f), new Vector2(126f, 30f), () => SendPrivateQuickQuestion("你昨晚得到了什么信息？", "followup-night"));
+            AddButton("提名意向", privateChatPanel, new Vector2(914f, 248f), new Vector2(136f, 30f), () => SendPrivateQuickQuestion("你现在想提名谁？", "followup-nomination"));
+            AddText("Claim Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 206f), new Vector2(-900f, -464f), "声称身份", 16, TextAnchor.UpperLeft, FontStyle.Bold);
+            privateClaimRoleText = AddText("Claim Role", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(446f, 204f), new Vector2(-348f, -464f), "不声称", 18, TextAnchor.UpperLeft, FontStyle.Normal);
+            privateClaimRoleGridRoot = AddPanel("Private Claim Role Icon", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(930f, 174f), new Vector2(-210f, -424f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
+            AddButton("‹", privateChatPanel, new Vector2(1030f, 218f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(-1));
+            AddButton("›", privateChatPanel, new Vector2(1084f, 218f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(1));
+            AddText("Night Info Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 158f), new Vector2(-900f, -512f), "夜间说法", 16, TextAnchor.UpperLeft, FontStyle.Bold);
+            privateNightInput = AddInputField("Private Night Input", privateChatPanel, new Vector2(446f, 144f), new Vector2(1188f, 184f), "例如：我昨晚看到 3 号和 7 号不同阵营");
+            privateSecretToggle = AddToggle("Private Secret Toggle", privateChatPanel, new Vector2(342f, 96f), "请求对方暂时保密");
+            privateStatusText = AddText("Private Status", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(696f, 84f), new Vector2(-318f, -578f), "准备发送给 JS Core。", 14, TextAnchor.UpperLeft, FontStyle.Normal);
             privateStatusText.color = new Color(0.82f, 0.88f, 0.90f, 0.90f);
-            AddButton("询问身份", privateChatPanel, new Vector2(732f, 40f), new Vector2(122f, 36f), () => SendPrivateClaimQuestion());
-            AddButton("发送私聊", privateChatPanel, new Vector2(870f, 40f), new Vector2(132f, 36f), () => SendPrivatePanelMessage());
-            AddButton("关闭", privateChatPanel, new Vector2(984f, 40f), new Vector2(94f, 36f), () => privateChatPanel.gameObject.SetActive(false));
-            privateTargetPickerRoot = AddPanel("Private Target Picker", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(276f, 76f), new Vector2(-28f, -108f), new Color(0.004f, 0.010f, 0.017f, 0.95f)).GetComponent<RectTransform>();
+            AddButton("询问身份", privateChatPanel, new Vector2(870f, 44f), new Vector2(130f, 38f), () => SendPrivateClaimQuestion());
+            AddButton("发送私聊", privateChatPanel, new Vector2(1022f, 44f), new Vector2(142f, 38f), () => SendPrivatePanelMessage());
+            AddButton("关闭", privateChatPanel, new Vector2(1160f, 44f), new Vector2(96f, 38f), () => privateChatPanel.gameObject.SetActive(false));
+            privateTargetPickerRoot = AddPanel("Private Target Picker", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 84f), new Vector2(-34f, -108f), new Color(0.004f, 0.010f, 0.017f, 0.95f)).GetComponent<RectTransform>();
             PopulatePrivateClaimRoles();
             privateChatPanel.gameObject.SetActive(false);
         }
 
         private void BuildActionFormPanel()
         {
-            actionFormPanel = AddPanel("Action Form Panel", canvas.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(54f, 150f), new Vector2(734f, 650f), new Color(0.005f, 0.012f, 0.020f, 0.90f)).GetComponent<RectTransform>();
+            actionFormPanel = AddPanel("Action Form Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-660f, -350f), new Vector2(660f, 350f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
             AddFrame(actionFormPanel, "Action Form Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
-            AddImage("Action Form Header Wash", actionFormPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -78f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.065f));
-            actionFormTitle = AddText("Action Form Title", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(22f, 454f), new Vector2(-22f, -14f), "行动表单", 25, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Action Form Hint", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(508f, 462f), new Vector2(-22f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            actionFormBody = AddText("Action Form Body", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(24f, 358f), new Vector2(-24f, -64f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            actionOptionRoot = AddPanel("Action Option Root", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(22f, 82f), new Vector2(-22f, -174f), new Color(0.020f, 0.028f, 0.036f, 0.24f)).GetComponent<RectTransform>();
+            AddImage("Action Form Header Wash", actionFormPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -92f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
+            actionFormTitle = AddText("Action Form Title", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(34f, 644f), new Vector2(-34f, -16f), "行动表单", 31, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Action Form Hint", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(1100f, 654f), new Vector2(-34f, -22f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            AddImage("Action Form Summary Wash", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(32f, 524f), new Vector2(-32f, -100f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
+            actionFormBody = AddText("Action Form Body", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(52f, 536f), new Vector2(-52f, -114f), "", 16, TextAnchor.UpperLeft, FontStyle.Normal);
+            actionOptionRoot = AddPanel("Action Option Root", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(32f, 142f), new Vector2(-32f, -224f), new Color(0.020f, 0.028f, 0.036f, 0.24f)).GetComponent<RectTransform>();
             AddFrame(actionOptionRoot, "Action Option Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            actionFormStatusText = AddText("Action Form Status", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(24f, 42f), new Vector2(-250f, -436f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("自动合法选择", actionFormPanel, new Vector2(454f, 34f), new Vector2(142f, 30f), () => SendActiveActionFormAuto());
-            AddButton("确认发送", actionFormPanel, new Vector2(576f, 34f), new Vector2(116f, 30f), () => SendActionFormComposed());
-            AddButton("关闭", actionFormPanel, new Vector2(646f, 34f), new Vector2(82f, 30f), () => actionFormPanel.gameObject.SetActive(false));
+            actionFormStatusText = AddText("Action Form Status", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(38f, 56f), new Vector2(-512f, -608f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            actionFormStatusText.color = new Color(0.86f, 0.90f, 0.92f, 0.94f);
+            AddButton("自动合法选择", actionFormPanel, new Vector2(888f, 48f), new Vector2(154f, 36f), () => SendActiveActionFormAuto());
+            AddButton("确认发送", actionFormPanel, new Vector2(1058f, 48f), new Vector2(132f, 36f), () => SendActionFormComposed());
+            AddButton("关闭", actionFormPanel, new Vector2(1200f, 48f), new Vector2(98f, 36f), () => actionFormPanel.gameObject.SetActive(false));
             actionFormPanel.gameObject.SetActive(false);
         }
 
         private void BuildStorytellerPanel()
         {
-            storytellerPanel = AddPanel("Storyteller Panel", canvas.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(54f, 204f), new Vector2(590f, 560f), new Color(0.005f, 0.012f, 0.020f, 0.90f)).GetComponent<RectTransform>();
+            storytellerPanel = AddPanel("Storyteller Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-660f, -350f), new Vector2(660f, 350f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
             AddFrame(storytellerPanel, "Storyteller Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.36f));
-            AddImage("Storyteller Header Wash", storytellerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -72f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.065f));
-            storytellerTitle = AddText("Storyteller Title", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(22f, 306f), new Vector2(-22f, -14f), "Storyteller 队列", 25, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Storyteller Hint", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(354f, 314f), new Vector2(-22f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            AddImage("Storyteller Body Wash", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(18f, 66f), new Vector2(-18f, -88f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
-            storytellerBody = AddText("Storyteller Body", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(30f, 82f), new Vector2(-30f, -108f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("处理当前", storytellerPanel, new Vector2(118f, 34f), new Vector2(132f, 30f), () => OpenActionFormPanel("storyteller-action"));
-            AddButton("刷新", storytellerPanel, new Vector2(270f, 34f), new Vector2(94f, 30f), RenderStorytellerPanel);
-            AddButton("关闭", storytellerPanel, new Vector2(446f, 34f), new Vector2(94f, 30f), () => storytellerPanel.gameObject.SetActive(false));
+            AddImage("Storyteller Header Wash", storytellerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -92f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
+            storytellerTitle = AddText("Storyteller Title", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 644f), new Vector2(-34f, -16f), "Storyteller 队列", 31, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Storyteller Hint", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(1100f, 654f), new Vector2(-34f, -22f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            storytellerBody = AddText("Storyteller Body", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(36f, 594f), new Vector2(-36f, -78f), "", 16, TextAnchor.UpperLeft, FontStyle.Normal);
+            storytellerBody.color = new Color(0.86f, 0.90f, 0.92f, 0.94f);
+            storytellerQueueListRoot = AddPanel("Storyteller Queue List", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(32f, 108f), new Vector2(-784f, -118f), new Color(0.020f, 0.028f, 0.036f, 0.28f)).GetComponent<RectTransform>();
+            storytellerDetailRoot = AddPanel("Storyteller Detail", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(568f, 328f), new Vector2(-32f, -118f), new Color(0.020f, 0.028f, 0.036f, 0.30f)).GetComponent<RectTransform>();
+            storytellerTargetRoot = AddPanel("Storyteller Targets", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(568f, 108f), new Vector2(-32f, -374f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
+            AddButton("处理当前", storytellerPanel, new Vector2(792f, 48f), new Vector2(138f, 36f), () => OpenActionFormPanel("storyteller-action"));
+            AddButton("自动处理", storytellerPanel, new Vector2(946f, 48f), new Vector2(138f, 36f), SendStorytellerAuto);
+            AddButton("刷新", storytellerPanel, new Vector2(1102f, 48f), new Vector2(100f, 36f), RenderStorytellerPanel);
+            AddButton("关闭", storytellerPanel, new Vector2(1210f, 48f), new Vector2(98f, 36f), () => storytellerPanel.gameObject.SetActive(false));
             storytellerPanel.gameObject.SetActive(false);
         }
 
         private void BuildHandbookPanel()
         {
-            handbookPanel = AddPanel("Handbook Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-500f, -320f), new Vector2(500f, 320f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
+            handbookPanel = AddPanel("Handbook Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-740f, -380f), new Vector2(740f, 380f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
             AddFrame(handbookPanel, "Handbook Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
             AddImage("Handbook Header Wash", handbookPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            handbookTitle = AddText("Handbook Title", handbookPanel, Vector2.zero, Vector2.one, new Vector2(26f, 584f), new Vector2(-26f, -18f), "剧本手册", 28, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Handbook Hint", handbookPanel, Vector2.zero, Vector2.one, new Vector2(760f, 592f), new Vector2(-26f, -24f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            AddButton("全部", handbookPanel, new Vector2(74f, 530f), new Vector2(92f, 30f), () => SelectHandbookCategory("all"));
-            AddButton("镇民", handbookPanel, new Vector2(174f, 530f), new Vector2(92f, 30f), () => SelectHandbookCategory("townsfolk"));
-            AddButton("外来者", handbookPanel, new Vector2(274f, 530f), new Vector2(92f, 30f), () => SelectHandbookCategory("outsider"));
-            AddButton("爪牙", handbookPanel, new Vector2(374f, 530f), new Vector2(92f, 30f), () => SelectHandbookCategory("minion"));
-            AddButton("恶魔", handbookPanel, new Vector2(474f, 530f), new Vector2(92f, 30f), () => SelectHandbookCategory("demon"));
-            handbookRoleListRoot = AddPanel("Handbook Role List", handbookPanel, Vector2.zero, Vector2.one, new Vector2(24f, 84f), new Vector2(-640f, -128f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
+            handbookTitle = AddText("Handbook Title", handbookPanel, Vector2.zero, Vector2.one, new Vector2(34f, 704f), new Vector2(-34f, -18f), "剧本手册", 31, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Handbook Hint", handbookPanel, Vector2.zero, Vector2.one, new Vector2(1220f, 712f), new Vector2(-34f, -24f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            AddButton("全部", handbookPanel, new Vector2(84f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("all"));
+            AddButton("镇民", handbookPanel, new Vector2(192f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("townsfolk"));
+            AddButton("外来者", handbookPanel, new Vector2(300f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("outsider"));
+            AddButton("爪牙", handbookPanel, new Vector2(408f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("minion"));
+            AddButton("恶魔", handbookPanel, new Vector2(516f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("demon"));
+            handbookRoleListRoot = AddPanel("Handbook Role List", handbookPanel, Vector2.zero, Vector2.one, new Vector2(30f, 100f), new Vector2(-850f, -134f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
             AddFrame(handbookRoleListRoot, "Handbook List Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.18f));
-            AddImage("Handbook Detail Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(384f, 238f), new Vector2(-24f, -128f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
-            handbookDetailText = AddText("Handbook Detail", handbookPanel, Vector2.zero, Vector2.one, new Vector2(406f, 258f), new Vector2(-46f, -148f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddImage("Handbook Order Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(384f, 84f), new Vector2(-24f, -414f), new Color(0.020f, 0.028f, 0.036f, 0.24f));
-            handbookOrderText = AddText("Handbook Order", handbookPanel, Vector2.zero, Vector2.one, new Vector2(406f, 98f), new Vector2(-46f, -430f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("关闭", handbookPanel, new Vector2(920f, 38f), new Vector2(94f, 30f), () => handbookPanel.gameObject.SetActive(false));
+            AddImage("Handbook Detail Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(666f, 318f), new Vector2(-32f, -134f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
+            handbookDetailText = AddText("Handbook Detail", handbookPanel, Vector2.zero, Vector2.one, new Vector2(694f, 342f), new Vector2(-60f, -158f), "", 17, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddImage("Handbook Order Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(666f, 100f), new Vector2(-32f, -456f), new Color(0.020f, 0.028f, 0.036f, 0.24f));
+            handbookOrderText = AddText("Handbook Order", handbookPanel, Vector2.zero, Vector2.one, new Vector2(694f, 118f), new Vector2(-60f, -472f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddButton("关闭", handbookPanel, new Vector2(1376f, 46f), new Vector2(100f, 34f), () => handbookPanel.gameObject.SetActive(false));
             handbookPanel.gameObject.SetActive(false);
         }
 
         private void BuildVotePanel()
         {
-            votePanel = AddPanel("Vote Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-520f, 156f), new Vector2(520f, 690f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
+            votePanel = AddPanel("Vote Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-610f, 130f), new Vector2(610f, 780f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
             AddFrame(votePanel, "Vote Panel Frame", 1.2f, new Color(0.92f, 0.62f, 0.28f, 0.42f));
             AddImage("Vote Header Wash", votePanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -88f), new Vector2(-1f, -1f), new Color(0.78f, 0.48f, 0.18f, 0.070f));
-            voteTitle = AddText("Vote Title", votePanel, Vector2.zero, Vector2.one, new Vector2(26f, 486f), new Vector2(-26f, -14f), "投票仪式", 28, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Vote Hint", votePanel, Vector2.zero, Vector2.one, new Vector2(820f, 494f), new Vector2(-26f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            voteBody = AddText("Vote Body", votePanel, Vector2.zero, Vector2.one, new Vector2(28f, 408f), new Vector2(-28f, -66f), "", 18, TextAnchor.UpperLeft, FontStyle.Normal);
-            voteAnimationRoot = AddPanel("Vote Animation Root", votePanel, Vector2.zero, Vector2.one, new Vector2(28f, 104f), new Vector2(-28f, -154f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
+            voteTitle = AddText("Vote Title", votePanel, Vector2.zero, Vector2.one, new Vector2(30f, 594f), new Vector2(-30f, -14f), "投票仪式", 31, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Vote Hint", votePanel, Vector2.zero, Vector2.one, new Vector2(1000f, 604f), new Vector2(-30f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            voteBody = AddText("Vote Body", votePanel, Vector2.zero, Vector2.one, new Vector2(34f, 508f), new Vector2(-34f, -72f), "", 19, TextAnchor.UpperLeft, FontStyle.Normal);
+            voteAnimationRoot = AddPanel("Vote Animation Root", votePanel, Vector2.zero, Vector2.one, new Vector2(36f, 118f), new Vector2(-36f, -174f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
             AddFrame(voteAnimationRoot, "Vote Animation Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            voteAnimationRowsRoot = AddPanel("Vote Animation Rows", votePanel, Vector2.zero, Vector2.one, new Vector2(28f, 62f), new Vector2(-28f, -444f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-            AddButton("打开提名", votePanel, new Vector2(128f, 34f), new Vector2(142f, 34f), () => SelectDialoguePreset("nomination"));
-            AddButton("重播举手", votePanel, new Vector2(318f, 34f), new Vector2(128f, 34f), () => RestartVoteAnimation());
-            AddButton("关闭", votePanel, new Vector2(930f, 34f), new Vector2(94f, 34f), () => votePanel.gameObject.SetActive(false));
+            voteAnimationRowsRoot = AddPanel("Vote Animation Rows", votePanel, Vector2.zero, Vector2.one, new Vector2(36f, 70f), new Vector2(-36f, -520f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
+            AddButton("打开提名", votePanel, new Vector2(138f, 42f), new Vector2(148f, 36f), () => SelectDialoguePreset("nomination"));
+            AddButton("重播举手", votePanel, new Vector2(336f, 42f), new Vector2(136f, 36f), () => RestartVoteAnimation());
+            AddButton("关闭", votePanel, new Vector2(1110f, 42f), new Vector2(98f, 36f), () => votePanel.gameObject.SetActive(false));
             votePanel.gameObject.SetActive(false);
         }
 
@@ -690,15 +725,15 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildRolePickerPanel()
         {
-            rolePickerPanel = AddPanel("Role Picker Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-680f, -332f), new Vector2(680f, 332f), new Color(0.001f, 0.004f, 0.007f, 0.96f)).GetComponent<RectTransform>();
+            rolePickerPanel = AddPanel("Role Picker Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-760f, -380f), new Vector2(760f, 380f), new Color(0.001f, 0.004f, 0.007f, 0.96f)).GetComponent<RectTransform>();
             AddFrame(rolePickerPanel, "Role Picker Frame", 1.2f, new Color(0.92f, 0.62f, 0.28f, 0.40f));
             AddImage("Role Picker Header Wash", rolePickerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            rolePickerTitle = AddText("Role Picker Title", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(30f, 596f), new Vector2(-120f, -14f), "选择角色", 32, TextAnchor.UpperCenter, FontStyle.Bold);
-            AddButton("×", rolePickerPanel, new Vector2(1318f, 622f), new Vector2(42f, 34f), CloseRolePicker);
-            rolePickerStatusText = AddText("Role Picker Status", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(42f, 536f), new Vector2(-42f, -92f), "选择一个身份 token。", 15, TextAnchor.UpperCenter, FontStyle.Normal);
-            rolePickerGridRoot = AddPanel("Role Picker Grid", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 84f), new Vector2(-34f, -122f), new Color(0.006f, 0.010f, 0.014f, 0.44f)).GetComponent<RectTransform>();
+            rolePickerTitle = AddText("Role Picker Title", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 690f), new Vector2(-124f, -14f), "选择角色", 36, TextAnchor.UpperCenter, FontStyle.Bold);
+            AddButton("×", rolePickerPanel, new Vector2(1472f, 714f), new Vector2(44f, 36f), CloseRolePicker);
+            rolePickerStatusText = AddText("Role Picker Status", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 628f), new Vector2(-48f, -94f), "选择一个身份 token。", 16, TextAnchor.UpperCenter, FontStyle.Normal);
+            rolePickerGridRoot = AddPanel("Role Picker Grid", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(40f, 96f), new Vector2(-40f, -132f), new Color(0.006f, 0.010f, 0.014f, 0.44f)).GetComponent<RectTransform>();
             AddFrame(rolePickerGridRoot, "Role Picker Grid Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
-            AddText("Role Picker Category Hint", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(42f, 26f), new Vector2(-42f, -610f), "蓝色：好人阵营    红色：邪恶阵营    金色外圈表示当前选择", 14, TextAnchor.MiddleCenter, FontStyle.Normal);
+            AddText("Role Picker Category Hint", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 30f), new Vector2(-48f, -706f), "蓝色：好人阵营    红色：邪恶阵营    金色外圈表示当前选择", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
             rolePickerPanel.gameObject.SetActive(false);
         }
 
@@ -783,6 +818,102 @@ namespace BotcSolo.UnityPrototype
             ApplyAuxPanelVisibility();
             ApplyModalBackdropVisibility();
             RenderGrimoire();
+        }
+
+        private void ApplyUiSmokeMode()
+        {
+            var mode = CommandLineValue("-botc-ui-smoke").Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(mode)) return;
+
+            if (mainMenuRoot != null) mainMenuRoot.gameObject.SetActive(false);
+            if (endgamePanel != null)
+            {
+                endgameDismissed = true;
+                dismissedEndgameGameId = CurrentEndgameKey();
+                endgamePanel.gameObject.SetActive(false);
+            }
+            selectedPlayerId = FirstNonEmpty(vm?.action?.selectedPlayerId, FirstSmokeTargetId());
+
+            if (mode == "main" || mode == "main-board" || mode == "board")
+            {
+                ApplyModalBackdropVisibility();
+                return;
+            }
+
+            if (mode == "private" || mode == "private-chat")
+            {
+                OpenPrivateChatPanel();
+            }
+            else if (mode == "action" || mode == "action-form")
+            {
+                OpenActionFormPanel(FirstAvailableActionFormId());
+            }
+            else if (mode == "storyteller" || mode == "storyteller-queue")
+            {
+                OpenStorytellerPanel();
+            }
+            else if (mode == "handbook" || mode == "script-handbook")
+            {
+                OpenHandbookPanel();
+            }
+            else if (mode == "vote" || mode == "vote-ceremony")
+            {
+                OpenVotePanel();
+            }
+            else if (mode == "role-picker" || mode == "roles")
+            {
+                activeRolePickerMode = "mark-role";
+                activeRolePickerPlayerId = selectedPlayerId;
+                RenderRolePickerPanel();
+                if (rolePickerPanel != null) rolePickerPanel.gameObject.SetActive(true);
+            }
+
+            ApplyModalBackdropVisibility();
+        }
+
+        private string FirstSmokeTargetId()
+        {
+            var players = vm?.players ?? Array.Empty<PlayerViewModel>();
+            return players.FirstOrDefault((player) => player != null && !player.human)?.id
+                ?? players.FirstOrDefault((player) => player != null)?.id
+                ?? "";
+        }
+
+        private string FirstAvailableActionFormId()
+        {
+            var forms = vm?.actionForms ?? Array.Empty<ActionFormViewModel>();
+            return forms.FirstOrDefault((form) => form != null && form.available)?.id
+                ?? forms.FirstOrDefault((form) => form != null)?.id
+                ?? "night-action";
+        }
+
+        private IEnumerator CaptureUiSmokeScreenshotIfRequested()
+        {
+            var outputPath = CommandLineValue("-botc-ui-smoke-output");
+            if (string.IsNullOrWhiteSpace(outputPath)) yield break;
+
+            yield return null;
+            yield return new WaitForEndOfFrame();
+
+            try
+            {
+                var directory = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+                var texture = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
+                texture.ReadPixels(new Rect(0f, 0f, Screen.width, Screen.height), 0, 0);
+                texture.Apply();
+                File.WriteAllBytes(outputPath, texture.EncodeToPNG());
+                Destroy(texture);
+                Debug.Log($"Unity UI smoke screenshot written: {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Failed to request Unity UI smoke screenshot: {ex.Message}");
+                yield break;
+            }
+
+            yield return new WaitForSeconds(0.25f);
+            Application.Quit();
         }
 
         private bool IsGameOver()
@@ -2060,8 +2191,8 @@ namespace BotcSolo.UnityPrototype
 
             var columns = 11;
             var startX = 72f;
-            var startY = 356f;
-            var spacingX = 112f;
+            var startY = 408f;
+            var spacingX = 118f;
             var spacingY = 128f;
             for (var i = 0; i < roles.Length; i++)
             {
@@ -2076,14 +2207,14 @@ namespace BotcSolo.UnityPrototype
                     role.category,
                     role.team,
                     new Vector2(startX + col * spacingX, startY - row * spacingY),
-                    76f,
+                    82f,
                     selectedRoleId == role.id,
                     () => ApplyRolePickerChoice(roleId)
                 );
             }
 
             var blankLabel = activeRolePickerMode == "mark-role" ? "清除" : "不声称";
-            AddBlankRoleTokenButton(rolePickerGridRoot, blankLabel, new Vector2(startX + (roles.Length % columns) * spacingX, startY - (roles.Length / columns) * spacingY), 76f, string.IsNullOrWhiteSpace(selectedRoleId), () => ApplyRolePickerChoice(""));
+            AddBlankRoleTokenButton(rolePickerGridRoot, blankLabel, new Vector2(startX + (roles.Length % columns) * spacingX, startY - (roles.Length / columns) * spacingY), 82f, string.IsNullOrWhiteSpace(selectedRoleId), () => ApplyRolePickerChoice(""));
         }
 
         private void ApplyRolePickerChoice(string roleId)
@@ -2209,10 +2340,10 @@ namespace BotcSolo.UnityPrototype
             var role = RoleForId(roleId);
             if (!hasTarget || role == null)
             {
-                AddBlankRoleTokenButton(privateClaimRoleGridRoot, hasTarget ? "选择" : "未选", new Vector2(31f, 30f), 42f, false, OpenPrivateClaimRolePicker);
+                AddBlankRoleTokenButton(privateClaimRoleGridRoot, hasTarget ? "选择" : "未选", new Vector2(48f, 44f), 46f, false, OpenPrivateClaimRolePicker);
                 return;
             }
-            AddRoleTokenButton(privateClaimRoleGridRoot, role.id, role.name, role.category, role.team, new Vector2(31f, 30f), 42f, true, OpenPrivateClaimRolePicker);
+            AddRoleTokenButton(privateClaimRoleGridRoot, role.id, role.name, role.category, role.team, new Vector2(48f, 44f), 46f, true, OpenPrivateClaimRolePicker);
         }
 
         private void RenderPrivateDialogueBubbles(PlayerViewModel target)
@@ -2443,6 +2574,7 @@ namespace BotcSolo.UnityPrototype
             if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
             if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(false);
             if (votePanel != null) votePanel.gameObject.SetActive(false);
+            if (handbookPanel != null) handbookPanel.gameObject.SetActive(false);
             RenderStorytellerPanel();
             if (storytellerPanel != null) storytellerPanel.gameObject.SetActive(true);
         }
@@ -2450,26 +2582,166 @@ namespace BotcSolo.UnityPrototype
         private void RenderStorytellerPanel()
         {
             if (storytellerTitle != null) storytellerTitle.text = "Storyteller 队列";
-            if (storytellerBody == null) return;
             var queue = vm.storytellerQueue ?? Array.Empty<string>();
+            var details = vm.storytellerQueueDetails ?? Array.Empty<StorytellerQueueItemViewModel>();
             var action = vm.pendingStorytellerAction;
-            var lines = new List<string>
+            var queueCount = Mathf.Max(queue.Length, details.Length);
+
+            if (storytellerBody != null)
             {
-                queue.Length == 0 ? "当前没有待处理 Storyteller 队列。" : $"待处理队列：{queue.Length} 项",
-                "────────"
-            };
-            for (var i = 0; i < queue.Length && i < 7; i++) lines.Add($"{i + 1}. {queue[i]}");
-            if (action != null)
-            {
-                lines.Add("");
-                lines.Add(action.available ? $"当前可处理：{action.roleName} [{action.inputType}]" : $"当前不可处理：{action.reason}");
-                if (!string.IsNullOrWhiteSpace(action.prompt)) lines.Add(action.prompt);
-                var optionCount = (action.options?.Length ?? 0) + (action.roleOptions?.Length ?? 0) + (action.modes?.Length ?? 0);
-                lines.Add($"可选项：{optionCount}  ·  目标数：{action.minTargetCount}-{action.maxTargetCount}");
+                var currentLine = action != null && action.available
+                    ? $"当前：{action.roleName} · {StorytellerActionTypeLabel(action.type)} · {StorytellerInputLabel(action.inputType)}"
+                    : $"当前：{(string.IsNullOrWhiteSpace(action?.reason) ? "没有待处理行动" : action.reason)}";
+                storytellerBody.text = ClampTextLines(new[]
+                {
+                    queueCount == 0 ? "队列为空。阶段推进不会被 Storyteller 队列阻塞。" : $"待处理 {queueCount} 项。JS Core 会按队首优先处理；当前面板只展示并提交队首行动。",
+                    currentLine
+                }, 2, 92);
             }
-            lines.Add("");
-            lines.Add("点击“处理当前”会打开动态行动表单，并继续由 JS Core 结算。");
-            storytellerBody.text = ClampTextLines(lines, 14, 52);
+
+            RenderStorytellerQueueCards(queue, details);
+            RenderStorytellerCurrentAction(action, details.FirstOrDefault((entry) => entry != null && entry.current));
+            RenderStorytellerTargetPreview(action);
+        }
+
+        private void RenderStorytellerQueueCards(string[] queue, StorytellerQueueItemViewModel[] details)
+        {
+            if (storytellerQueueListRoot == null) return;
+            ClearChildren(storytellerQueueListRoot);
+            AddFrame(storytellerQueueListRoot, "Storyteller Queue Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
+            AddText("Storyteller Queue Label", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(18f, 398f), new Vector2(-18f, -14f), "待处理队列", 18, TextAnchor.UpperLeft, FontStyle.Bold);
+
+            var count = Mathf.Max(queue?.Length ?? 0, details?.Length ?? 0);
+            if (count == 0)
+            {
+                AddText("Storyteller Queue Empty", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(24f, 150f), new Vector2(-24f, -120f), "暂无队列。\n死亡触发、被动信息或特殊角色选择会出现在这里。", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
+                return;
+            }
+
+            var visible = Mathf.Min(5, count);
+            for (var i = 0; i < visible; i++)
+            {
+                var detail = details != null && i < details.Length ? details[i] : null;
+                var prompt = detail != null && !string.IsNullOrWhiteSpace(detail.prompt)
+                    ? detail.prompt
+                    : queue != null && i < queue.Length ? queue[i] : "待处理行动";
+                var roleName = detail != null && !string.IsNullOrWhiteSpace(detail.roleName) ? detail.roleName : "Storyteller";
+                var active = detail?.current ?? i == 0;
+                var y = 370f - i * 70f;
+                var cardColor = active ? new Color(0.13f, 0.072f, 0.030f, 0.86f) : new Color(0.009f, 0.016f, 0.024f, 0.72f);
+                var card = AddPanel($"Storyteller Queue Card {i}", storytellerQueueListRoot, Vector2.zero, Vector2.zero, new Vector2(16f, y - 58f), new Vector2(388f, y), cardColor);
+                AddFrame(card.transform, "Queue Card Frame", 0.8f, active ? new Color(1f, 0.70f, 0.30f, 0.42f) : new Color(0.86f, 0.58f, 0.26f, 0.16f));
+                AddText("Queue Card Index", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 22f), new Vector2(-320f, -8f), active ? "当前" : $"{i + 1}", 14, TextAnchor.MiddleLeft, FontStyle.Bold).color = active ? new Color(1f, 0.78f, 0.36f, 1f) : new Color(0.82f, 0.78f, 0.68f, 0.92f);
+                AddText("Queue Card Role", card.transform, Vector2.zero, Vector2.one, new Vector2(74f, 28f), new Vector2(-16f, -6f), Ellipsize(roleName, 18), 15, TextAnchor.MiddleLeft, FontStyle.Bold);
+                AddText("Queue Card Prompt", card.transform, Vector2.zero, Vector2.one, new Vector2(74f, 6f), new Vector2(-16f, -30f), Ellipsize(prompt, 34), 12, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.86f, 0.88f, 0.88f, 0.86f);
+            }
+
+            if (count > visible)
+            {
+                AddText("Storyteller Queue More", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(24f, 18f), new Vector2(-24f, -384f), $"还有 {count - visible} 项等待处理", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
+            }
+        }
+
+        private void RenderStorytellerCurrentAction(RoleActionViewModel action, StorytellerQueueItemViewModel currentDetail)
+        {
+            if (storytellerDetailRoot == null) return;
+            ClearChildren(storytellerDetailRoot);
+            AddFrame(storytellerDetailRoot, "Storyteller Detail Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
+            AddText("Storyteller Detail Label", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(20f, 174f), new Vector2(-20f, -16f), "当前行动", 18, TextAnchor.UpperLeft, FontStyle.Bold);
+
+            if (action == null || !action.available)
+            {
+                var reason = string.IsNullOrWhiteSpace(action?.reason) ? "当前没有可处理的 Storyteller 行动。" : action.reason;
+                AddText("Storyteller Detail Empty", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(26f, 58f), new Vector2(-26f, -58f), reason, 16, TextAnchor.MiddleCenter, FontStyle.Normal);
+                return;
+            }
+
+            var role = RoleForId(action.roleId);
+            AddRoleTokenButton(storytellerDetailRoot, action.roleId, string.IsNullOrWhiteSpace(action.roleName) ? role?.name : action.roleName, role?.category ?? "", role?.team ?? "", new Vector2(80f, 92f), 70f, true, () => { });
+            AddText("Storyteller Current Role", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 136f), new Vector2(-24f, -42f), $"{action.roleName} · {StorytellerActionTypeLabel(action.type)}", 20, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Storyteller Current Meta", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 106f), new Vector2(-24f, -74f), $"{StorytellerInputLabel(action.inputType)}  ·  目标 {action.minTargetCount}-{action.maxTargetCount}  ·  可选 {(action.options?.Length ?? 0) + (action.roleOptions?.Length ?? 0) + (action.modes?.Length ?? 0)}", 14, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.88f, 0.86f, 0.78f, 0.94f);
+            var phase = currentDetail != null && !string.IsNullOrWhiteSpace(currentDetail.phaseLabel) ? currentDetail.phaseLabel : $"D{vm.day}/N{vm.night}";
+            AddText("Storyteller Current Phase", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 80f), new Vector2(-24f, -102f), $"来源：{phase}  ·  队首优先", 13, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.90f);
+            AddText("Storyteller Current Prompt", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 24f), new Vector2(-24f, -130f), ClampTextBlock(action.prompt, 3, 58), 14, TextAnchor.UpperLeft, FontStyle.Normal);
+        }
+
+        private void RenderStorytellerTargetPreview(RoleActionViewModel action)
+        {
+            if (storytellerTargetRoot == null) return;
+            ClearChildren(storytellerTargetRoot);
+            AddFrame(storytellerTargetRoot, "Storyteller Target Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.18f));
+            AddText("Storyteller Target Label", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(20f, 154f), new Vector2(-20f, -16f), "目标 / 输入预览", 17, TextAnchor.UpperLeft, FontStyle.Bold);
+
+            if (action == null || !action.available)
+            {
+                AddText("Storyteller Target Empty", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(24f, 58f), new Vector2(-24f, -58f), "有队列后，这里会预览合法目标或输入类型。", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
+                return;
+            }
+
+            if ((action.options?.Length ?? 0) == 0)
+            {
+                var text = action.inputType == "info"
+                    ? "信息型行动：无需额外选择，处理后会把私有信息写入主视角可见信息。"
+                    : $"此行动需要 {StorytellerInputLabel(action.inputType)}。点击“处理当前”进入完整表单。";
+                AddText("Storyteller Target Info", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(24f, 60f), new Vector2(-24f, -56f), ClampTextBlock(text, 3, 58), 15, TextAnchor.MiddleCenter, FontStyle.Normal);
+                return;
+            }
+
+            var options = action.options.Take(6).ToArray();
+            for (var i = 0; i < options.Length; i++)
+            {
+                var option = options[i];
+                var col = i % 3;
+                var row = i / 3;
+                var x = 18f + col * 210f;
+                var y = 122f - row * 62f;
+                var card = AddPanel($"Storyteller Target {i}", storytellerTargetRoot, Vector2.zero, Vector2.zero, new Vector2(x, y - 44f), new Vector2(x + 192f, y), new Color(0.010f, 0.017f, 0.026f, 0.74f));
+                AddFrame(card.transform, "Target Preview Frame", 0.7f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
+                var name = string.IsNullOrWhiteSpace(option.name) ? option.id : option.name;
+                AddText("Target Name", card.transform, Vector2.zero, Vector2.one, new Vector2(12f, 18f), new Vector2(-12f, -4f), Ellipsize(name, 16), 14, TextAnchor.MiddleLeft, FontStyle.Bold);
+                AddText("Target Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(12f, 2f), new Vector2(-12f, -24f), option.alive ? "存活目标" : "死亡目标", 11, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.82f);
+            }
+
+            if ((action.options?.Length ?? 0) > options.Length)
+            {
+                AddText("Target More", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(496f, 18f), new Vector2(-18f, -154f), $"+{action.options.Length - options.Length}", 13, TextAnchor.MiddleRight, FontStyle.Bold);
+            }
+        }
+
+        private static string StorytellerInputLabel(string inputType)
+        {
+            if (inputType == "info") return "信息确认";
+            if (inputType == "player-target") return "选择玩家";
+            if (inputType == "player-role") return "玩家 + 身份";
+            if (inputType == "role") return "选择身份";
+            if (inputType == "question") return "是/否问题";
+            if (inputType == "guesses") return "猜测输入";
+            if (inputType == "charge-or-targets") return "模式 / 目标";
+            return string.IsNullOrWhiteSpace(inputType) ? "默认选择" : inputType;
+        }
+
+        private static string StorytellerActionTypeLabel(string type)
+        {
+            if (type == "ravenkeeper-info") return "守鸦人信息";
+            if (type == "sage-info") return "贤者信息";
+            if (type == "moonchild-choice") return "月之子选择";
+            if (type == "klutz-choice") return "呆瓜选择";
+            if (type == "barber-swap") return "理发师换位";
+            return string.IsNullOrWhiteSpace(type) ? "Storyteller 行动" : type;
+        }
+
+        private void SendStorytellerAuto()
+        {
+            var action = vm.pendingStorytellerAction;
+            if (action == null || !action.available)
+            {
+                dialogueTitle.text = "Storyteller 队列";
+                dialogueBody.text = string.IsNullOrWhiteSpace(action?.reason) ? "当前没有待处理 Storyteller 行动。" : action.reason;
+                return;
+            }
+            SendUnityAction("storyteller-action");
+            dialogueTitle.text = "Storyteller 队列已发送";
+            dialogueBody.text = "已发送给 JS Core：使用当前合法默认选择处理队首行动。";
         }
 
         private void OpenActionFormPanel(string formId)
@@ -2557,18 +2829,18 @@ namespace BotcSolo.UnityPrototype
                     var role = pageRoles[i];
                     var absoluteIndex = pageStart + i;
                     var active = absoluteIndex == activeHandbookRoleIndex;
-                    var row = i / 3;
-                    var col = i % 3;
+                    var row = i / 5;
+                    var col = i % 5;
                     var index = absoluteIndex;
-                    AddRoleTokenButton(handbookRoleListRoot, role.id, role.name, role.category, role.team, new Vector2(58f + col * 110f, 348f - row * 82f), 54f, active, () => SelectHandbookRole(index));
+                    AddRoleTokenButton(handbookRoleListRoot, role.id, role.name, role.category, role.team, new Vector2(66f + col * 108f, 408f - row * 128f), 66f, active, () => SelectHandbookRole(index));
                     if (!string.IsNullOrWhiteSpace(RoleHandbookTag(role)))
                     {
-                        AddText("Handbook Role Tag", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(34f + col * 110f, 384f - row * 82f), new Vector2(82f + col * 110f, 406f - row * 82f), "标", 11, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.78f, 0.36f, 1f);
+                        AddText("Handbook Role Tag", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(42f + col * 108f, 456f - row * 128f), new Vector2(90f + col * 108f, 478f - row * 128f), "标", 11, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.78f, 0.36f, 1f);
                     }
                 }
-                AddText("Handbook Page Label", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(96f, 28f), new Vector2(240f, 56f), $"第 {activeHandbookRolePage + 1}/{handbookPages} 页 · {filtered.Length} 个角色", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
-                AddButton("‹", handbookRoleListRoot, new Vector2(50f, 42f), new Vector2(50f, 28f), () => ChangeHandbookRolePage(-1));
-                AddButton("›", handbookRoleListRoot, new Vector2(286f, 42f), new Vector2(50f, 28f), () => ChangeHandbookRolePage(1));
+                AddText("Handbook Page Label", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(196f, 28f), new Vector2(432f, 56f), $"第 {activeHandbookRolePage + 1}/{handbookPages} 页 · {filtered.Length} 个角色", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
+                AddButton("‹", handbookRoleListRoot, new Vector2(82f, 42f), new Vector2(54f, 28f), () => ChangeHandbookRolePage(-1));
+                AddButton("›", handbookRoleListRoot, new Vector2(530f, 42f), new Vector2(54f, 28f), () => ChangeHandbookRolePage(1));
             }
 
             if (handbookDetailText != null)
@@ -2587,7 +2859,7 @@ namespace BotcSolo.UnityPrototype
                         string.IsNullOrWhiteSpace(selected.ability) ? "暂无能力文本。" : selected.ability,
                         "",
                         RoleHandbookUseLine(selected),
-                    }, 10, 48);
+                    }, 10, 66);
                 }
             }
 
@@ -2598,7 +2870,7 @@ namespace BotcSolo.UnityPrototype
                 var lines = new List<string> { "夜晚顺序", "首夜：" + ShortOrder(first), "其后：" + ShortOrder(other) };
                 var counts = roles.GroupBy((role) => role.category ?? "").ToDictionary((group) => group.Key, (group) => group.Count());
                 lines.Add($"角色数：民 {CountCategory(counts, "townsfolk")} / 外 {CountCategory(counts, "outsider")} / 爪 {CountCategory(counts, "minion")} / 恶 {CountCategory(counts, "demon")}");
-                handbookOrderText.text = ClampTextLines(lines, 12, 76);
+                handbookOrderText.text = ClampTextLines(lines, 12, 92);
             }
         }
 
@@ -2676,20 +2948,26 @@ namespace BotcSolo.UnityPrototype
                 return;
             }
 
-            var voters = (vm.voteCeremony.voters ?? Array.Empty<VoteViewModel>()).OrderBy((entry) => entry.seat).Take(12).ToArray();
+            var voters = (vm.voteCeremony.voters ?? Array.Empty<VoteViewModel>()).OrderBy((entry) => entry.seat).Take(15).ToArray();
+            var voterCount = Mathf.Max(1, voters.Length);
+            var dense = voterCount > 12;
+            var radiusX = dense ? 506f : 488f;
+            var radiusY = dense ? 132f : 116f;
+            var center = new Vector2(574f, dense ? 176f : 170f);
+            var baseSize = dense ? 58f : 66f;
+            var currentSize = dense ? 70f : 78f;
+            var labelHalfWidth = dense ? 50f : 58f;
+            var labelFontSize = dense ? 11 : 12;
             for (var i = 0; i < voters.Length; i++)
             {
                 var voter = voters[i];
                 var revealed = i < visibleCount;
                 var raised = revealed && voter.vote;
                 var abstain = revealed && voter.abstain;
-                var angle = Mathf.PI * 0.5f - Mathf.PI * 2f * i / Mathf.Max(1, voters.Length);
-                var radiusX = 420f;
-                var radiusY = 98f;
-                var center = new Vector2(492f, 136f);
+                var angle = Mathf.PI * 0.5f - Mathf.PI * 2f * i / voterCount;
                 var pos = new Vector2(center.x + Mathf.Cos(angle) * radiusX, center.y + Mathf.Sin(angle) * radiusY);
                 var current = i == Mathf.Clamp(visibleCount - 1, 0, voters.Length - 1);
-                var size = current ? 74f : 62f;
+                var size = current ? currentSize : baseSize;
                 var color = !revealed
                     ? new Color(0.035f, 0.040f, 0.050f, 0.68f)
                     : raised ? new Color(0.48f, 0.31f, 0.10f, 0.88f) : new Color(0.050f, 0.055f, 0.062f, 0.78f);
@@ -2700,7 +2978,7 @@ namespace BotcSolo.UnityPrototype
                 AddCircleImage("Vote Token Ring", token.transform, size * 0.50f, raised ? new Color(1f, 0.76f, 0.32f, 0.72f) : new Color(0.72f, 0.55f, 0.34f, revealed ? 0.34f : 0.16f), true);
                 var mark = !revealed ? "?" : raised ? "举" : abstain ? "弃" : "落";
                 AddText("Vote Token Mark", token.transform, Vector2.zero, Vector2.one, new Vector2(0f, 12f), new Vector2(0f, -8f), mark, current ? 22 : 18, TextAnchor.MiddleCenter, FontStyle.Bold).color = raised ? new Color(1f, 0.86f, 0.48f, 1f) : new Color(0.86f, 0.82f, 0.74f, 0.92f);
-                AddText("Vote Token Name", voteAnimationRoot, Vector2.zero, Vector2.zero, pos + new Vector2(-54f, -48f), pos + new Vector2(54f, -18f), $"{voter.seat}号 {voter.voterName}", 12, TextAnchor.MiddleCenter, FontStyle.Normal);
+                AddText("Vote Token Name", voteAnimationRoot, Vector2.zero, Vector2.zero, pos + new Vector2(-labelHalfWidth, -46f), pos + new Vector2(labelHalfWidth, -20f), $"{voter.seat}号 {voter.voterName}", labelFontSize, TextAnchor.MiddleCenter, FontStyle.Normal);
             }
         }
 
@@ -2716,7 +2994,7 @@ namespace BotcSolo.UnityPrototype
         {
             if (actionOptionRoot != null)
             {
-                for (var i = actionOptionRoot.childCount - 1; i >= 0; i--) Destroy(actionOptionRoot.GetChild(i).gameObject);
+                ClearChildren(actionOptionRoot);
                 AddFrame(actionOptionRoot, "Action Option Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
             }
             var form = ActiveActionForm();
@@ -2733,44 +3011,76 @@ namespace BotcSolo.UnityPrototype
                 actionFormBody.text = form.available
                     ? ClampTextLines(new[]
                     {
-                        $"{form.roleName} [{form.inputType}]",
-                        form.prompt,
-                        ActionFormInstruction(form),
+                        $"{form.roleName} · {ActionInputLabel(form.inputType)} · {ActionRequirementLabel(form)}",
+                        string.IsNullOrWhiteSpace(form.prompt) ? "JS Core 已导出行动，等待选择。" : form.prompt,
                         $"当前：{ActionFormSelectionText(form)}"
-                    }, 4, 62)
-                    : ClampTextBlock($"当前不可用：{form.reason}", 3, 62);
+                    }, 3, 104)
+                    : ClampTextBlock($"当前不可用：{form.reason}", 3, 104);
             }
             if (!form.available || actionOptionRoot == null) return;
             actionQuestionInput = null;
-            var y = 238f;
+            var y = 318f;
             if (NeedsMode(form))
             {
-                AddText("Mode Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(18f, y - 20f), new Vector2(-18f, -(260f - y)), "模式", 14, TextAnchor.UpperLeft, FontStyle.Bold);
-                RenderActionModeChoices(form, y - 18f);
-                y -= 56f;
+                AddActionSectionHeader("Mode", "模式", ActionFormInstruction(form), y);
+                RenderActionModeChoices(form, y - 38f);
+                y -= 78f;
             }
             if (NeedsTargets(form))
             {
-                AddText("Target Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(18f, y - 20f), new Vector2(-18f, -(260f - y)), "目标", 14, TextAnchor.UpperLeft, FontStyle.Bold);
-                RenderActionTargetChoices(form, y - 18f);
-                y -= (form.options?.Length ?? 0) > ActionChoicePageSize ? 112f : 86f;
+                AddActionSectionHeader("Target", "目标", ActionTargetHint(form), y);
+                RenderActionTargetChoices(form, y - 38f);
+                y -= NeedsRole(form) ? 128f : (form.options?.Length ?? 0) > ActionChoicePageSize ? 136f : 116f;
             }
             if (NeedsRole(form))
             {
-                AddText("Role Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(18f, y - 20f), new Vector2(-18f, -(260f - y)), "身份", 14, TextAnchor.UpperLeft, FontStyle.Bold);
-                RenderActionRoleChoices(form, y - 18f, NeedsTargets(form));
-                y -= NeedsTargets(form) ? 124f : 160f;
+                AddActionSectionHeader("Role", "身份", "选择身份 token 后再确认发送。", y);
+                RenderActionRoleChoices(form, y - 44f, NeedsTargets(form));
+                y -= NeedsTargets(form) ? 128f : 170f;
             }
             if (NeedsQuestion(form))
             {
-                AddText("Question Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(18f, y - 20f), new Vector2(-18f, -(260f - y)), "问题", 14, TextAnchor.UpperLeft, FontStyle.Bold);
-                actionQuestionInput = AddInputField("Action Question Input", actionOptionRoot, new Vector2(86f, Mathf.Max(24f, y - 38f)), new Vector2(600f, Mathf.Max(56f, y - 6f)), "输入要提交给 JS Core 的问题");
+                AddActionSectionHeader("Question", "问题", "写下要交给 JS Core 的是/否问题。", y);
+                actionQuestionInput = AddInputField("Action Question Input", actionOptionRoot, new Vector2(24f, Mathf.Max(28f, y - 74f)), new Vector2(1078f, Mathf.Max(68f, y - 28f)), "输入要提交给 JS Core 的问题");
             }
             if (!NeedsMode(form) && !NeedsTargets(form) && !NeedsRole(form) && !NeedsQuestion(form))
             {
-                AddText("Info Action", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(20f, 100f), new Vector2(-20f, -80f), "这是信息型行动，无需额外输入。点击确认发送或自动处理。", 16, TextAnchor.MiddleCenter, FontStyle.Normal);
+                AddText("Info Action", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(28f, 126f), new Vector2(-28f, -116f), "这是信息型行动，无需额外输入。\n点击确认发送或自动合法选择后，JS Core 会写入结果。", 17, TextAnchor.MiddleCenter, FontStyle.Normal);
             }
-            if (actionFormStatusText != null) actionFormStatusText.text = ClampTextBlock(ActionFormStatus(form), 2, 54);
+            if (actionFormStatusText != null) actionFormStatusText.text = ClampTextBlock(ActionFormStatus(form), 2, 88);
+        }
+
+        private void AddActionSectionHeader(string key, string title, string hint, float y)
+        {
+            if (actionOptionRoot == null) return;
+            const float optionRootHeight = 334f;
+            var topOffset = -(optionRootHeight - (y + 8f));
+            AddText($"{key} Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(22f, y - 18f), new Vector2(-22f, topOffset), title, 16, TextAnchor.UpperLeft, FontStyle.Bold);
+            if (!string.IsNullOrWhiteSpace(hint))
+            {
+                AddText($"{key} Hint", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(100f, y - 16f), new Vector2(-24f, topOffset), Ellipsize(hint, 88), 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.86f);
+            }
+        }
+
+        private void AddActionTargetCard(ActionOptionViewModel option, Vector2 center, bool selected, UnityEngine.Events.UnityAction onClick)
+        {
+            var size = new Vector2(196f, 38f);
+            var card = AddPanel($"Action Target {option.id}", actionOptionRoot, Vector2.zero, Vector2.zero, center - size * 0.5f, center + size * 0.5f, selected ? new Color(0.15f, 0.082f, 0.032f, 0.90f) : new Color(0.010f, 0.017f, 0.026f, 0.74f));
+            AddImage("Target Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(4f, 0f), selected ? new Color(1f, 0.74f, 0.30f, 0.84f) : new Color(0.70f, 0.50f, 0.28f, 0.25f));
+            AddFrame(card.transform, "Target Card Frame", 0.8f, selected ? new Color(1f, 0.70f, 0.30f, 0.48f) : new Color(0.86f, 0.58f, 0.26f, 0.16f));
+            var image = card.GetComponent<Image>();
+            image.raycastTarget = true;
+            var button = card.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(onClick);
+            ApplyButtonStyle(button);
+
+            var name = string.IsNullOrWhiteSpace(option.name) ? option.id : option.name;
+            var prefix = selected ? "✓ " : "";
+            AddText("Target Name", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 14f), new Vector2(-12f, -4f), Ellipsize(prefix + name, 17), 14, TextAnchor.MiddleLeft, FontStyle.Bold).color = selected ? new Color(1f, 0.82f, 0.38f, 1f) : new Color(0.95f, 0.89f, 0.76f, 0.98f);
+            var meta = option.seat > 0 ? $"{option.seat}号" : "目标";
+            meta += option.alive ? " · 存活" : " · 死亡/不可用";
+            AddText("Target Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 0f), new Vector2(-12f, -22f), Ellipsize(meta, 24), 11, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.82f);
         }
 
         private void RenderActionTargetChoices(ActionFormViewModel form, float y)
@@ -2782,13 +3092,12 @@ namespace BotcSolo.UnityPrototype
             for (var i = 0; i < pageOptions.Length; i++)
             {
                 var option = pageOptions[i];
-                var col = i % 4;
-                var row = i / 4;
+                var col = i % 5;
+                var row = i / 5;
                 var selected = selectedActionTargetIds.Contains(option.id);
-                var label = Ellipsize($"{(selected ? "✓ " : "")}{(string.IsNullOrWhiteSpace(option.name) ? option.id : option.name)}", 9);
-                AddButton(label, actionOptionRoot, new Vector2(136f + col * 122f, y - row * 36f), new Vector2(112f, 29f), () => ToggleActionFormTarget(option.id));
+                AddActionTargetCard(option, new Vector2(112f + col * 216f, y - row * 48f), selected, () => ToggleActionFormTarget(option.id));
             }
-            RenderActionChoicePager("Target", actionTargetPage, PageCount(options.Length, ActionChoicePageSize), y - 72f, () => ChangeActionTargetPage(-1), () => ChangeActionTargetPage(1));
+            RenderActionChoicePager("Target", actionTargetPage, PageCount(options.Length, ActionChoicePageSize), y - 106f, () => ChangeActionTargetPage(-1), () => ChangeActionTargetPage(1));
         }
 
         private void RenderActionRoleChoices(ActionFormViewModel form, float y, bool compact)
@@ -2800,13 +3109,13 @@ namespace BotcSolo.UnityPrototype
             for (var i = 0; i < pageOptions.Length; i++)
             {
                 var option = pageOptions[i];
-                var col = i % 4;
-                var row = i / 4;
+                var col = i % 5;
+                var row = i / 5;
                 var selected = selectedActionRoleId == option.id;
                 var roleId = option.id;
-                AddRoleTokenButton(actionOptionRoot, option.id, option.name, option.category, option.team, new Vector2(112f + col * 138f, y - 10f - row * (compact ? 58f : 78f)), compact ? 40f : 52f, selected, () => SelectActionFormRole(roleId));
+                AddRoleTokenButton(actionOptionRoot, option.id, option.name, option.category, option.team, new Vector2(96f + col * 200f, y - row * (compact ? 74f : 88f)), compact ? 52f : 58f, selected, () => SelectActionFormRole(roleId));
             }
-            RenderActionChoicePager("Role", actionRolePage, PageCount(options.Length, ActionChoicePageSize), y - (compact ? 112f : 154f), () => ChangeActionRolePage(-1), () => ChangeActionRolePage(1));
+            RenderActionChoicePager("Role", actionRolePage, PageCount(options.Length, ActionChoicePageSize), y - (compact ? 138f : 168f), () => ChangeActionRolePage(-1), () => ChangeActionRolePage(1));
         }
 
         private void RenderActionModeChoices(ActionFormViewModel form, float y)
@@ -2817,16 +3126,16 @@ namespace BotcSolo.UnityPrototype
                 var mode = modes[i];
                 var selected = selectedActionModeId == mode.id;
                 var label = $"{(selected ? "✓ " : "")}{(string.IsNullOrWhiteSpace(mode.label) ? mode.id : mode.label)}";
-                AddButton(label, actionOptionRoot, new Vector2(136f + i * 122f, y), new Vector2(112f, 29f), () => SelectActionFormMode(mode.id));
+                AddButton(label, actionOptionRoot, new Vector2(112f + i * 202f, y), new Vector2(184f, 32f), () => SelectActionFormMode(mode.id));
             }
         }
 
         private void RenderActionChoicePager(string name, int page, int totalPages, float y, UnityEngine.Events.UnityAction prev, UnityEngine.Events.UnityAction next)
         {
             if (actionOptionRoot == null || totalPages <= 1) return;
-            AddText($"{name} Page Label", actionOptionRoot, Vector2.zero, Vector2.zero, new Vector2(354f, y - 14f), new Vector2(492f, y + 12f), $"第 {page + 1}/{totalPages} 页", 12, TextAnchor.MiddleRight, FontStyle.Normal);
-            AddButton("‹", actionOptionRoot, new Vector2(514f, y), new Vector2(36f, 26f), prev);
-            AddButton("›", actionOptionRoot, new Vector2(558f, y), new Vector2(36f, 26f), next);
+            AddText($"{name} Page Label", actionOptionRoot, Vector2.zero, Vector2.zero, new Vector2(834f, y - 14f), new Vector2(982f, y + 12f), $"第 {page + 1}/{totalPages} 页", 12, TextAnchor.MiddleRight, FontStyle.Normal);
+            AddButton("‹", actionOptionRoot, new Vector2(1010f, y), new Vector2(40f, 26f), prev);
+            AddButton("›", actionOptionRoot, new Vector2(1058f, y), new Vector2(40f, 26f), next);
         }
 
         private void ChangeActionTargetPage(int delta)
@@ -2872,6 +3181,35 @@ namespace BotcSolo.UnityPrototype
             if (direct.Length > 0) return direct;
             return (vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>())
                 .Select((role) => new ActionRoleOptionViewModel { id = role.id, name = role.name, category = role.category, team = role.team });
+        }
+
+        private static string ActionInputLabel(string inputType)
+        {
+            if (inputType == "info") return "信息确认";
+            if (inputType == "player-target") return "选择玩家";
+            if (inputType == "player-role") return "玩家 + 身份";
+            if (inputType == "role") return "选择身份";
+            if (inputType == "question") return "是/否问题";
+            if (inputType == "guesses") return "猜测输入";
+            if (inputType == "charge-or-targets") return "模式 / 目标";
+            return string.IsNullOrWhiteSpace(inputType) ? "默认选择" : inputType;
+        }
+
+        private static string ActionRequirementLabel(ActionFormViewModel form)
+        {
+            if (form == null) return "";
+            if (NeedsTargets(form)) return $"目标 {form.minTargetCount}-{form.maxTargetCount}";
+            if (NeedsRole(form)) return "需要身份";
+            if (NeedsQuestion(form)) return "需要问题";
+            if (NeedsMode(form)) return "需要模式";
+            return "无需额外输入";
+        }
+
+        private static string ActionTargetHint(ActionFormViewModel form)
+        {
+            if (form == null) return "";
+            if (form.maxTargetCount > 1) return $"可多选，至少 {form.minTargetCount} 个，最多 {form.maxTargetCount} 个。";
+            return "选择一个合法目标；完整规则仍由 JS Core 校验。";
         }
 
         private string ActionFormInstruction(ActionFormViewModel form)
@@ -3292,6 +3630,12 @@ namespace BotcSolo.UnityPrototype
             AddImage($"{name} Bottom", parent, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(0f, thickness), color);
             AddImage($"{name} Left", parent, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(thickness, 0f), color);
             AddImage($"{name} Right", parent, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-thickness, 0f), new Vector2(0f, 0f), color);
+        }
+
+        private static void ClearChildren(Transform parent)
+        {
+            if (parent == null) return;
+            for (var i = parent.childCount - 1; i >= 0; i--) Destroy(parent.GetChild(i).gameObject);
         }
 
         private Button AddButton(string label, Transform parent, Vector2 anchoredPosition, Vector2 size, UnityEngine.Events.UnityAction onClick)
@@ -3765,6 +4109,7 @@ namespace BotcSolo.UnityPrototype
         public string dialogueText;
         public string[] events;
         public string[] storytellerQueue;
+        public StorytellerQueueItemViewModel[] storytellerQueueDetails;
         public TimelineEntryViewModel[] timeline;
         public ActionStatusViewModel action;
         public RoleActionViewModel humanNightAction;
@@ -3821,6 +4166,7 @@ namespace BotcSolo.UnityPrototype
                 dialogueText = "点击 token 查看玩家信息。",
                 events = new[] { "已载入备用视图模型。", "如果看到这条信息，说明 unity_viewmodel.json 未找到。" },
                 storytellerQueue = new[] { "当前尚未连接 JS Core 行动。" },
+                storytellerQueueDetails = Array.Empty<StorytellerQueueItemViewModel>(),
                 timeline = Array.Empty<TimelineEntryViewModel>(),
                 players = Array.Empty<PlayerViewModel>()
             };
@@ -3829,8 +4175,9 @@ namespace BotcSolo.UnityPrototype
 
     [Serializable] public sealed class PhaseAdvanceViewModel { public bool blocked; public bool canAdvance; public bool requiresConfirm; public string targetStage; public string label; public string reason; public string hint; public string[] blockers; public string[] warnings; public string confirmText; }
     [Serializable] public sealed class GameOutcomeViewModel { public bool gameOver; public string winner; public string winnerLabel; public string title; public string reason; public string summary; public int alive; public int dead; public string[] finalEvents; }
-    [Serializable] public sealed class RoleActionViewModel { public bool available; public string reason; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public bool allowSelf; public bool allowDead; public ActionModeViewModel[] modes; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public string[] selectedTargetIds; }
-    [Serializable] public sealed class ActionFormViewModel { public string id; public string title; public bool available; public string reason; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public ActionModeViewModel[] modes; public string[] selectedTargetIds; }
+    [Serializable] public sealed class RoleActionViewModel { public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public bool allowSelf; public bool allowDead; public ActionModeViewModel[] modes; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public string[] selectedTargetIds; }
+    [Serializable] public sealed class ActionFormViewModel { public string id; public string title; public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public ActionModeViewModel[] modes; public string[] selectedTargetIds; }
+    [Serializable] public sealed class StorytellerQueueItemViewModel { public string id; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public string phaseLabel; public int createdDay; public int createdNight; public string createdPhase; public int minTargetCount; public int maxTargetCount; public int targetCount; public int optionCount; public bool current; }
     [Serializable] public sealed class ActionModeViewModel { public string id; public string label; }
     [Serializable] public sealed class ActionOptionViewModel { public string id; public string name; public int seat; public string roleId; public string roleName; public bool alive; public string team; public string category; }
     [Serializable] public sealed class ActionRoleOptionViewModel { public string id; public string name; public string category; public string team; }

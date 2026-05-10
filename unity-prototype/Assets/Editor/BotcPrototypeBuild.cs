@@ -19,6 +19,7 @@ namespace BotcSolo.UnityPrototype.Editor
             SyncAssetsFromElectronSource();
             SyncJsCoreForSelfBootstrap();
             SyncNodeRuntimeForSelfBootstrap();
+            ConfigurePlayerWindowDefaults();
 
             var outputDir = Path.GetFullPath("../unity-build");
             Directory.CreateDirectory(outputDir);
@@ -38,6 +39,14 @@ namespace BotcSolo.UnityPrototype.Editor
                 throw new System.Exception($"Unity prototype build failed: {report.summary.result}");
             }
             Debug.Log($"Unity prototype build succeeded: {outputPath}");
+        }
+
+        private static void ConfigurePlayerWindowDefaults()
+        {
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultScreenWidth = 1920;
+            PlayerSettings.defaultScreenHeight = 1080;
+            PlayerSettings.resizableWindow = true;
         }
 
         private static void SyncJsCoreForSelfBootstrap()

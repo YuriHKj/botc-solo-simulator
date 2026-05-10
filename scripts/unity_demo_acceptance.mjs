@@ -46,6 +46,7 @@ const bridgeOptions = {
 let step = 0;
 const summary = [];
 let demoVoteVoters = 0;
+let maxVoteVoters = 0;
 
 function assertOk(processed, label) {
   assert.equal(processed.result.ok, true, `${label}: ${processed.result.reason ?? processed.result.message ?? "bridge failed"}`);
@@ -136,6 +137,37 @@ function executePlayer(state, nominee, seedOffset) {
   assert.equal(result.accepted, true, result.reason);
   assert.equal(result.passed, true, "fixture execution vote should pass");
   assert.equal(nominee.alive, false, "fixture nominee should die");
+}
+
+function makeFifteenPlayerVoteFixture() {
+  const state = createNewGame(
+    {
+      scriptId: "tb",
+      playerCount: 15,
+      preferredHumanRoleId: "washerwoman",
+    },
+    withSeededRandom(seed + 401)
+  );
+  initializeAI(state);
+  runNight(state, withSeededRandom(seed + 402));
+  moveToNomination(state);
+
+  const human = humanPlayer(state);
+  const nominee = firstOtherPlayer(state, (entry) => entry.alive);
+  const result = resolveNominationAndVote(
+    state,
+    {
+      nominatorId: human.id,
+      nomineeId: nominee.id,
+      humanVoteYes: true,
+      decideAIVote: () => true,
+    },
+    withSeededRandom(seed + 403)
+  );
+  assert.equal(result.accepted, true, result.reason);
+  assert.equal(result.votes.length, 15, "15-player fixture should record every voter");
+  initializeAI(state);
+  return state;
 }
 
 function makeSageStorytellerQueueFixture() {
@@ -297,10 +329,24 @@ assert.ok(vm.voteCeremony, "nomination should export vote ceremony");
 assert.equal(vm.voteCeremony.nomineeId, nominee.id, "vote ceremony should target the nominee");
 assert.ok(vm.voteCeremony.voters.length > 0, "vote ceremony should include voters");
 demoVoteVoters = vm.voteCeremony.voters.length;
+maxVoteVoters = Math.max(maxVoteVoters, demoVoteVoters);
 
 vm = writeAction("script-handbook", { mode: "open", tab: "roles" });
 assert.equal(vm.scriptHandbook.open, true, "script-handbook should open the handbook view");
 assert.ok(vm.scriptHandbook.roles.length > 0, "script handbook should include role data");
+
+const fifteenVoteState = makeFifteenPlayerVoteFixture();
+writePersistedState(fifteenVoteState);
+processed = processUnityActionFile(bridgeOptions);
+vm = assertOk(processed, "15-player-vote-ceremony-state");
+assert.equal(vm.players.length, 15, "15-player vote fixture should export 15 players");
+assert.equal(vm.voteCeremony?.voters?.length, 15, "15-player vote fixture should expose all voters to Unity");
+maxVoteVoters = Math.max(maxVoteVoters, vm.voteCeremony.voters.length);
+summary.push({
+  type: "15-player-vote-ceremony-state",
+  status: vm.action.status,
+  message: `${vm.voteCeremony.voters.length} voters exported`,
+});
 
 const sageQueueState = makeSageStorytellerQueueFixture();
 vm = exportStorytellerFixture(sageQueueState, "sage-info", "real-sage-storyteller-queue-state");
@@ -367,8 +413,10 @@ console.log(
       steps: summary,
       players: vm.players.length,
       voteVoters: demoVoteVoters,
+      maxVoteVoters,
       lastAction: vm.action.lastActionType,
       storytellerQueueCovered: true,
+      fifteenPlayerVoteCovered: maxVoteVoters >= 15,
       storytellerQueueTypes: ["sage-info", "ravenkeeper-info", "barber-swap"],
     },
     null,

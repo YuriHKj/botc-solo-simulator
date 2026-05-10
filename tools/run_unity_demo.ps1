@@ -7,7 +7,11 @@ param(
   [switch]$NoWatch,
   [switch]$NoLaunch,
   [switch]$ProjectAssets,
-  [switch]$BuildAssets
+  [switch]$BuildAssets,
+  [switch]$Fullscreen,
+  [switch]$Windowed,
+  [int]$WindowWidth = 1920,
+  [int]$WindowHeight = 1080
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +23,10 @@ $buildStreamingAssets = Join-Path (Split-Path -Parent $unityExe) "BOTC_Unity_Pro
 
 if ($ProjectAssets -and $BuildAssets) {
   throw "Use only one of -ProjectAssets or -BuildAssets."
+}
+
+if ($Fullscreen -and $Windowed) {
+  throw "Use only one of -Fullscreen or -Windowed."
 }
 
 if ($BuildAssets) {
@@ -91,7 +99,13 @@ if (-not $NoWatch) {
 }
 
 if (-not $NoLaunch) {
-  $unityProcess = Start-Process -FilePath $unityExe -WorkingDirectory (Split-Path -Parent $unityExe) -PassThru
+  $unityArgs = @()
+  if ($Windowed) {
+    $unityArgs += @("-screen-fullscreen", "0", "-screen-width", "$WindowWidth", "-screen-height", "$WindowHeight")
+  } else {
+    $unityArgs += @("-screen-fullscreen", "1", "-screen-width", "$WindowWidth", "-screen-height", "$WindowHeight")
+  }
+  $unityProcess = Start-Process -FilePath $unityExe -ArgumentList $unityArgs -WorkingDirectory (Split-Path -Parent $unityExe) -PassThru
   Write-Host "Unity demo launched. PID: $($unityProcess.Id)"
 }
 
