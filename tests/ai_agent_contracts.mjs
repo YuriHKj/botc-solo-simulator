@@ -21,11 +21,15 @@ import {
 } from "../scripts/ai.js";
 import {
   addAgentObservation,
+  assertNoHiddenInfoLeakForDialogue,
   getAgentEvidence,
   getAIAgent,
+  getDialogueEvidenceForTarget,
   getKnownBluffRoleIds,
   getSuspicionTrailForTarget,
   getVisibleClaims,
+  recordPrivateInfoForAgent,
+  summarizeEvidenceForDialogue,
 } from "../scripts/ai_agents.js";
 
 function fixedRng(seed = 987654321) {
@@ -654,6 +658,196 @@ function testBeliefRefreshConsumesAgentObservations() {
   assert.ok(targetInsight.trail.length > 0, "AI insight rows should expose trail data for recap UI");
 }
 
+function testPrivateReasonUsesVisibleDialogueEvidence() {
+  const state = makeTBState();
+  const human = state.players.find((player) => player.isHuman);
+  const observer = state.players.find((player) => !player.isHuman && player.team === "good");
+  const target = state.players.find((player) => !player.isHuman && player.id !== observer.id && player.alive);
+
+  assert.ok(human, "expected human");
+  assert.ok(observer, "expected observer AI");
+  assert.ok(target, "expected target AI");
+
+  addAgentObservation(state, observer.id, {
+    kind: "public-speech",
+    source: "public-chat",
+    private: false,
+    text: "I would execute this player.",
+    payload: {
+      speakerId: target.id,
+      focusId: target.id,
+    },
+  });
+  observer.suspicion[target.id] = 0.82;
+
+  const summary = summarizeEvidenceForDialogue(state, observer, target.id, { limit: 1 })[0];
+  assert.ok(summary, "expected a dialogue-safe evidence summary");
+
+  const result = runPrivateWhisper(
+    state,
+    {
+      targetId: observer.id,
+      humanLine: `why do you suspect ${target.seatIndex + 1}?`,
+      intentHint: "reason",
+    },
+    fixedRng(1212)
+  );
+
+  assert.ok(result.response.includes(summary), "private reason should cite visible evidence summary");
+  assert.match(
+    result.response,
+    /我换个说法|说白了|先说清楚|换句话说/,
+    "private reason should include a human cadence bridge instead of reading like a flat report"
+  );
+}
+
+function testPrivateEvidenceDoesNotLeakIntoPublicSpeech() {
+  const state = makeTBState();
+  const observer = state.players.find((player) => !player.isHuman && player.team === "good");
+  const target = state.players.find((player) => !player.isHuman && player.id !== observer.id && player.alive);
+  const marker = "SECRET_PRIVATE_MARKER_20260510";
+
+  assert.ok(observer, "expected observer AI");
+  assert.ok(target, "expected target AI");
+
+  addAgentObservation(state, observer.id, {
+    kind: "private-whisper",
+    source: "private-chat",
+    private: true,
+    text: marker,
+    payload: {
+      speakerId: target.id,
+      targetId: observer.id,
+      focusId: target.id,
+    },
+  });
+  observer.suspicion[target.id] = 0.84;
+
+  advanceDayStage(state, "public");
+  runAIDiscussion(state, fixedRng(2323));
+  const speeches = state.events.speeches.filter((entry) => !entry.private);
+  assert.ok(speeches.length > 0, "expected public AI speeches");
+  assert.ok(
+    speeches.every((entry) => !`${entry.line ?? entry.text ?? ""}`.includes(marker)),
+    "public discussion must not quote private whisper contents"
+  );
+}
+
+function testGoodDialogueSummaryHidesDemonBluffs() {
+  const state = makeTBState();
+  const good = state.players.find((player) => !player.isHuman && player.team === "good");
+  const target = state.players.find((player) => !player.isHuman && player.id !== good.id);
+  const hiddenBluff = state.demonBluffs?.[0];
+
+  assert.ok(good, "expected good AI");
+  assert.ok(target, "expected target");
+  assert.ok(hiddenBluff, "expected demon bluff fixture");
+
+  assert.throws(
+    () => assertNoHiddenInfoLeakForDialogue(hiddenBluff.name ?? hiddenBluff.id, state, good),
+    /hidden demon bluff/,
+    "test helper should catch hidden bluff role names for good viewers"
+  );
+
+  addAgentObservation(state, good.id, {
+    kind: "night-info",
+    source: "storyteller",
+    private: true,
+    text: `Hidden bluff was ${hiddenBluff.name ?? hiddenBluff.id}`,
+    payload: {
+      targetId: target.id,
+    },
+  });
+
+  const summary = summarizeEvidenceForDialogue(state, good, target.id, { limit: 1 })[0] ?? "";
+  assertNoHiddenInfoLeakForDialogue(summary, state, good);
+}
+
+function testNightInfoContaminationMetadata() {
+  const state = makeTBState();
+  const observer = state.players.find((player) => !player.isHuman);
+  const target = state.players.find((player) => player.id !== observer.id);
+
+  assert.ok(observer, "expected observer AI");
+  assert.ok(target, "expected target");
+
+  recordPrivateInfoForAgent(state, observer, "normal storyteller info", {
+    payload: { targetId: target.id },
+  });
+  const normal = getAgentEvidence(state, observer, { targetId: target.id }).find(
+    (entry) => entry.text === "normal storyteller info"
+  );
+
+  observer.poisoned = true;
+  recordPrivateInfoForAgent(state, observer, "poisoned storyteller info", {
+    payload: { targetId: target.id },
+  });
+  const poisoned = getAgentEvidence(state, observer, { targetId: target.id }).find(
+    (entry) => entry.text === "poisoned storyteller info"
+  );
+
+  assert.ok(normal, "normal private info should become evidence");
+  assert.ok(poisoned, "poisoned private info should become evidence");
+  assert.ok(
+    poisoned.contaminationRisk > normal.contaminationRisk,
+    "poisoned recipient night info should carry higher contamination risk"
+  );
+  assert.equal(poisoned.contaminationReason, "poisoned-recipient");
+}
+
+function testDialogueEvidenceOrderingAndNominationReason() {
+  const state = makeTBState();
+  const observer = state.players.find((player) => !player.isHuman && player.team === "good");
+  const target = state.players.find((player) => !player.isHuman && player.id !== observer.id && player.alive);
+
+  assert.ok(observer, "expected observer AI");
+  assert.ok(target, "expected target AI");
+
+  addAgentObservation(state, observer.id, {
+    kind: "public-speech",
+    source: "public-chat",
+    private: false,
+    text: "I would execute this player.",
+    payload: {
+      speakerId: target.id,
+      focusId: target.id,
+    },
+  });
+  const rows = getDialogueEvidenceForTarget(state, observer, target.id, { limit: 2 });
+  assert.ok(rows.length > 0, "dialogue evidence helper should return target evidence");
+  assert.ok(rows[0].dialogueSummary, "dialogue evidence rows should include safe summaries");
+
+  advanceDayStage(state, "public");
+  advanceDayStage(state, "nomination");
+  observer.suspicion[target.id] = 0.88;
+  const proposal = chooseAINomination(state);
+  assert.ok(proposal, "expected AI nomination proposal");
+  assert.ok(
+    proposal.reason.includes("压力提名") || proposal.reason.includes("自动提名"),
+    "nomination reason should explicitly mark evidence-backed or pressure intent"
+  );
+  assert.ok(
+    proposal.evidenceSummary || proposal.reason.includes("压力提名"),
+    "nomination proposal should carry evidence summary or mark low-evidence pressure"
+  );
+}
+
+function testPublicDiscussionAddsTableTalkCadence() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+
+  runAIDiscussion(state, fixedRng(4545));
+  const firstRoundCount = state.events.speeches.filter((entry) => !entry.private).length;
+  runAIDiscussion(state, fixedRng(4546));
+  const secondRoundSpeeches = state.events.speeches.filter((entry) => !entry.private).slice(firstRoundCount);
+
+  assert.ok(secondRoundSpeeches.length > 0, "expected second public discussion round speeches");
+  assert.ok(
+    secondRoundSpeeches.some((entry) => /我的意思是|换句话说|先说清楚/.test(entry.line)),
+    "round-two public speech should include table-talk cadence markers"
+  );
+}
+
 function testEvilPrivateNotesDoNotLeakToGoodProactiveWhisper() {
   const state = makeTBState();
   const human = state.players.find((player) => player.isHuman);
@@ -697,6 +891,12 @@ function testEvilPrivateNotesDoNotLeakToGoodProactiveWhisper() {
   testAINominationCanPressureNominateWithLowEvidence,
   testObservationWritesEvidenceBook,
   testBeliefRefreshConsumesAgentObservations,
+  testPrivateReasonUsesVisibleDialogueEvidence,
+  testPrivateEvidenceDoesNotLeakIntoPublicSpeech,
+  testGoodDialogueSummaryHidesDemonBluffs,
+  testNightInfoContaminationMetadata,
+  testDialogueEvidenceOrderingAndNominationReason,
+  testPublicDiscussionAddsTableTalkCadence,
   testEvilPrivateNotesDoNotLeakToGoodProactiveWhisper,
 ].forEach((test) => test());
 

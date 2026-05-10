@@ -1,3 +1,5 @@
+import { getRoleById } from "./data.js";
+
 const AGENT_SCHEMA_VERSION = 2;
 const MAX_AGENT_OBSERVATIONS = 240;
 const MAX_AGENT_EVIDENCE = 360;
@@ -34,6 +36,31 @@ function seatName(player) {
     return "--";
   }
   return `${player.seatIndex + 1}`;
+}
+
+function playerSeatLabel(state, playerId) {
+  const player = (state.players ?? []).find((entry) => entry.id === playerId);
+  return player ? `${player.seatIndex + 1}` : `${playerId ?? "--"}`;
+}
+
+function roleLabel(state, roleId) {
+  if (!roleId) {
+    return "";
+  }
+  const role = getRoleById(state.scriptId, roleId);
+  return role?.name ?? roleId;
+}
+
+function clamp01(value, fallback = 0) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+}
+
+function conciseText(text, limit = 34) {
+  const value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, limit - 3))}...`;
 }
 
 function createAgent(player) {
@@ -193,6 +220,8 @@ function evidenceFromObservation(state, agent, observation) {
   const reliabilityScore = normalizeReliability(observation.reliability, source);
   const contaminationRisk = inferContaminationRisk(observation, reliabilityScore);
   const targetIds = inferTargetIds(observation);
+  const sourceRoleId = observation.sourceRoleId ?? observation.payload?.sourceRoleId ?? "";
+  const contaminationReason = observation.contaminationReason ?? observation.payload?.contaminationReason ?? "";
   return {
     id: `ev-${observation.id ?? `${Date.now()}-${Math.floor(Math.random() * 100000)}`}`,
     observationId: observation.id ?? null,
@@ -214,10 +243,21 @@ function evidenceFromObservation(state, agent, observation) {
     reliabilityScore,
     sourceTrust: normalizeReliability(agent.sourceTrust?.[source], source),
     contaminationRisk,
+    contaminationReason,
+    sourceRoleId,
     canBeFalse: contaminationRisk >= 0.15,
     text: observation.text ?? "",
     payload: observation.payload ?? {},
-    tags: unique([observation.kind, source, observation.private ? "private" : "public", observation.evidenceType].filter(Boolean)),
+    tags: unique(
+      [
+        observation.kind,
+        source,
+        observation.private ? "private" : "public",
+        observation.evidenceType,
+        contaminationReason,
+        sourceRoleId,
+      ].filter(Boolean)
+    ),
   };
 }
 
@@ -308,6 +348,136 @@ export function getEvidenceForTarget(state, playerOrId, targetId) {
   return getAgentEvidence(state, playerOrId, { targetId });
 }
 
+function evidenceDialogueWeight(evidence) {
+  const reliability = clamp01(evidence.reliabilityScore, 0.4);
+  const trust = clamp01(evidence.sourceTrust, 0.45);
+  const risk = clamp01(evidence.contaminationRisk, 0.2);
+  const recency = Math.min(0.16, Math.max(0, Number(evidence.timestamp ?? 0) / 10000000000000));
+  return reliability * trust * (1 - risk) + recency;
+}
+
+function contaminationSuffix(evidence) {
+  const risk = clamp01(evidence.contaminationRisk, 0);
+  if (risk >= 0.58) {
+    return "（可信度较低，可能被醉酒/中毒或私聊口径污染）";
+  }
+  if (risk >= 0.36) {
+    return "（可信度有限，需要复核）";
+  }
+  return "";
+}
+
+function summaryForDialogueEvidence(state, evidence, options = {}) {
+  const payload = evidence.payload ?? {};
+  const targetId = options.targetId ?? evidence.subjectId ?? evidence.targetIds?.[0] ?? payload.targetId ?? payload.playerId;
+  const targetSeat = playerSeatLabel(state, targetId);
+  const isPrivate = evidence.private || evidence.visibility === "private";
+  const suffix = contaminationSuffix(evidence);
+
+  if (isPrivate && options.publicOnly) {
+    return "";
+  }
+  if (isPrivate && options.redactPrivate !== false) {
+    if (evidence.source === "storyteller" || evidence.kind === "night-info") {
+      return `我自己的夜间信息牵到 ${targetSeat} 号${suffix}`;
+    }
+    return `我私下听到的口径把焦点指向 ${targetSeat} 号${suffix}`;
+  }
+
+  if (evidence.kind === "claim") {
+    const roleId = payload.roleId ?? evidence.sourceRoleId;
+    const claimType = isPrivate ? "私聊身份口径" : "公开身份口径";
+    return `${targetSeat} 号的${claimType}是 ${roleLabel(state, roleId) || "未明身份"}${suffix}`;
+  }
+  if (evidence.kind === "vote") {
+    const yesVotes = Number.isFinite(payload.yesVotes) ? payload.yesVotes : "?";
+    const threshold = Number.isFinite(payload.threshold) ? payload.threshold : "?";
+    return `投票记录：${targetSeat} 号那轮是 ${yesVotes}/${threshold}${payload.passed ? "，通过" : "，未通过"}${suffix}`;
+  }
+  if (evidence.kind === "nomination") {
+    return `提名记录：${targetSeat} 号被推上台面${suffix}`;
+  }
+  if (evidence.kind === "execution") {
+    return `公开处决记录牵涉 ${targetSeat} 号${suffix}`;
+  }
+  if (evidence.kind === "night-death") {
+    return `夜间死亡记录牵涉 ${targetSeat} 号${suffix}`;
+  }
+  if (evidence.kind === "public-speech") {
+    const speakerSeat = playerSeatLabel(state, payload.speakerId ?? evidence.sourceId);
+    const quote = conciseText(evidence.text, 30);
+    return quote
+      ? `${speakerSeat} 号公聊提到：${quote}${suffix}`
+      : `${speakerSeat} 号公聊把焦点放到 ${targetSeat} 号${suffix}`;
+  }
+  if (evidence.kind === "night-info") {
+    if (evidence.source === "private-chat") {
+      return `有人私下声称的夜间信息提到 ${targetSeat} 号${suffix}`;
+    }
+    return `我自己的夜间信息指向 ${targetSeat} 号${suffix}`;
+  }
+  const generic = conciseText(evidence.text, 30);
+  return generic ? `可见记录：${generic}${suffix}` : `可见记录把焦点指向 ${targetSeat} 号${suffix}`;
+}
+
+export function getDialogueEvidenceForTarget(state, viewer, targetId, options = {}) {
+  if (!targetId) {
+    return [];
+  }
+  const includePrivate = options.includePrivate !== false && !options.publicOnly;
+  const evidence = getAgentEvidence(state, viewer, { targetId })
+    .filter((entry) => (includePrivate ? true : !(entry.private || entry.visibility === "private")))
+    .filter((entry) => (options.evidenceType ? entry.evidenceType === options.evidenceType : true))
+    .map((entry) => ({
+      ...entry,
+      dialogueSummary: summaryForDialogueEvidence(state, entry, {
+        targetId,
+        publicOnly: !!options.publicOnly,
+        redactPrivate: options.redactPrivate,
+      }),
+      dialogueWeight: evidenceDialogueWeight(entry),
+    }))
+    .filter((entry) => entry.dialogueSummary);
+
+  evidence.sort((a, b) => {
+    if (b.dialogueWeight !== a.dialogueWeight) {
+      return b.dialogueWeight - a.dialogueWeight;
+    }
+    return (b.timestamp ?? 0) - (a.timestamp ?? 0);
+  });
+  return evidence.slice(0, options.maxEvidence ?? 8);
+}
+
+export function summarizeEvidenceForDialogue(state, viewer, targetId, options = {}) {
+  const limit = options.limit ?? 2;
+  return unique(
+    getDialogueEvidenceForTarget(state, viewer, targetId, options).map((entry) => entry.dialogueSummary)
+  ).slice(0, limit);
+}
+
+export function assertNoHiddenInfoLeakForDialogue(text, state, viewer) {
+  const value = `${text ?? ""}`;
+  const agent = getAIAgent(state, viewer);
+  const knownBluffs = new Set(agent?.knownBluffRoleIds ?? []);
+  const hiddenBluffs = (state.demonBluffs ?? []).filter((role) => role?.id && !knownBluffs.has(role.id));
+  hiddenBluffs.forEach((role) => {
+    const labels = unique([role.id, role.name, roleLabel(state, role.id)]).filter((entry) => `${entry}`.length > 1);
+    labels.forEach((label) => {
+      if (value.includes(label)) {
+        throw new Error(`dialogue leaked hidden demon bluff: ${label}`);
+      }
+    });
+  });
+  if (agent?.knownSelfTeam !== "evil") {
+    ["Known minions", "Known demon", "恶魔伪装", "邪恶互认", "真实邪恶队友"].forEach((token) => {
+      if (value.includes(token)) {
+        throw new Error(`dialogue leaked hidden evil information: ${token}`);
+      }
+    });
+  }
+  return true;
+}
+
 export function addAgentObservation(state, playerOrId, observation) {
   const agent = getAIAgent(state, playerOrId);
   if (!agent) {
@@ -358,10 +528,19 @@ export function addAgentEvidence(state, playerOrId, evidence) {
     contaminationRisk: Number.isFinite(evidence.contaminationRisk)
       ? Math.max(0, Math.min(1, evidence.contaminationRisk))
       : Math.max(0.08, 1 - reliabilityScore),
+    contaminationReason: evidence.contaminationReason ?? evidence.payload?.contaminationReason ?? "",
+    sourceRoleId: evidence.sourceRoleId ?? evidence.payload?.sourceRoleId ?? "",
     canBeFalse: evidence.canBeFalse ?? true,
     text: evidence.text ?? "",
     payload: evidence.payload ?? {},
-    tags: unique(evidence.tags ?? [evidence.kind, source]),
+    tags: unique(
+      evidence.tags ?? [
+        evidence.kind,
+        source,
+        evidence.contaminationReason ?? evidence.payload?.contaminationReason,
+        evidence.sourceRoleId ?? evidence.payload?.sourceRoleId,
+      ]
+    ),
   };
   return pushEvidence(agent, record);
 }
@@ -443,13 +622,30 @@ export function recordPrivateInfoForAgent(state, player, text, metadata = {}) {
   if (!player || player.isHuman) {
     return;
   }
+  const receiverIsPoisoned = !!player.poisoned;
+  const receiverIsDrunk = !!player.drunk;
+  const stateRisk = receiverIsPoisoned ? 0.64 : receiverIsDrunk ? 0.58 : 0.22;
+  const contaminationReason =
+    metadata.contaminationReason ??
+    (receiverIsPoisoned ? "poisoned-recipient" : receiverIsDrunk ? "drunk-recipient" : "");
+  const sourceRoleId = metadata.sourceRoleId ?? player.roleId ?? "";
+  const payload = {
+    ...(metadata.payload ?? {}),
+    sourceRoleId,
+    contaminationReason,
+  };
   addAgentObservation(state, player.id, {
     kind: "night-info",
     source: metadata.source ?? "storyteller",
     text,
     private: true,
     reliability: metadata.reliability ?? "storyteller",
-    payload: metadata.payload ?? {},
+    contaminationRisk: Number.isFinite(metadata.contaminationRisk)
+      ? Math.max(0, Math.min(1, metadata.contaminationRisk))
+      : stateRisk,
+    contaminationReason,
+    sourceRoleId,
+    payload,
   });
 }
 
@@ -619,6 +815,8 @@ export function recordPrivateInfoClaimForAgent(state, viewerId, { speakerId, tex
     private: true,
     reliability: "rumor",
     text,
+    contaminationRisk: 0.62,
+    contaminationReason: deceptionType || "private-player-claim",
     payload: {
       speakerId,
       playerId: speakerId,
@@ -627,6 +825,7 @@ export function recordPrivateInfoClaimForAgent(state, viewerId, { speakerId, tex
       viewerId,
       claimedInfo: text,
       deceptionType,
+      contaminationReason: deceptionType || "private-player-claim",
     },
   });
 }

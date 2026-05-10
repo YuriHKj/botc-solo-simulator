@@ -24,6 +24,7 @@ import {
   recordPublicClaimForAgents,
   recordPublicSpeechForAgents,
   recordSuspicionChangeFromEvidence,
+  summarizeEvidenceForDialogue,
 } from "./ai_agents.js";
 
 const QUESTION_INTENT = {
@@ -1023,7 +1024,20 @@ function buildNightSummary(state) {
   return `昨夜死亡为 ${victims.join("、")}，这是高波动夜晚，建议结合恶魔技能做逆推。`;
 }
 
-function collectEvidence(state, aiPlayer, focusPlayer) {
+function collectEvidence(state, aiPlayer, focusPlayer, options = {}) {
+  const safeEvidence = summarizeEvidenceForDialogue(state, aiPlayer, focusPlayer.id, {
+    limit: 2,
+    publicOnly: !!options.publicOnly,
+    includePrivate: !options.publicOnly,
+  });
+  if (safeEvidence.length > 0) {
+    return safeEvidence;
+  }
+
+  if (options.publicOnly) {
+    return [];
+  }
+
   const snippets = [];
   const reason = summarizeReason(aiPlayer, focusPlayer.id);
   if (reason) {
@@ -1508,6 +1522,85 @@ function joinSpeechFragments(fragments) {
     .join(" ");
 }
 
+const HUMAN_CADENCE_MARKERS = ["我换个说法", "说白了", "我的意思是", "换句话说", "先说清楚"];
+
+function alreadyHasHumanCadence(text) {
+  const value = `${text ?? ""}`;
+  return HUMAN_CADENCE_MARKERS.some((marker) => value.includes(marker));
+}
+
+function stripDuplicateHumanOpeners(text) {
+  let value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
+  const stockOpeners = [
+    "我先说人话版。",
+    "简单讲，我现在是这么看。",
+    "别急，我给你一个能落地的判断。",
+    "我不把话说死，但目前倾向是这样。",
+    "先给结论，细节你可以继续追问。",
+    "我尽量不绕，先把我的判断摊开。",
+    "这事我有点想法，但先别当铁证听。",
+  ];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const opener of stockOpeners) {
+      const doubled = `${opener} ${opener}`;
+      if (value.startsWith(doubled)) {
+        value = `${opener} ${value.slice(doubled.length).trim()}`.trim();
+        changed = true;
+      }
+    }
+  }
+  return value;
+}
+
+function bridgePhraseForSpeech(aiPlayer, options = {}) {
+  const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
+  if (options.audience === "public") {
+    if (persona === PERSONA_TYPES.PRESSURE) return "先说清楚，";
+    if (persona === PERSONA_TYPES.SHADOW) return "换句话说，";
+    return "我的意思是，";
+  }
+  if ([QUESTION_INTENT.REASON, QUESTION_INTENT.SUSPECT, QUESTION_INTENT.COMPARE].includes(options.intent)) {
+    return persona === PERSONA_TYPES.PRESSURE ? "说白了，" : "我换个说法，";
+  }
+  if ([QUESTION_INTENT.VOTE, QUESTION_INTENT.PLAN].includes(options.intent)) {
+    return persona === PERSONA_TYPES.SHADOW ? "换句话说，" : "先说清楚，";
+  }
+  return "";
+}
+
+function insertCadenceBridge(text, bridge) {
+  const value = `${text ?? ""}`.trim();
+  if (!bridge || !value || value.includes(bridge.replace(/[，,]\s*$/, ""))) {
+    return value;
+  }
+  const match = value.match(/[。！？；]\s*/u);
+  if (!match || match.index === undefined) {
+    return `${bridge}${value}`;
+  }
+  const splitAt = match.index + match[0].length;
+  return `${value.slice(0, splitAt)}${bridge}${value.slice(splitAt).trim()}`;
+}
+
+function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random, options = {}) {
+  let value = stripDuplicateHumanOpeners(text);
+  if (!value || alreadyHasHumanCadence(value)) {
+    return value;
+  }
+
+  const shouldBridge =
+    options.force ||
+    (options.audience === "private" &&
+      [QUESTION_INTENT.REASON, QUESTION_INTENT.SUSPECT, QUESTION_INTENT.VOTE, QUESTION_INTENT.COMPARE, QUESTION_INTENT.PLAN].includes(options.intent)) ||
+    (options.audience === "public" && ((options.roundInDay ?? 1) >= 2 || (options.focusScore ?? 0) >= 0.62 || rng() < 0.35));
+
+  if (!shouldBridge) {
+    return value;
+  }
+  return insertCadenceBridge(value, bridgePhraseForSpeech(aiPlayer, options));
+}
+
 function evidenceReasonText(evidence, fallback = "发言节奏和场上位置还没有对齐") {
   const clean = (evidence ?? [])
     .map((entry) => `${entry ?? ""}`.trim())
@@ -1758,10 +1851,19 @@ function lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, origin
 }
 
 function humanizePrivateComposedResponse(state, aiPlayer, human, analysis, original, rng = Math.random, options = {}) {
-  if (options.sameEvilTeam) {
-    return composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, original, rng);
-  }
-  return lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, original, rng);
+  const composed = options.sameEvilTeam
+    ? composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, original, rng)
+    : lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, original, rng);
+  return {
+    ...composed,
+    response: applyHumanSpeechCadence(state, aiPlayer, composed.response, rng, {
+      audience: "private",
+      intent: analysis.intent,
+      focusId: composed.focusId,
+      focusScore: composed.focusScore,
+      force: options.sameEvilTeam ? false : undefined,
+    }),
+  };
 }
 
 function nextPublicRound(state) {
@@ -1871,7 +1973,7 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
 
   const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
   const hardPressThreshold = 0.58 + personaThresholdShift(persona);
-  const evidence = collectEvidence(state, aiPlayer, top.player);
+  const evidence = collectEvidence(state, aiPlayer, top.player, { publicOnly: true });
   const reasonText = evidenceReasonText(evidence);
   const scoreMood = top.score >= 0.68 ? "压力很高" : top.score >= hardPressThreshold ? "有明显压力" : top.score >= 0.42 ? "需要解释" : "先观察";
   const disclosureLine = maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng);
@@ -1968,9 +2070,21 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
     )} ${prefix}`;
   }
 
+  const rawLine = applyDebateBeatTone(
+    joinSpeechFragments([prefix, chosen.text, tail]),
+    options.debateBeat,
+    top.player.name,
+    rng
+  );
   return {
     templateId: chosen.id,
-    line: applyDebateBeatTone(joinSpeechFragments([prefix, chosen.text, tail]), options.debateBeat, top.player.name, rng),
+    line: applyHumanSpeechCadence(state, aiPlayer, rawLine, rng, {
+      audience: "public",
+      intent: top.score >= hardPressThreshold ? QUESTION_INTENT.SUSPECT : QUESTION_INTENT.GENERIC,
+      focusId: top.player.id,
+      focusScore: top.score,
+      roundInDay,
+    }),
     focusId: top.player.id,
     score: top.score,
     debateBeat: options.debateBeat ?? "opening",
@@ -2876,8 +2990,11 @@ function nominationThreshold(state) {
   return clamp(threshold, 0.38, 0.58);
 }
 
-function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold) {
+function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold, evidenceSummary = "") {
   const score = aiPlayer.suspicion?.[target.id] ?? 0.5;
+  if (evidenceSummary) {
+    return `压力提名：${evidenceSummary}；怀疑度 ${Math.round(score * 100)}%，先看票型和回应。`;
+  }
   if (evidenceCount > 0) {
     return `压力提名：已有 ${evidenceCount} 条个人证据，怀疑 ${Math.round(score * 100)}%，达到 ${Math.round(threshold * 100)}% 的行动线。`;
   }
@@ -2889,6 +3006,11 @@ function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold) 
 
 function buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex, options = {}) {
   const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
+  const evidenceSummary =
+    summarizeEvidenceForDialogue(state, aiPlayer, candidate.player.id, {
+      limit: 1,
+      redactPrivate: true,
+    })[0] ?? "";
   const support = expectedSupportFor(state, candidate.player.id);
   const highConfidence = candidate.score >= 0.56 && !options.forcePressure;
   return {
@@ -2900,9 +3022,12 @@ function buildNominationProposal(state, aiPlayer, candidate, threshold, rankInde
     pressure: !highConfidence,
     threshold,
     rankIndex,
+    evidenceSummary,
     reason: highConfidence
-      ? `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，已达到常规提名线。`
-      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold),
+      ? evidenceSummary
+        ? `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，理由：${evidenceSummary}。`
+        : `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，已达到常规提名线。`
+      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold, evidenceSummary),
   };
 }
 
