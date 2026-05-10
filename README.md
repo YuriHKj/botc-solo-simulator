@@ -2,7 +2,7 @@
 
 《血染钟楼》单机模拟器原型。目标是把“说书人魔典 + 电脑玩家推理 + 夜晚/白天流程 + 私聊/公聊/提名投票”做成可独立运行的桌面游戏 Demo。
 
-> 非官方项目：本项目与 The Pandemonium Institute、Blood on the Clocktower 官方团队无隶属关系。Blood on the Clocktower 及相关名称、角色、规则与视觉资产归其权利方所有。本仓库当前主要用于个人学习、研究和私有开发。
+> 非官方项目：本项目与 The Pandemonium Institute、Blood on the Clocktower 官方团队无隶属关系。Blood on the Clocktower 及相关名称、角色、规则与视觉资产归其权利方所有。本仓库已整理为可公开浏览的学习、研究与原型开发项目；维护者已确认当前随仓库提交的素材可用于本项目公开展示和 demo 分发。
 
 ## 当前状态
 
@@ -82,6 +82,8 @@ npm run unity:demo
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
+
+`tools/run_unity_demo.ps1` 默认以 1920x1080 全屏启动构建版，贴近正式 demo 验收。开发调试或稳定截图时加 `-Windowed`；需要其他窗口尺寸时加 `-WindowWidth` / `-WindowHeight`。
 
 更多 Unity 说明见：
 
@@ -179,35 +181,27 @@ python scripts/run_real_data_pipeline.py
 - `release-20260430-portable/`
 - `release-20260430-mojibake-fix/`
 
-如果只用于 private repository 自测，可以在 GitHub Release 中上传 `.exe` 或 `.zip`。如果未来考虑公开发布，建议先阅读下方注意事项。
+构建产物默认不会提交到 Git；如需对外提供试玩包，建议通过 GitHub Release 上传 `.exe` 或 `.zip`，并在 Release note 中注明构建日期、commit、已知问题和素材说明。
 
-## 公开发布注意事项
+## 公开仓库说明
 
-当前仓库包含或引用了来自官方/资源站点的参考素材、角色图标、背景图、字体和规则资料。它们适合本地研究和私有开发，但不应默认视为可公开再分发资产。
+本仓库可以作为 public repo 展示和协作，但它仍是非官方学习/研究原型，不是官方产品或商业发行版。
 
-在把仓库设为 public 或发布 Release 前，建议先完成：
+- 维护者已完成当前素材清查，并确认随仓库提交的图片、字体、音频和 Unity 镜像素材可用于本项目公开展示与 demo 分发。
+- Blood on the Clocktower 名称、角色、规则、商标和相关世界观仍归权利方所有；本项目不声称拥有这些第三方权利，也不代表官方背书。
+- 新增图片、字体、音频、抓取资料或训练语料前，请在提交说明或文档中记录来源、用途和授权边界。
+- `data/`、`models/`、`release/`、`unity-build/`、`output/` 等生成物默认不入库；公开二进制包应通过 Release 分发，而不是直接提交到仓库。
+- 仓库公开不等于开放商用或大规模再分发；涉及商用、平台分发或衍生资源包时，需要重新确认第三方授权与项目许可证。
 
-- 删除或替换所有不确定授权的官方/抓取素材。
-- 将 `assets/reference_scraped/`、官方图标、背景和字体改为本地私有资源包，或提供下载/导入脚本而不是直接提交素材。
-- 使用自制、开源授权或占位素材替代打包进 exe 的资源。
-- 在 README 和 Release note 中保留非官方声明。
-- 不使用可能让人误解为官方产品的名称、logo 或描述。
-- 不发布可能与官方 app、script tool 或商业产品直接竞争的公开工具。
+本轮公开准备记录见：
 
-更稳妥的公开路线是：保留此仓库为 private，然后另建一个 public-clean 仓库，只包含代码、占位素材、构建说明和素材导入接口。
+- `docs/PUBLIC_RELEASE_READINESS_2026-05-10.md`
 
-## Release 建议
+## 授权与许可证
 
-Private 仓库：
+本项目源代码以 MIT License 开源，详见 `LICENSE`。
 
-- 可以发布 GitHub Release，上传 `.exe` 或 `.zip` 给自己测试。
-- Release note 建议注明构建日期、commit、已知问题和素材仅供私有测试。
-
-Public 仓库：
-
-- 暂不建议上传当前完整 exe。
-- 可以只发布源码或 clean demo build，但需要移除受限素材。
-- 如果保留玩法规则实现，README 应强调非官方、非商业、学习用途。
+随仓库提交的项目素材已由维护者确认可用于本项目公开展示和 demo 分发；但 Blood on the Clocktower 名称、角色、规则、商标、世界观和任何第三方权利不因本仓库 MIT 授权而被重新授权。复用或二次分发素材时，请保留非官方声明，并自行确认适用场景的授权边界。
 
 ## 参考资料
 
