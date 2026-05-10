@@ -219,4 +219,3 @@ python scripts/run_real_data_pipeline.py
 - 当前主要面向 Windows。
 - Node / Electron 版本以 `package-lock.json` 为准。
 - 项目仍处于重构阶段，角色规则、AI 对话和 UI 会继续变化。
-- 如果 Codex 线程过长导致客户端卡顿，建议新开线程并引用 `docs/design/CURRENT_THREAD_HANDOFF.md` 或最近的进度快照继续。
