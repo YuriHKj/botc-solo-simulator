@@ -28,7 +28,7 @@ npm run test:unity-demo-acceptance
 Result: passed.
 
 ```powershell
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-complex-action-form-ui-2026-05-10.log'
+& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath '<repo>\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile '<repo>\output\unity-build-complex-action-form-ui-2026-05-10.log'
 ```
 
 Result: build completed with `Build Finished, Result: Success.` The log still contains early Unity licensing noise and shutdown thread warnings, but the build result is successful.

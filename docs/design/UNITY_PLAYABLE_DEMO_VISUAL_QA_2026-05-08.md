@@ -77,9 +77,9 @@ npm run test:unity-demo-acceptance
 npm test
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-visual-qa-layout-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-visual-qa-layout-2026-05-08.log'
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh
 ```
 
@@ -119,9 +119,9 @@ Unity build 日志仍包含 Unity licensing / pipe close warning，但构建结�
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-chat-interaction-fix-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-chat-interaction-fix-2026-05-08.log'
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 npm test
 ```
@@ -148,9 +148,9 @@ npm test
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-target-picker-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-target-picker-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh
 ```
@@ -177,9 +177,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-panel-bgm-text-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-panel-bgm-text-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -207,9 +207,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-dialogue-card-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-dialogue-card-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -241,9 +241,9 @@ npm run test:unity-assets
 npm run test:mojibake
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-text-overflow-strategy-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-text-overflow-strategy-2026-05-08.log'
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
 
@@ -268,9 +268,9 @@ npm run test:unity-demo-acceptance
 npm run test:mojibake
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-action-handbook-pagination-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-action-handbook-pagination-2026-05-08.log'
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 npm test
 ```
@@ -297,9 +297,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-token-inspector-card-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-token-inspector-card-ui-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -327,9 +327,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-hud-readability-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-hud-readability-ui-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -355,9 +355,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-modal-backdrop-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-modal-backdrop-ui-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -384,9 +384,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-pending-bubble-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-pending-bubble-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -415,9 +415,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-quick-followups-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-quick-followups-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```
@@ -442,9 +442,9 @@ npm run test:mojibake
 npm run test:unity-demo-acceptance
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-dialogue-bubbles-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-dialogue-bubbles-2026-05-08.log'
 npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
 ```

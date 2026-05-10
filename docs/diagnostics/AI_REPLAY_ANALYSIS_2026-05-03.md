@@ -2,8 +2,7 @@
 
 ## Source
 
-- Raw user run log: `docs/diagnostics/AI_REPLAY_RAW_MOJIBAKE_2026-05-03.txt`
-- The raw file is kept for traceability, but its contents are mojibake due to an earlier encoding issue.
+- The raw mojibake trace was removed during the public repository cleanup; this summary keeps the actionable findings.
 
 ## What The Run Exposed
 

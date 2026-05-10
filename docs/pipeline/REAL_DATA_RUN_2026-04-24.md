@@ -18,7 +18,7 @@
 
 ## 运行命令
 ```powershell
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe scripts\run_real_data_pipeline.py --llmafia-max-rows 60000 --aiwolf-max-rows 5000
+python scripts\run_real_data_pipeline.py --llmafia-max-rows 60000 --aiwolf-max-rows 5000
 ```
 
 ## 产物路径

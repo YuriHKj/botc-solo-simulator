@@ -1,5 +1,5 @@
 ﻿Source: https://clocktower.gstonegames.com/
-Local root: C:\Users\11507\Documents\Playground\assets\reference_scraped\home
+Local root: assets/reference_scraped/home
 File count: 22
 
 By extension:

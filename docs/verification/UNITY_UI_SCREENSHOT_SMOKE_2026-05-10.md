@@ -20,7 +20,7 @@ Verify the first repeatable Unity UI screenshot smoke pass for these states:
 node scripts\unity_ui_smoke_fixture.mjs --state=main-board --streaming-assets=output\unity_ui_smoke_fixture_probe\main-board --seed=20260510
 npm run test:unity-demo-acceptance
 npm run test:unity-viewmodel
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-ui-smoke-layout-fixes-2026-05-10.log'
+& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath '<repo>\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile '<repo>\output\unity-build-ui-smoke-layout-fixes-2026-05-10.log'
 powershell -ExecutionPolicy Bypass -File tools\capture_unity_ui_smoke.ps1 -OutputDir output\unity-ui-smoke-2026-05-10
 ```
 

@@ -33,7 +33,7 @@ npm test
 Result: passed.
 
 ```powershell
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-visual-consolidation-2026-05-09.log'
+& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath '<repo>\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile '<repo>\output\unity-build-visual-consolidation-2026-05-09.log'
 ```
 
 Result: build completed with `Build Finished, Result: Success.` The log still contained early Unity licensing noise, but the final build result was successful.

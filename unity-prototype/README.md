@@ -58,7 +58,8 @@ npm run test:unity-assets
 命令行构建入口仍保留：
 
 ```powershell
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows
+$projectPath = Resolve-Path .
+& "$env:ProgramFiles\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe" -batchmode -quit -projectPath $projectPath -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows
 ```
 
 如果遇到 Unity Package Manager 或 Licensing Client 错误，先关闭 Unity/Hub，重新登录 Unity Hub，再用图形界面菜单构建。

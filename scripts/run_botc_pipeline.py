@@ -30,13 +30,9 @@ def main() -> None:
     if not py or "python" not in Path(py).name.lower():
         py = shutil.which("python") or ""
     if not py:
-        fallback = Path(
-            r"C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-        )
-        if fallback.exists():
-            py = str(fallback)
+        py = shutil.which("python3") or ""
     if not py:
-        raise SystemExit("No Python interpreter found. Please pass with a valid Python runtime.")
+        raise SystemExit("No Python interpreter found. Install Python 3 and ensure it is available on PATH.")
 
     acquisition_steps = [
         ["scripts/acquisition/get_werewolf_among_us.py"],

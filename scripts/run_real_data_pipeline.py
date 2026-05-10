@@ -27,10 +27,10 @@ def resolve_python() -> str:
     found = shutil.which("python")
     if found:
         return found
-    fallback = Path(r"C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe")
-    if fallback.exists():
-        return str(fallback)
-    raise RuntimeError("No usable Python interpreter found.")
+    found = shutil.which("python3")
+    if found:
+        return found
+    raise RuntimeError("No usable Python interpreter found. Install Python 3 and ensure it is available on PATH.")
 
 
 def main() -> None:

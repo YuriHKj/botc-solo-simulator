@@ -4,7 +4,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$defaultPy = "C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 
 function Test-PythonRuntime($candidate) {
   if (-not $candidate) { return $false }
@@ -24,12 +23,16 @@ if ($cmd) {
   }
 }
 
-if (-not $py -and (Test-PythonRuntime $defaultPy)) {
-  $py = $defaultPy
+$cmd = Get-Command py -ErrorAction SilentlyContinue
+if (-not $py -and $cmd) {
+  $candidate = $cmd.Source
+  if (Test-PythonRuntime $candidate) {
+    $py = $candidate
+  }
 }
 
 if (-not $py) {
-  throw "Python runtime not found or not executable. Please install Python or update tools/run_botc_pipeline.ps1."
+  throw "Python runtime not found or not executable. Please install Python 3 and ensure python is available on PATH."
 }
 
 $argsList = @("scripts/run_botc_pipeline.py")

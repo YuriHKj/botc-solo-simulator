@@ -1,5 +1,5 @@
 ﻿Source: https://clocktower.gstonegames.com/grimoire/
-Local root: C:\Users\11507\Documents\Playground\assets\reference_scraped\grimoire
+Local root: assets/reference_scraped/grimoire
 File count: 272
 
 By extension:

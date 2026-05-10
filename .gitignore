@@ -22,6 +22,8 @@ output/
 unity-build/
 unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe
 unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe.meta
+unity-prototype/Assets/StreamingAssets/BotcJsRuntime/runtime.txt
+unity-prototype/Assets/StreamingAssets/BotcJsRuntime/runtime.txt.meta
 unity-prototype/Assets/StreamingAssets/unity_action.json
 unity-prototype/Assets/StreamingAssets/unity_action.json.meta
 unity-prototype/Assets/StreamingAssets/unity_action_result.json

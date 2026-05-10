@@ -60,7 +60,7 @@
 
 ## 复盘句式抽取与 persona 分化
 
-基于 `docs/复盘2.txt` 与 `docs/新建 Text Document.txt`，本次继续抽取了可复用的说话方式，但没有保留具体座位、身份和某局结论。
+基于历史复盘 raw trace，本次继续抽取了可复用的说话方式，但没有保留具体座位、身份和某局结论；raw trace 已在公开仓库整理时移除。
 
 抽取后写入 `scripts/ai_speech_corpus.json` 的 `persona` 区：
 

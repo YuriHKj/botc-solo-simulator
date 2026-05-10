@@ -1,45 +1,45 @@
-# 文档索引
+# Documentation Index
 
-这个索引用来区分“当前开发应优先阅读的文档”和“历史调研/缓存资料”。后续继续开发时，优先看当前文档，避免被旧计划、旧截图缓存或乱码日志误导。
+This index points external contributors to the current project documentation. Historical research caches and old experiment traces are kept out of the primary reading path.
 
-## 当前优先阅读
+## Start Here
 
-- `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`
-  当前总体状态、未满足需求和建议优先级。
-- `docs/design/CURRENT_THREAD_HANDOFF.md`
-  新开 Codex 线程时的短交接文档。
-- `docs/requirements/PRODUCT_REQUIREMENTS.md`
-  产品目标与验收标准。部分“必须完成”已经被后续审计细化，不应单独作为完成度判断。
-- `docs/design/ROLE_IMPLEMENTATION_AUDIT.md`
-  当前每个角色的真实实现方式与偏差，是判断规则缺口的主要依据。
-- `docs/design/ROLE_MODULE_REFACTOR_PHASE1.md`
-  角色模块化拆分进度、通用行动接口和后续接口方向。
-- `docs/design/AI_AGENT_MVP.md`
-  AI 独立个体视角 MVP：个人记忆、邪恶互认、私聊/公聊可见性边界。
-- `docs/design/AI_EVIDENCE_BOOK.md`
-  AI 证据簿结构：来源、可信度、公开性、污染风险和后续推理接入方式。
-- `docs/design/UI_GRIMOIRE_FOCUS_REFACTOR_PLAN.md`
-  UI 继续精修时的主要执行计划。
-- `docs/design/AI_DIALOGUE_LOGIC_REPORT.md`
-  AI 对话链路、现有问题和下一步优化建议。
+- `README.md`: project overview, setup, testing, license, and release notes.
+- `docs/PROJECT_STRUCTURE.md`: repository layout and asset conventions.
+- `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`: current implementation status and open work.
+- `docs/requirements/PRODUCT_REQUIREMENTS.md`: product goals and acceptance direction.
+- `docs/requirements/CHANGE_REQUESTS.md`: chronological change-request log.
 
-## 诊断记录
+## Unity UI And Build
 
-- `docs/diagnostics/AI_REPLAY_ANALYSIS_2026-05-03.md`
-  用户实例日志暴露的 AI Day 1 神判问题，以及本轮 AI Agent MVP 的处理结果。
-- `docs/diagnostics/AI_REPLAY_RAW_MOJIBAKE_2026-05-03.txt`
-  用户原始实例日志，因历史编码问题保留为 raw trace，不作为可读设计文档。
+- `unity-prototype/README.md`: Unity prototype setup, build, bridge, and smoke-test workflow.
+- `docs/design/UNITY_FULLSCREEN_UI_BASELINE_2026-05-10.md`: fullscreen-first UI baseline.
+- `docs/design/UNITY_UI_ISSUE_LIST_2026-05-10.md`: current UI issue list.
+- `docs/design/UNITY_MIGRATION_MATRIX.md`: Electron-to-Unity migration matrix.
+- `docs/design/ELECTRON_UNITY_BUILD_ASSET_FLOW_2026-05-08.md`: asset flow between Electron sources and Unity resources.
 
-## 验证与发布
+## Rules And AI
 
-- `docs/verification/VERIFICATION.md`
-  历史验证记录。注意日期较早，不覆盖 2026-04-30 之后所有改动。
-- `docs/packaging/WINDOWS_EXE.md`
-  Windows 打包说明。
-- `docs/packaging/RELEASE_20260430.md`
-  2026-04-30 附近版本的发布记录。
+- `docs/design/ROLE_IMPLEMENTATION_AUDIT.md`: role behavior audit and known deviations.
+- `docs/design/ROLE_MODULE_REFACTOR_PHASE1.md`: role-module refactor status.
+- `docs/design/AI_AGENT_MVP.md`: AI perspective and private/public information model.
+- `docs/design/AI_EVIDENCE_BOOK.md`: evidence-book structure for AI reasoning.
+- `docs/design/AI_AGENT_OPTIMIZATION_ROUND_2026-05-10.md`: latest AI evidence and dialogue improvements.
 
-## AI / 语料管线
+## Verification
+
+- `docs/verification/VERIFICATION.md`: historical verification log.
+- `docs/verification/UNITY_BUILD_USER_ACCEPTANCE_2026-05-09.md`: Unity build acceptance notes.
+- `docs/verification/UNITY_UI_SCREENSHOT_SMOKE_2026-05-10.md`: UI screenshot smoke notes.
+- `docs/verification/AI_AGENT_OPTIMIZATION_ROUND_2026-05-10.md`: AI optimization verification.
+
+## Packaging And Release
+
+- `docs/packaging/WINDOWS_EXE.md`: Windows desktop packaging notes.
+- `docs/packaging/RELEASE_20260430.md`: historical release note.
+- `docs/PUBLIC_RELEASE_READINESS_2026-05-10.md`: public repository readiness notes.
+
+## Research And Data Pipeline
 
 - `docs/pipeline/IMPLEMENTATION_STATUS.md`
 - `docs/pipeline/botc_implementation_plan_v1.md`
@@ -49,26 +49,6 @@
 - `docs/dataset_qa_report_v1.md`
 - `docs/mapping_notes.md`
 
-## 历史计划
+## Reference Caches
 
-- `docs/plans/PLANS.md`
-  早期计划与完成勾选，只作为历史记录。
-- `docs/plans/AI_SOCIAL_TODO_2026-05-04.md`
-  AI 私聊、公聊报身份、死人聊天、压力提名和外来者伪装策略 TODO。
-- `docs/requirements/CHANGE_REQUESTS.md`
-  早期变更请求记录。部分“已完成”表示当时版本完成，不代表官方级细节完全满足。
-- `docs/design/TB_RULE_COVERAGE.md`
-- `docs/design/BMR_SNV_RULE_COVERAGE.md`
-
-## 研究缓存与大体积资料
-
-以下文件/目录是调研抓取结果或截图缓存，普通开发线程通常不需要批量读取：
-
-- `docs/research/app.js`
-- `docs/research/chunk-vendors.js`
-- `docs/research/*.html`
-- `docs/research/wiki_cache/`
-- `docs/research/grimoire-assets/`
-- `docs/verification/*.png`
-
-如果 Codex 客户端卡顿，优先不要批量打开这些文件。
+The `docs/research/` directory contains reference snapshots and extracted research material. These files are not required for normal development or running the demo.

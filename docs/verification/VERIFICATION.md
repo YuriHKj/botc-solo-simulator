@@ -1,17 +1,17 @@
 # 验证记录（v0.4）
 
 ## 环境
-- 工作目录：`C:\Users\11507\Documents\Playground`
+- 工作目录：`<repo>`
 - 日期：2026-04-21
-- Node（内置 runtime）：`C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`
-- Python（内置 runtime）：`C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`
+- Node（内置 runtime）：`node`
+- Python（内置 runtime）：`python`
 
 ## 本轮验证（CR-2026-04-21-03）
 ### 1) 语法检查
 ```powershell
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/engine.js
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/ui.js
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/ai.js
+node --check scripts/engine.js
+node --check scripts/ui.js
+node --check scripts/ai.js
 ```
 结果：通过。
 
@@ -29,8 +29,8 @@ C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin
 powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
 ```
 结果：通过。  
-输出目录：`C:\Users\11507\Documents\Playground\dist\BOTC-Solo\`  
-可执行文件：`C:\Users\11507\Documents\Playground\dist\BOTC-Solo\BOTC-Solo.exe`
+输出目录：`<repo>\dist\BOTC-Solo\`
+可执行文件：`<repo>\dist\BOTC-Solo\BOTC-Solo.exe`
 
 ## 结论
 - “每个夜晚 / 每个夜晚*”首夜判定已按规则分流。
@@ -134,9 +134,9 @@ npm test
 ## 本轮验证（CR-2026-04-21-04）
 ### 1) 语法检查
 ```powershell
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/engine.js
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/ui.js
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check scripts/app.js
+node --check scripts/engine.js
+node --check scripts/ui.js
+node --check scripts/app.js
 ```
 结果：通过。
 
@@ -161,8 +161,8 @@ C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin
 powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
 ```
 结果：通过。  
-输出目录：`C:\Users\11507\Documents\Playground\dist\BOTC-Solo\`  
-可执行文件：`C:\Users\11507\Documents\Playground\dist\BOTC-Solo\BOTC-Solo.exe`
+输出目录：`<repo>\dist\BOTC-Solo\`
+可执行文件：`<repo>\dist\BOTC-Solo\BOTC-Solo.exe`
 
 启动冒烟：
 - 启动 4 秒后进程仍在运行（未立即崩溃），随后人工结束进程用于验证。
@@ -190,9 +190,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-ui-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-ui-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -202,8 +202,8 @@ npm test
 ### 3) Unity prototype 启动冒烟
 
 ```powershell
-Start-Process -FilePath 'C:\Users\11507\Documents\Playground\unity-build\BOTC_Unity_Prototype.exe' `
-  -WorkingDirectory 'C:\Users\11507\Documents\Playground\unity-build'
+Start-Process -FilePath '<repo>\unity-build\BOTC_Unity_Prototype.exe' `
+  -WorkingDirectory '<repo>\unity-build'
 ```
 
 结果：通过。启动 6 秒后进程仍在运行；随后为验证清理手动结束进程。Player.log 未见运行时异常。
@@ -247,9 +247,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-demo-align-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-demo-align-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-07 14:26:24。
@@ -311,9 +311,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-electron-bridge-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-electron-bridge-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-07 14:53:45。
@@ -384,9 +384,9 @@ powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatc
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-migration-matrix-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-migration-matrix-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -445,9 +445,9 @@ powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh -NoWatc
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-migration-matrix-continued-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-migration-matrix-continued-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -471,9 +471,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-panel-layout-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-private-panel-layout-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -497,9 +497,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-controls-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-private-controls-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -525,9 +525,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-action-form-controls-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-action-form-controls-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -553,9 +553,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-ui-polish-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-ui-polish-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -581,9 +581,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-info-tabs-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-info-tabs-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -608,9 +608,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-action-multiselect-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-action-multiselect-2026-05-07.log'
 ```
 
 结果：通过。第一次构建发现 C# 匿名类型不一致，修复后重跑通过，日志包含 `Unity prototype build succeeded`。
@@ -636,9 +636,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-vote-panel-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-vote-panel-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -664,9 +664,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-info-drawer-polish-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-info-drawer-polish-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -692,9 +692,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-history-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-private-history-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -720,9 +720,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-vote-animation-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-vote-animation-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -748,9 +748,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-bottom-dock-declutter-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-bottom-dock-declutter-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -776,9 +776,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-more-actions-drawer-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-more-actions-drawer-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -804,9 +804,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-token-inspector-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-token-inspector-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -832,9 +832,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-panel-final-2026-05-07.log'
+  -logFile '<repo>\output\unity-build-private-panel-final-2026-05-07.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -867,9 +867,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-ui-next-roadmap-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-ui-next-roadmap-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。
@@ -915,9 +915,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-demo-acceptance-status-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-demo-acceptance-status-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`；`Assembly-CSharp.dll` 更新时间为 2026-05-08 10:11。
@@ -952,9 +952,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-token-fallback-pending-fix-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-token-fallback-pending-fix-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`；`Assembly-CSharp.dll` 更新时间为 2026-05-08 10:34。
@@ -999,9 +999,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-asset-sync-guard-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-asset-sync-guard-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`。Unity Resources 当前包含 72 张角色 png。
@@ -1032,9 +1032,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-visual-qa-layout-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-visual-qa-layout-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 13:25:23。Unity licensing / pipe close warning 仍存在，但未阻止构建。
@@ -1044,7 +1044,7 @@ npm test
 powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh
 ```
 
-结果：通过。启动 6 秒后 bridge 与 Unity 进程均仍在运行；验证后已停止测试进程。`C:\Users\11507\AppData\LocalLow\DefaultCompany\unity-prototype\Player.log` 未出现 `Exception`、`Error`、`Failed`、`NullReference`。
+结果：通过。启动 6 秒后 bridge 与 Unity 进程均仍在运行；验证后已停止测试进程。`%USERPROFILE%\AppData\LocalLow\DefaultCompany\unity-prototype\Player.log` 未出现 `Exception`、`Error`、`Failed`、`NullReference`。
 
 ## 本轮验证补充（Unity 私聊交互修正）
 覆盖：
@@ -1064,9 +1064,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-chat-interaction-fix-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-chat-interaction-fix-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 13:44:04。
@@ -1103,9 +1103,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -nographics -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-target-picker-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-target-picker-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 14:28:08。
@@ -1136,9 +1136,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-panel-bgm-text-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-panel-bgm-text-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 14:54:47。
@@ -1180,9 +1180,9 @@ npm run test:mojibake
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-text-overflow-strategy-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-text-overflow-strategy-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 21:11:34。
@@ -1215,9 +1215,9 @@ npm run test:mojibake
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-action-handbook-pagination-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-action-handbook-pagination-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 22:33:55。
@@ -1257,9 +1257,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-token-inspector-card-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-token-inspector-card-ui-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 19:47:09。
@@ -1300,9 +1300,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-hud-readability-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-hud-readability-ui-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 19:30:10。
@@ -1343,9 +1343,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-modal-backdrop-ui-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-modal-backdrop-ui-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 17:44:56。
@@ -1386,9 +1386,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-pending-bubble-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-pending-bubble-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 16:58:03。
@@ -1429,9 +1429,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-quick-followups-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-quick-followups-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 16:44:44。
@@ -1472,9 +1472,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-dialogue-bubbles-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-dialogue-bubbles-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 16:35:07。
@@ -1515,9 +1515,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-private-dialogue-card-2026-05-08.log'
+  -logFile '<repo>\output\unity-build-private-dialogue-card-2026-05-08.log'
 ```
 
 结果：通过。日志包含 `Unity prototype build succeeded`，`Assembly-CSharp.dll` 更新时间为 2026-05-08 16:23:05。
@@ -1575,9 +1575,9 @@ npm run test:mojibake
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-ui-polish-role-badges-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-ui-polish-role-badges-2026-05-09.log'
 ```
 
 结果：通过。
@@ -1594,9 +1594,9 @@ npm run test:unity-demo-acceptance
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-bundled-node-role-icons-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-bundled-node-role-icons-2026-05-09.log'
 ```
 
 结果：通过。确认存在：
@@ -1606,7 +1606,7 @@ npm run test:unity-demo-acceptance
 
 ### 3) 随包 Node runtime
 ```powershell
-& 'C:\Users\11507\Documents\Playground\unity-build\BOTC_Unity_Prototype_Data\StreamingAssets\BotcJsRuntime\node.exe' -v
+& '<repo>\unity-build\BOTC_Unity_Prototype_Data\StreamingAssets\BotcJsRuntime\node.exe' -v
 ```
 
 结果：通过，版本为 `v24.15.0`。
@@ -1650,9 +1650,9 @@ npm run test:mojibake
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-self-start-bridge-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-self-start-bridge-2026-05-09.log'
 ```
 
 结果：通过。确认存在：
@@ -1662,7 +1662,7 @@ npm run test:mojibake
 
 ### 3) build 内 JS Core 镜像
 ```powershell
-$sa='C:\Users\11507\Documents\Playground\unity-build\BOTC_Unity_Prototype_Data\StreamingAssets'
+$sa='<repo>\unity-build\BOTC_Unity_Prototype_Data\StreamingAssets'
 node "$sa\BotcJsCore\scripts\unity_action_bridge.mjs" `
   --state="$sa\unity_state.json" `
   --viewmodel="$sa\unity_viewmodel.json" `
@@ -1726,9 +1726,9 @@ npm run test:mojibake
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-endgame-feedback-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-endgame-feedback-2026-05-09.log'
 ```
 
 结果：通过。日志包含 `Build Finished, Result: Success.`。
@@ -1782,9 +1782,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-night-action-completeness-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-night-action-completeness-2026-05-09.log'
 ```
 
 结果：通过。日志包含 `Build Finished, Result: Success.`。
@@ -1839,9 +1839,9 @@ npm test
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-phase-guard-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-phase-guard-2026-05-09.log'
 ```
 
 结果：通过。日志包含 `Build Finished, Result: Success.`。

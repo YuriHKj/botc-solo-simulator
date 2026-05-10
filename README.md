@@ -177,18 +177,11 @@ python scripts/run_real_data_pipeline.py
 
 `data/`、`models/` 等产物是否提交，需要根据语料许可和仓库发布方式单独判断。
 
-## 本地打包产物
+## 构建与发布
 
-构建产物默认不会提交到 Git。
+构建产物默认不会提交到 Git。常见输出目录包括 `release/`、`release-*`、`dist/`、`build/`、`unity-build/` 和 `output/`，这些目录用于本地构建、截图和验收。
 
-常见本地输出目录：
-
-- `release/`
-- `release-model/`
-- `release-20260430-portable/`
-- `release-20260430-mojibake-fix/`
-
-构建产物默认不会提交到 Git；如需对外提供试玩包，建议通过 GitHub Release 上传 `.exe` 或 `.zip`，并在 Release note 中注明构建日期、commit、已知问题和素材说明。
+如需对外提供试玩包，建议通过 GitHub Releases 上传 `.exe` 或 `.zip`，并在 Release note 中注明构建日期、commit、已知问题和素材说明。
 
 ## 公开仓库说明
 

@@ -22,6 +22,7 @@ This note records the repository-prep pass before making the BOTC Solo Simulator
 - Ran a lightweight secret-pattern scan for common API keys, GitHub tokens, private keys, and env-style credentials. No matches were found.
 - Updated `README.md` from the previous private/public-clean warning stance to a public-ready repository stance.
 - Moved root-level BGM files into `assets/audio/` and kept Unity audio resources synced from that canonical source.
+- Removed internal handoff notes, empty scratch files, and mojibake raw traces from the public documentation surface.
 
 ## Before Publishing A Binary Release
 

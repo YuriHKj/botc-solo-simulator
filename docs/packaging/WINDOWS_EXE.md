@@ -1,33 +1,32 @@
-﻿# Windows EXE 打包说明（BOTC-Solo 目录版）
+# Windows EXE Packaging
 
-## 当前已产出
-- 目录版：`dist/BOTC-Solo/`
+The primary desktop packaging path is Electron:
 
-## 一键重建
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
+npm run electron:win
 ```
 
-## 手动步骤
+For a faster unpacked package:
 
-1. 安装打包依赖
 ```powershell
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install --upgrade pyinstaller pywebview
+npm run electron:pack
 ```
 
-2. 构建 BOTC-Solo（目录版）
+Build outputs are ignored by Git and should be distributed through GitHub Releases when needed.
+
+## Legacy PyInstaller Package
+
+The repository also keeps a legacy PyInstaller/WebView launcher:
+
 ```powershell
-C:\Users\11507\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Scripts\pyinstaller.exe --noconfirm --clean --windowed --name BOTC-Solo --add-data "index.html;." --add-data "styles.css;." --add-data "scripts;scripts" --add-data "assets;assets" desktop_launcher.py
+python -m pip install --upgrade pyinstaller pywebview
+python -m PyInstaller --noconfirm --clean --windowed --name BOTC-Solo --add-data "index.html;." --add-data "styles.css;." --add-data "scripts;scripts" --add-data "assets;assets" desktop_launcher.py
 ```
 
-## 运行原理
-- `desktop_launcher.py` 会在本地启动内置 HTTP 服务（127.0.0.1 随机端口）。
-- 桌面窗口使用 WebView2 渲染本地 `index.html`，不依赖外网。
-- 游戏所有核心内容（HTML/CSS/JS/素材）都随 BOTC-Solo 目录版一起分发。
+`desktop_launcher.py` starts a local HTTP server on `127.0.0.1` and opens the app through WebView2. This path is useful for experiments, but Electron is the better-maintained route.
 
-## 兼容性
-- 需要 Windows WebView2 运行时（Windows 11 通常已内置）。
-- 未做代码签名，首次运行可能出现安全提示。
+## Notes
 
-## 备注
-- 项目里保留了 Electron 配置作为备选路线，但当前主线版本为 PyInstaller 目录版 `BOTC-Solo`。
+- Windows WebView2 runtime is required for the PyInstaller/WebView path.
+- Unsigned builds may trigger Windows security prompts.
+- Do not commit generated `release/`, `release-*`, `dist/`, `build/`, `unity-build/`, or `output/` directories.

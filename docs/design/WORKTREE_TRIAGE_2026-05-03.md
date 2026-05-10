@@ -62,7 +62,7 @@ Files:
 
 - `docs/INDEX.md`
 - `docs/diagnostics/AI_REPLAY_ANALYSIS_2026-05-03.md`
-- `docs/diagnostics/AI_REPLAY_RAW_MOJIBAKE_2026-05-03.txt`
+- Raw mojibake replay trace was removed during public repository cleanup; see `docs/diagnostics/AI_REPLAY_ANALYSIS_2026-05-03.md` for the retained findings.
 
 Purpose:
 

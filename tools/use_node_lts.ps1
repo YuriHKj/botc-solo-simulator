@@ -2,9 +2,28 @@
   [switch]$Persist
 )
 
-$candidate = 'C:\Users\11507\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.15.0-win-x64'
+function Test-NodeCandidate($candidate) {
+  if (-not $candidate) { return $false }
+  return Test-Path (Join-Path $candidate 'node.exe')
+}
 
-if (-not (Test-Path (Join-Path $candidate 'node.exe'))) {
+$candidate = $env:NODE_HOME
+
+if (-not (Test-NodeCandidate $candidate)) {
+  $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+  if ($nodeCommand -and $nodeCommand.Source) {
+    $candidate = Split-Path -Parent $nodeCommand.Source
+  }
+}
+
+if (-not (Test-NodeCandidate $candidate)) {
+  $programFilesCandidate = Join-Path $env:ProgramFiles 'nodejs'
+  if (Test-NodeCandidate $programFilesCandidate) {
+    $candidate = $programFilesCandidate
+  }
+}
+
+if (-not (Test-NodeCandidate $candidate)) {
   $fallback = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like 'OpenJS.NodeJS.LTS*' } |
     ForEach-Object { Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue } |
@@ -16,7 +35,7 @@ if (-not (Test-Path (Join-Path $candidate 'node.exe'))) {
   }
 }
 
-if (-not (Test-Path (Join-Path $candidate 'node.exe'))) {
+if (-not (Test-NodeCandidate $candidate)) {
   Write-Error "Node LTS not found. Run: winget install OpenJS.NodeJS.LTS --scope user --silent --accept-package-agreements --accept-source-agreements"
   exit 1
 }

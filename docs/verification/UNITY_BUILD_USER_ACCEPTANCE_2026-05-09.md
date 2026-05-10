@@ -17,7 +17,7 @@ Validate the current Unity build from a user-facing path:
 Command:
 
 ```powershell
-& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-user-acceptance-2026-05-09.log'
+& 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' -batchmode -quit -projectPath '<repo>\unity-prototype' -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows -logFile '<repo>\output\unity-build-user-acceptance-2026-05-09.log'
 ```
 
 Result: passed.
@@ -25,7 +25,7 @@ Result: passed.
 Relevant log line:
 
 ```text
-Unity prototype build succeeded: C:\Users\11507\Documents\Playground\unity-build\BOTC_Unity_Prototype.exe
+Unity prototype build succeeded: <repo>\unity-build\BOTC_Unity_Prototype.exe
 ```
 
 The build includes:

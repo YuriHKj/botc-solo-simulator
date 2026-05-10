@@ -22,9 +22,9 @@ Result: passed.
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\2022.3.62f3\Editor\Unity.exe' `
   -batchmode -quit `
-  -projectPath 'C:\Users\11507\Documents\Playground\unity-prototype' `
+  -projectPath '<repo>\unity-prototype' `
   -executeMethod BotcSolo.UnityPrototype.Editor.BotcPrototypeBuild.BuildWindows `
-  -logFile 'C:\Users\11507\Documents\Playground\output\unity-build-passive-info-queue-2026-05-09.log'
+  -logFile '<repo>\output\unity-build-passive-info-queue-2026-05-09.log'
 ```
 
 Result: passed. The log contains `Build Finished, Result: Success.` and `Unity prototype build succeeded`.
