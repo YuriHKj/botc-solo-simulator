@@ -264,7 +264,7 @@ git checkout -- .
 - BMR/SnV 角色文件修改。
 - Unity viewmodel/action bridge 新文件。
 - Unity 原型工程和 build 产物。
-- BGM mp3 文件。
+- BGM mp3 文件已统一放在 `assets/audio/`。
 - AI/Unity/设计文档。
 - 测试文件。
 
@@ -353,7 +353,7 @@ AI：
 
 适合用户想优先解决玩法。
 
-1. 读 `血染钟楼Agent介绍文档.md` 和 `docs/复盘2.txt`。
+1. 读 `docs/notes/agent_reference.md` 和 `docs/复盘2.txt`。
 2. 检查 AI 为什么会泄露阵营/真实信息。
 3. 重构 private/public claim strategy：
    - 善良方何时交身份。

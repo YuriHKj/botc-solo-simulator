@@ -40,8 +40,6 @@
     "files": [
       "index.html",
       "styles.css",
-      "*.mp3",
-      "*.mp4",
       "assets/**/*",
       "scripts/**/*",
       "docs/research/UI_REFERENCE.md",

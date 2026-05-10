@@ -10,15 +10,25 @@ const sourceRoleRoot = path.join(root, "assets", "roles");
 const unityRoleRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "roles");
 const sourceUiRoot = path.join(root, "assets", "ui");
 const unityUiRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "ui");
+const sourceAudioRoot = path.join(root, "assets", "audio");
+const unityAudioRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "audio");
 
 function fileExists(filePath) {
   return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
 }
 
 function listPngFiles(dir) {
+  return listFilesByExtension(dir, ".png");
+}
+
+function listMp3Files(dir) {
+  return listFilesByExtension(dir, ".mp3");
+}
+
+function listFilesByExtension(dir, extension) {
   return fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png"))
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(extension))
     .map((entry) => entry.name)
     .sort();
 }
@@ -44,7 +54,14 @@ function testUnityHasEveryUiAsset() {
   }
 }
 
+function testUnityHasEveryAudioAsset() {
+  for (const fileName of listMp3Files(sourceAudioRoot)) {
+    assert.ok(fileExists(path.join(unityAudioRoot, fileName)), `Unity Resources should include audio asset ${fileName}`);
+  }
+}
+
 testUnityHasEveryScriptRoleIcon();
 testUnityHasEveryUiAsset();
+testUnityHasEveryAudioAsset();
 
 console.log("unity asset contracts ok");

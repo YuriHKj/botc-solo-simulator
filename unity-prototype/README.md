@@ -46,6 +46,7 @@
 
 - `assets/roles/{tb,bmr,snv}/*.png` -> `Assets/Resources/Botc/roles/*.png`
 - `assets/ui/*.png` -> `Assets/Resources/Botc/ui/*.png`
+- `assets/audio/*.mp3` -> `Assets/Resources/Botc/audio/*.mp3`
 
 也可以手动同步并检查：
 

@@ -15,24 +15,9 @@ let mediaTracks = null;
 let currentMediaTrack = null;
 
 const MUSIC_TRACKS = {
-  day: [
-    "./When_the_Clock_Stops.mp3",
-    "./When the Clock Stops.mp3",
-    "./when the clock stops.mp4",
-    "./when_the_clock_stops.mp4",
-  ],
-  night: [
-    "./Where_Shadows_Scratch_Stone.mp3",
-    "./Where Shadows Scratch Stone.mp3",
-    "./where shadows scratch stone.mp4",
-    "./where_shadows_scratch_stone.mp4",
-  ],
-  ceremony: [
-    "./Gavel_in_the_Square.mp3",
-    "./Gavel in the Square.mp3",
-    "./gavel in the square.mp4",
-    "./gavel_in_the_square.mp4",
-  ],
+  day: ["./assets/audio/When_the_Clock_Stops.mp3"],
+  night: ["./assets/audio/Where_Shadows_Scratch_Stone.mp3"],
+  ceremony: ["./assets/audio/Gavel_in_the_Square.mp3"],
 };
 
 function clamp01(value, fallback = 1) {

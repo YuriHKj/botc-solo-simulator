@@ -119,9 +119,11 @@ Unity demo smoke 会跑一条可玩闭环，并额外覆盖真实 JS Core Storyt
 
 ## 项目结构
 
+更完整的目录约定见 `docs/PROJECT_STRUCTURE.md`。
+
 - `index.html`：Electron 渲染入口。
 - `styles.css`：主 UI、魔典、对话舞台、弹窗、菜单样式和动画。
-- `electron/main.js`：Electron 主进程。
+- `electron/main.cjs`：Electron 主进程。
 - `scripts/app.js`：应用状态、事件绑定、流程入口、存档和启动流程。
 - `scripts/ui.js`：界面渲染、魔典交互、私聊弹窗、公聊时序播放。
 - `scripts/engine.js`：核心游戏状态、阶段推进、胜负和通用规则。
@@ -132,8 +134,13 @@ Unity demo smoke 会跑一条可玩闭环，并额外覆盖真实 JS Core Storyt
 - `scripts/unity_action_bridge.mjs`：Unity action 文件到 JS Core 规则调用的桥接层。
 - `unity-prototype/`：Unity 可运行 UI 原型和构建入口。
 - `scripts/ml_runtime*.js`：轻量模型运行时和导出权重。
-- `assets/`：本地素材、剧本 JSON、角色图标和 UI 图片。
+- `assets/audio/`：阶段 BGM 源文件；Electron 直接加载这里，Unity 通过同步脚本镜像到 `Resources/Botc/audio`。
+- `assets/data/`：基础剧本 JSON。
+- `assets/fonts/`：字体资源。
+- `assets/roles/`：按剧本拆分的角色图标。
+- `assets/ui/`：背景、token、提醒物、死亡帷幕等 UI 图片。
 - `docs/`：需求、设计、打包、调研与 QA 文档。
+- `docs/notes/`：历史参考笔记和规则理解草稿。
 - `agent/`、`train/`、`eval/`：语料、训练和评测相关代码。
 
 ## AI 与语料管线

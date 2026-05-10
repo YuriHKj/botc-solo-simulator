@@ -9,6 +9,17 @@ for (const requiredPattern of ["index.html", "styles.css", "assets/**/*", "scrip
   assert.ok(files.includes(requiredPattern), `electron build.files must include ${requiredPattern}`);
 }
 
+assert.ok(!files.includes("*.mp3"), "Electron package should load music through assets/audio, not root *.mp3");
+assert.ok(!files.includes("*.mp4"), "Electron package should load media through assets, not root *.mp4");
+
+for (const requiredAudio of [
+  "assets/audio/When_the_Clock_Stops.mp3",
+  "assets/audio/Where_Shadows_Scratch_Stone.mp3",
+  "assets/audio/Gavel_in_the_Square.mp3",
+]) {
+  assert.ok(fs.existsSync(path.join(__dirname, "..", requiredAudio)), `${requiredAudio} must exist`);
+}
+
 assert.equal(packageJson.build?.asar, true, "electron build should keep asar enabled");
 assert.equal(packageJson.main, "electron/main.cjs", "electron main entry should point to electron/main.cjs");
 assert.equal(packageJson.scripts?.["electron:pack"], "electron-builder --win --dir", "electron:pack should build a fast unpacked Windows package");
