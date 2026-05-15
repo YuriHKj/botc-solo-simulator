@@ -129,7 +129,6 @@ function buildVisibleFacts(payload) {
   } else {
     facts.push("目前硬信息不足，应该说成先听回应或暂不定死。");
   }
-  if (payload.candidateText) facts.push(`原始草稿含义：${payload.candidateText}`);
   return facts;
 }
 
@@ -164,11 +163,11 @@ export function buildLLMRendererPrompt(payloadInput = {}) {
         "先给判断，再给一个可回应的问题或保留意见。",
         "不要使用“口径、证据线、当前主线、低证据、接前面一句、JS Core”等系统词。",
         payload.copyAvoidance || payload.rewriteAttempt > 1
-          ? "这次必须明显改写 roughDraft 的句式，不能只是替换一两个词。"
-          : "roughDraft 只是含义参考，不是要照抄的最终台词。",
+          ? "这次必须换一种句式表达，不能只是替换一两个词。"
+          : "不要模仿 deterministic draft 的句式。",
       ],
       visibleFacts: buildVisibleFacts(payload),
-      roughDraft: payload.candidateText,
+      deterministicDraftToAvoid: payload.candidateText ? "已有本地草稿，但不要照抄；只参考 visibleFacts。" : "",
       requiredTerms: payload.requiredTerms,
       forbiddenTerms: payload.forbiddenTerms,
       outputRules: [
@@ -305,6 +304,22 @@ function makeSafeFallbackText(payloadInput = {}, raw = "") {
   });
   if (payload.targetName && !value.includes(payload.targetName)) value = `${payload.targetName}这边，${value}`;
   return compactText(value, payload.maxChars);
+}
+
+function makeAntiCopyFallbackText(payloadInput = {}) {
+  const payload = buildLLMRenderPayload(payloadInput);
+  const target = payload.targetName || "这个位置";
+  const evidence = payload.evidence[0] || "";
+  if (payload.intent === "pressure_question" || payload.audience === "public") {
+    return compactText(`${target}先别急着过，我想听你把身份和昨晚信息讲完整。`, payload.maxChars);
+  }
+  if (payload.intent === "nomination_reason" || payload.audience === "nomination") {
+    return compactText(`${target}这轮需要回应一下，先说身份和信息来源，再看票。`, payload.maxChars);
+  }
+  if (evidence) {
+    return compactText(`${target}我先放不下，主要是${evidence}。先听他怎么解释。`, payload.maxChars);
+  }
+  return compactText(`${target}我现在还不能定死，先听回应。`, payload.maxChars);
 }
 
 async function fetchWithTimeout(url, request, timeoutMs) {
@@ -452,6 +467,24 @@ export async function renderSpeechWithLocalLLM(payloadInput = {}, options = {}) 
       const retryValidation = validateOrRepairLLMRenderedSpeech(retryText, retryPrompt.payload, options);
       if (retryValidation.ok) {
         const retryCopy = nearCopyDetails(retryValidation.text, retryPrompt.payload.candidateText, options.nearCopyThreshold);
+        if (retryCopy.nearCopy && options.localRewriteOnNearCopy !== false) {
+          const localText = makeAntiCopyFallbackText(retryPrompt.payload);
+          const localValidation = validateLLMRenderedSpeech(localText, retryPrompt.payload, options);
+          if (localValidation.ok) {
+            return {
+              ok: true,
+              text: localValidation.text,
+              source: "local-rewrite",
+              fallbackUsed: true,
+              reason: "near-copy-local-rewrite",
+              payload: retryPrompt.payload,
+              nearCopy: false,
+              similarity: scoreTextSimilarity(localValidation.text, retryPrompt.payload.candidateText),
+              retryUsed: true,
+              repaired: false,
+            };
+          }
+        }
         return resultFromValidation(retryValidation, provider, retryPrompt, {
           reason: retryCopy.nearCopy ? "near-copy-retry-accepted" : "retry-near-copy",
           retryUsed: true,

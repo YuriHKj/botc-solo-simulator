@@ -91,9 +91,10 @@ function testPromptOnlyContainsSafePayload() {
   assert.ok(payload.forbiddenTerms.includes("口径"), "system jargon should be forbidden by default");
   const userPayload = JSON.parse(user);
   assert.ok(
-    userPayload.styleGuide.some((rule) => rule.includes("roughDraft") || rule.includes("明显改写")),
-    "prompt should tell small local models not to copy the rough draft"
+    userPayload.styleGuide.some((rule) => rule.includes("deterministic draft") || rule.includes("换一种句式")),
+    "prompt should tell small local models not to copy the deterministic draft"
   );
+  assert.equal(userPayload.roughDraft, undefined, "prompt should not expose a copy-friendly roughDraft field");
 }
 
 function testValidationRejectsForbiddenTerms() {
@@ -162,6 +163,20 @@ async function testRendererRepairsMissingVisibleTarget() {
   assert.match(result.text, /7号/);
 }
 
+async function testRendererUsesLocalRewriteWhenRetryStillCopies() {
+  const result = await renderSpeechWithLocalLLM(basePayload, {
+    enabled: true,
+    provider: "openai-compatible",
+    transport: async () => JSON.stringify({ text: basePayload.candidateText }),
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.retryUsed, true);
+  assert.equal(result.source, "local-rewrite");
+  assert.equal(result.reason, "near-copy-local-rewrite");
+  assert.match(result.text, /7号/);
+  assert.notEqual(result.text, basePayload.candidateText);
+}
+
 async function testRendererFallsBackOnLeak() {
   const result = await renderSpeechWithLocalLLM(basePayload, {
     enabled: true,
@@ -209,6 +224,7 @@ testSimilarityScoresNearCopies();
 await testMockRendererProducesSafeSpeech();
 await testRendererRetriesNearCopy();
 await testRendererRepairsMissingVisibleTarget();
+await testRendererUsesLocalRewriteWhenRetryStillCopies();
 await testRendererFallsBackOnLeak();
 await testRendererFallsBackWhenDisabled();
 await testFallbackSanitizesAndRestoresTarget();
