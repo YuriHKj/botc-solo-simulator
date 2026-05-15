@@ -242,6 +242,13 @@ function nearCopyDetails(text, candidateText, threshold = DEFAULT_NEAR_COPY_THRE
   return { nearCopy: similarity >= threshold, similarity };
 }
 
+function repairMissingRequiredTerms(text, payloadInput = {}) {
+  const payload = buildLLMRenderPayload(payloadInput);
+  const missing = unique([...payload.requiredTerms, payload.targetName]).filter((term) => term && !`${text ?? ""}`.includes(term));
+  if (missing.length === 0) return `${text ?? ""}`.trim();
+  return compactText(`${missing.join("、")}这边，${text ?? ""}`, payload.maxChars + 20);
+}
+
 export function validateLLMRenderedSpeech(text, payloadInput = {}, options = {}) {
   const payload = buildLLMRenderPayload(payloadInput);
   const value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
@@ -271,6 +278,21 @@ export function validateLLMRenderedSpeech(text, payloadInput = {}, options = {})
     }
   }
   return { ok: true, reason: "", text: value };
+}
+
+function validateOrRepairLLMRenderedSpeech(text, payloadInput = {}, options = {}) {
+  const validation = validateLLMRenderedSpeech(text, payloadInput, options);
+  if (validation.ok || !/missing-required-term|missing-target/.test(validation.reason)) {
+    return validation;
+  }
+  const repairedText = repairMissingRequiredTerms(validation.text, payloadInput);
+  const repaired = validateLLMRenderedSpeech(repairedText, payloadInput, options);
+  if (!repaired.ok) return validation;
+  return {
+    ...repaired,
+    repaired: true,
+    repairReason: validation.reason,
+  };
 }
 
 function makeSafeFallbackText(payloadInput = {}, raw = "") {
@@ -372,11 +394,12 @@ function resultFromValidation(validation, provider, prompt, extra = {}) {
     text: validation.text,
     source: provider,
     fallbackUsed: false,
-    reason: extra.reason ?? "",
+    reason: extra.reason ?? (validation.repaired ? `repaired:${validation.repairReason}` : ""),
     payload: prompt.payload,
     nearCopy: !!extra.nearCopy,
     similarity: Number.isFinite(extra.similarity) ? extra.similarity : 0,
     retryUsed: !!extra.retryUsed,
+    repaired: !!validation.repaired,
   };
 }
 
@@ -408,7 +431,7 @@ export async function renderSpeechWithLocalLLM(payloadInput = {}, options = {}) 
   try {
     const raw = await callProvider(provider, prompt, providerOptions);
     const text = extractJsonText(raw);
-    const validation = validateLLMRenderedSpeech(text, prompt.payload, options);
+    const validation = validateOrRepairLLMRenderedSpeech(text, prompt.payload, options);
     if (!validation.ok) {
       return { ...fallback, reason: validation.reason, rejectedText: validation.text, source: provider };
     }
@@ -426,7 +449,7 @@ export async function renderSpeechWithLocalLLM(payloadInput = {}, options = {}) 
         maxTokens: Number.isFinite(providerOptions.maxTokens) ? Math.max(128, providerOptions.maxTokens) : 144,
       });
       const retryText = extractJsonText(retryRaw);
-      const retryValidation = validateLLMRenderedSpeech(retryText, retryPrompt.payload, options);
+      const retryValidation = validateOrRepairLLMRenderedSpeech(retryText, retryPrompt.payload, options);
       if (retryValidation.ok) {
         const retryCopy = nearCopyDetails(retryValidation.text, retryPrompt.payload.candidateText, options.nearCopyThreshold);
         return resultFromValidation(retryValidation, provider, retryPrompt, {

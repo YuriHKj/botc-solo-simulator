@@ -150,6 +150,18 @@ async function testRendererRetriesNearCopy() {
   assert.notEqual(result.text, basePayload.candidateText);
 }
 
+async function testRendererRepairsMissingVisibleTarget() {
+  const result = await renderSpeechWithLocalLLM(basePayload, {
+    enabled: true,
+    provider: "openai-compatible",
+    transport: async () => JSON.stringify({ text: "先别急着过，我想听他把身份和昨晚信息讲完整。" }),
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.repaired, true);
+  assert.match(result.text, /7号/);
+}
+
 async function testRendererFallsBackOnLeak() {
   const result = await renderSpeechWithLocalLLM(basePayload, {
     enabled: true,
@@ -196,6 +208,7 @@ await testValidationRejectsSpeakerPrefix();
 testSimilarityScoresNearCopies();
 await testMockRendererProducesSafeSpeech();
 await testRendererRetriesNearCopy();
+await testRendererRepairsMissingVisibleTarget();
 await testRendererFallsBackOnLeak();
 await testRendererFallsBackWhenDisabled();
 await testFallbackSanitizesAndRestoresTarget();
