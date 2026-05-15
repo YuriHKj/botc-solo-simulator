@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { createNewGame, getHumanNightActionState, getPerceivedRoleId, runNight, setHumanNightActionPlan, withSeededRandom } from "../scripts/engine.js";
+import { beginNightPhase, createNewGame, getHumanNightActionState, getPerceivedRoleId, runNight, setHumanNightActionPlan, withSeededRandom } from "../scripts/engine.js";
 import { getScriptRoleActionRules } from "../scripts/roles/index.js";
 import { buildUnityViewModel } from "../scripts/unity_viewmodel.js";
 
@@ -25,10 +25,14 @@ function firstOther(state, predicate = () => true) {
 
 function prepareStateForAction(scriptId, roleId, rule, seedOffset = 0) {
   const state = makeState(scriptId, roleId, seedOffset);
+  beginNightPhase(state);
   const firstWindowAction = getHumanNightActionState(state);
-  if (needsSecondNight(rule, roleId) || (!firstWindowAction.available && state.night === 0)) {
-    state.phase = "night";
+  if (needsSecondNight(rule, roleId) || (!firstWindowAction.available && state.night === 1)) {
     runNight(state, rng(20260509 + seedOffset));
+    if (scriptId === "bmr" && roleId === "godfather") {
+      state.bmr.lastDayOutsiderExecuted = true;
+    }
+    beginNightPhase(state);
   }
 
   if (scriptId === "bmr" && roleId === "godfather") {

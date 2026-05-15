@@ -1032,6 +1032,9 @@ export function getHumanNightActionState(state) {
   if (state.gameOver || state.phase === "ended") {
     return { available: false, reason: "对局已结束。" };
   }
+  if (state.phase !== "night") {
+    return { available: false, reason: "当前不是夜晚阶段。" };
+  }
   if (!human.alive) {
     return { available: false, reason: "你已死亡，无法进行夜间主动选择。" };
   }
@@ -1832,6 +1835,9 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       privateFollowUpLimit: 2,
       activePrivateTargetId: null,
       publicRounds: 0,
+      publicConversation: null,
+      nominationClock: null,
+      nominationDebate: null,
       privateTargets: [],
     },
     pendingHumanInfo: [],
@@ -2080,6 +2086,9 @@ function processNightDeath(state, victim, reason, payload = {}, rng = Math.rando
 }
 
 function startNightPhase(state) {
+  if (state.phase === "night" && state.night > 0) {
+    return;
+  }
   state.phase = "night";
   state.dayStage = "none";
   state.dayStageMeta.privateUsed = 0;
@@ -2088,6 +2097,9 @@ function startNightPhase(state) {
   state.dayStageMeta.privateFollowUpLimit = 2;
   state.dayStageMeta.activePrivateTargetId = null;
   state.dayStageMeta.publicRounds = 0;
+  state.dayStageMeta.publicConversation = null;
+  state.dayStageMeta.nominationClock = null;
+  state.dayStageMeta.nominationDebate = null;
   state.dayStageMeta.privateTargets = [];
   state.night += 1;
   state.narration = `第${state.night}夜降临。`;
@@ -2132,6 +2144,14 @@ function startNightPhase(state) {
   }
 }
 
+export function beginNightPhase(state) {
+  if (!state || state.gameOver || state.phase === "ended") {
+    return state;
+  }
+  startNightPhase(state);
+  return state;
+}
+
 export function privateChatLimitForDay(day, aliveCount) {
   const safeDay = Math.max(1, Number(day) || 1);
   return clamp(6 - safeDay, 1, 5);
@@ -2147,6 +2167,9 @@ function initDayStage(state) {
   state.dayStageMeta.privateFollowUpLimit = 2;
   state.dayStageMeta.activePrivateTargetId = null;
   state.dayStageMeta.publicRounds = 0;
+  state.dayStageMeta.publicConversation = null;
+  state.dayStageMeta.nominationClock = null;
+  state.dayStageMeta.nominationDebate = null;
   state.dayStageMeta.privateTargets = [];
   addLog(state, "hint", `白天流程：先私聊（${privateLimit}次）-> 再公聊 -> 最后提名。`, {});
 }
@@ -2298,9 +2321,74 @@ export function advanceDayStage(state, targetStage = null) {
   if (next === "public") {
     addLog(state, "phase", "私聊阶段结束，进入公聊阶段。", {});
   } else if (next === "nomination") {
+    state.dayStageMeta.nominationClock = state.dayStageMeta.nominationClock ?? {
+      active: false,
+      status: "idle",
+      ticksRemaining: 0,
+      totalTicks: 0,
+      lastActorId: null,
+      lastIntent: "",
+      openedDay: state.day ?? 0,
+    };
     addLog(state, "phase", "公聊阶段结束，进入提名阶段。", {});
   }
   return { ok: true, stage: next };
+}
+
+export function openNominationWindow(state, { ticks = 4, actorId = null, intent = "open" } = {}) {
+  if (state.phase !== "day" || state.gameOver) {
+    return { ok: false, reason: "当前不在白天流程。" };
+  }
+  if (state.dayStage !== "nomination") {
+    return { ok: false, reason: "尚未进入提名阶段。" };
+  }
+  const totalTicks = clamp(Number(ticks) || 4, 1, 8);
+  state.dayStageMeta.nominationClock = {
+    active: true,
+    status: "open",
+    ticksRemaining: totalTicks,
+    totalTicks,
+    lastActorId: actorId,
+    lastIntent: intent,
+    openedDay: state.day ?? 0,
+  };
+  addLog(state, "nomination-window", `提名窗口开启（${totalTicks}步）。`, { ticks: totalTicks, actorId, intent });
+  return { ok: true, nominationClock: state.dayStageMeta.nominationClock };
+}
+
+export function tickNominationWindow(state, { actorId = null, intent = "step", consume = 1 } = {}) {
+  if (state.phase !== "day" || state.dayStage !== "nomination" || state.gameOver) {
+    return { ok: false, reason: "当前不在提名阶段。" };
+  }
+  const clock = state.dayStageMeta.nominationClock;
+  if (!clock?.active || clock.status !== "open") {
+    return { ok: false, reason: "提名窗口尚未开启。" };
+  }
+  clock.ticksRemaining = Math.max(0, (clock.ticksRemaining ?? 0) - Math.max(1, Number(consume) || 1));
+  clock.lastActorId = actorId;
+  clock.lastIntent = intent;
+  if (clock.ticksRemaining <= 0) {
+    clock.active = false;
+    clock.status = "expired";
+  }
+  return { ok: true, nominationClock: clock };
+}
+
+export function closeNominationWindow(state, { status = "closed", actorId = null, intent = "close" } = {}) {
+  if (state.phase !== "day" || state.dayStage !== "nomination" || state.gameOver) {
+    return { ok: false, reason: "当前不在提名阶段。" };
+  }
+  const clock = state.dayStageMeta.nominationClock ?? {
+    totalTicks: 0,
+    ticksRemaining: 0,
+    openedDay: state.day ?? 0,
+  };
+  clock.active = false;
+  clock.status = status;
+  clock.lastActorId = actorId;
+  clock.lastIntent = intent;
+  state.dayStageMeta.nominationClock = clock;
+  return { ok: true, nominationClock: clock };
 }
 
 function aliveNeighbors(state, player) {

@@ -19,6 +19,8 @@ data/**/*.zip
 
 # Generated verification artifacts
 output/
+.cache/
+third_party/LocalLLM*/
 unity-build/
 unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe
 unity-prototype/Assets/StreamingAssets/BotcJsRuntime/node.exe.meta

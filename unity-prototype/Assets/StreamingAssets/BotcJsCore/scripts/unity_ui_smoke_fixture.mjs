@@ -84,8 +84,19 @@ function writePersistedState(state) {
   fs.rmSync(actionPath, { force: true });
 }
 
+function readPersistedState() {
+  return JSON.parse(fs.readFileSync(statePath, "utf8")).state;
+}
+
 function freshViewModel(options = {}) {
   return processNoAction("fresh-state", { ...options, freshState: true });
+}
+
+function resolveFirstNight(vm) {
+  if (vm?.phase !== "night") return vm;
+  const resolved = writeAction("phase", { stage: "day" });
+  assert.equal(resolved.phase, "day", "fixture should resolve first night into day one");
+  return resolved;
 }
 
 function humanPlayer(state) {
@@ -187,7 +198,7 @@ function prepareMainBoard() {
 }
 
 function preparePrivateChat() {
-  let vm = freshViewModel();
+  let vm = resolveFirstNight(freshViewModel());
   const target = vm.players.find((player) => !player.human && player.alive);
   assert.ok(target, "private-chat smoke needs a non-human target");
   vm = writeAction("select-token", { playerId: target.id });
@@ -200,12 +211,43 @@ function preparePrivateChat() {
   return vm;
 }
 
+function prepareProactiveWhisper() {
+  let vm = resolveFirstNight(freshViewModel());
+  const state = readPersistedState();
+  const ai = firstOtherPlayer(state, (entry) => entry.alive);
+  ai.privateNotes = ai.privateNotes ?? [];
+  ai.privateNotes.push("[第1夜] 你得知：UI smoke 主动私聊测试信息。");
+  writePersistedState(state);
+  vm = writeAction("ai-proactive-whispers");
+  assert.ok(vm.pendingProactiveWhispers?.length > 0, "proactive-whisper smoke needs a queued invite");
+  assert.equal(
+    vm.timeline.some((entry) => entry.mode === "whisper-in" && entry.speakerId === vm.pendingProactiveWhispers[0].playerId),
+    false,
+    "proactive-whisper smoke must not leak full private content before acceptance"
+  );
+  return vm;
+}
+
+function prepareNominationDebate() {
+  let vm = resolveFirstNight(freshViewModel());
+  vm = writeAction("ai-public-step");
+  assert.equal(vm.publicConversation?.active, true, "nomination-debate smoke should enter public conversation");
+  vm = writeAction("open-nomination-window", { ticks: 3 });
+  assert.equal(vm.nominationClock?.active, true, "nomination-debate smoke should open the nomination window");
+  const target = vm.players.find((player) => !player.human && player.alive);
+  assert.ok(target, "nomination-debate smoke needs a nominee");
+  vm = writeAction("human-nomination-intent", { nomineeId: target.id, reason: `我提 ${target.name}，先听双方说完。` });
+  assert.equal(vm.nominationDebate?.active, true, "nomination-debate smoke should export an active debate");
+  assert.equal(vm.voteCeremony, null, "nomination-debate smoke should wait before the vote ceremony");
+  return vm;
+}
+
 function prepareActionForm() {
-  const vm = freshViewModel({
+  const vm = resolveFirstNight(freshViewModel({
     scriptId: "bmr",
     playerCount: 9,
     preferredHumanRoleId: "gambler",
-  });
+  }));
   assert.equal(vm.actionForms?.find((form) => form.id === "night-action")?.available, true);
   return vm;
 }
@@ -238,13 +280,25 @@ function prepareRolePicker() {
 }
 
 const preparations = {
+  "main-menu": prepareMainBoard,
+  "settings": prepareMainBoard,
   "main-board": prepareMainBoard,
+  "proactive-whisper": prepareProactiveWhisper,
+  "nomination-debate": prepareNominationDebate,
+  "info-drawer": prepareMainBoard,
+  "information-drawer": prepareMainBoard,
   "private-chat": preparePrivateChat,
   "action-form": prepareActionForm,
   "storyteller-queue": prepareStorytellerQueue,
   "script-handbook": prepareScriptHandbook,
   "vote-ceremony": prepareVoteCeremony,
   "role-picker": prepareRolePicker,
+  "reminder-picker": prepareRolePicker,
+  "stage-dialogue": prepareMainBoard,
+  "phase-transition": prepareMainBoard,
+  "transition-day": prepareMainBoard,
+  "transition-night": prepareMainBoard,
+  "transition-nomination": prepareMainBoard,
 };
 
 const prepare = preparations[stateName];

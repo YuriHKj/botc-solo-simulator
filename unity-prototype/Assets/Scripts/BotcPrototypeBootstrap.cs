@@ -10,7 +10,7 @@ using UnityEngine.UI;
 
 namespace BotcSolo.UnityPrototype
 {
-    public sealed class BotcPrototypeBootstrap : MonoBehaviour
+    public sealed partial class BotcPrototypeBootstrap : MonoBehaviour
     {
         private const float TokenSize = 128f;
         private const float RoleIconSize = 78f;
@@ -18,26 +18,78 @@ namespace BotcSolo.UnityPrototype
         private const float PendingViewModelPollSeconds = 0.35f;
         private const int ActionChoicePageSize = 10;
         private const int HandbookRolePageSize = 15;
+        private const int RolePickerPageSize = 29;
+        private const int ReminderPickerPageSize = 30;
+        private const int StorytellerQueuePageSize = 4;
+        private const int StageDialogueQueueLimit = 24;
+        private static readonly Vector2Int[] ResolutionPresets =
+        {
+            new Vector2Int(1280, 720),
+            new Vector2Int(1600, 900),
+            new Vector2Int(1920, 1080),
+            new Vector2Int(2560, 1440),
+        };
+
+        private const string SettingsResolutionKey = "BotcSolo.Unity.ResolutionIndex";
+        private const string SettingsFullscreenKey = "BotcSolo.Unity.Fullscreen";
+        private const string SettingsMasterVolumeKey = "BotcSolo.Unity.MasterVolume";
+        private const string SettingsMusicVolumeKey = "BotcSolo.Unity.MusicVolume";
+        private const string SettingsUiVolumeKey = "BotcSolo.Unity.UiVolume";
+        private const string SettingsLocalLlmRendererKey = "BotcSolo.Unity.ExperimentalLocalLlmRenderer";
+
+        private sealed class StageDialogueEntry
+        {
+            public readonly string speaker;
+            public readonly string body;
+            public readonly string tag;
+            public readonly string speakerId;
+            public readonly string targetId;
+
+            public StageDialogueEntry(string speaker, string body, string tag, string speakerId = "", string targetId = "")
+            {
+                this.speaker = speaker ?? "";
+                this.body = body ?? "";
+                this.tag = tag ?? "";
+                this.speakerId = speakerId ?? "";
+                this.targetId = targetId ?? "";
+            }
+        }
 
         private Canvas canvas;
         private Font bodyFont;
         private Font titleFont;
         private Font asciiFont;
         private RectTransform grimoireRoot;
+        private RectTransform topHudRoot;
+        private RectTransform phaseRailRoot;
+        private RectTransform infoRailRoot;
         private RectTransform bottomDock;
         private RectTransform bottomDockToggle;
+        private RectTransform stageDialoguePanel;
         private RectTransform moreActionsPanel;
+        private RectTransform proactiveWhisperPanel;
+        private RectTransform phaseAssistPanel;
+        private RectTransform nominationDebatePanel;
         private RectTransform tokenInspectorPanel;
+        private RectTransform tokenInspectorRoleRoot;
         private RectTransform eventPanel;
+        private Vector2 eventPanelTargetOffsetMin;
+        private Vector2 eventPanelTargetOffsetMax;
         private RectTransform timelinePanel;
         private RectTransform mainMenuRoot;
+        private RectTransform settingsPanel;
         private RectTransform modalBackdrop;
+        private RectTransform ambientFogA;
+        private RectTransform ambientFogB;
+        private RectTransform ambientGlowRoot;
         private RectTransform privateChatPanel;
         private RectTransform privateTargetCardRoot;
         private RectTransform privateDialogueRoot;
         private RectTransform privateTargetPickerRoot;
         private RectTransform privateClaimRoleGridRoot;
+        private ScrollRect privateDialogueScroll;
         private RectTransform actionFormPanel;
+        private RectTransform actionTargetBar;
         private RectTransform actionOptionRoot;
         private RectTransform storytellerPanel;
         private RectTransform storytellerQueueListRoot;
@@ -45,12 +97,26 @@ namespace BotcSolo.UnityPrototype
         private RectTransform storytellerTargetRoot;
         private RectTransform handbookPanel;
         private RectTransform handbookRoleListRoot;
+        private RectTransform handbookDetailTokenRoot;
         private RectTransform rolePickerPanel;
         private RectTransform rolePickerGridRoot;
+        private RectTransform reminderPickerPanel;
+        private RectTransform reminderPickerGridRoot;
+        private RectTransform reminderPickerPreviewRoot;
         private RectTransform votePanel;
         private RectTransform voteAnimationRoot;
         private RectTransform voteAnimationRowsRoot;
         private RectTransform endgamePanel;
+        private RectTransform phaseTransitionRoot;
+        private RectTransform phaseTransitionContent;
+        private CanvasGroup phaseTransitionGroup;
+        private Image phaseTransitionTint;
+        private Image phaseTransitionGlow;
+        private Image phaseTransitionHorizon;
+        private Text phaseTransitionKickerText;
+        private Text phaseTransitionTitleText;
+        private Text phaseTransitionSubtitleText;
+        private Text phaseTransitionHintText;
         private Text headerText;
         private Text vitalsText;
         private Text phaseText;
@@ -59,11 +125,40 @@ namespace BotcSolo.UnityPrototype
         private Image syncStatusPill;
         private Text dialogueTitle;
         private Text dialogueBody;
+        private Text stageDialogueSpeakerText;
+        private Text stageDialogueBodyText;
+        private Text stageDialogueTagText;
+        private Text stageDialoguePortraitText;
+        private Text stageDialogueMetaText;
+        private Text stageDialogueContinueText;
+        private Text stageDialogueSourceText;
+        private Image stageDialoguePortraitTokenImage;
+        private Image stageDialoguePortraitRoleImage;
+        private Image proactiveWhisperTokenImage;
+        private Text proactiveWhisperTitleText;
+        private Text proactiveWhisperBodyText;
+        private Text proactiveWhisperMetaText;
+        private Text proactiveWhisperQueueText;
+        private Text phaseAssistTitleText;
+        private Text phaseAssistHintText;
+        private Image phaseAssistProgressFill;
+        private Button phaseAssistPrimaryButton;
+        private Button phaseAssistSecondaryButton;
+        private Button phaseAssistTertiaryButton;
+        private Text phaseAssistPrimaryLabel;
+        private Text phaseAssistSecondaryLabel;
+        private Text phaseAssistTertiaryLabel;
+        private Text nominationDebateTitleText;
+        private Text nominationDebateBodyText;
+        private InputField nominationDebateResponseInput;
+        private Button nominationDebateResponseButton;
         private Text tokenInspectorTitle;
         private Text tokenInspectorBody;
         private Text objectiveTitleText;
         private Text objectiveHintText;
         private Text actionSummaryText;
+        private Text flowGuideText;
+        private Text nextPhaseButtonLabelText;
         private Text eventBody;
         private Text queueBody;
         private Text timelineBody;
@@ -74,14 +169,20 @@ namespace BotcSolo.UnityPrototype
         private Text privateStatusText;
         private Text rolePickerTitle;
         private Text rolePickerStatusText;
+        private Text actionTargetBarStatusText;
         private Text actionFormTitle;
         private Text actionFormBody;
         private Text actionFormStatusText;
+        private Button nextPhaseButton;
+        private Button actionFormAutoButton;
+        private Button actionFormSubmitButton;
         private Text storytellerTitle;
         private Text storytellerBody;
         private Text handbookTitle;
         private Text handbookDetailText;
         private Text handbookOrderText;
+        private Text reminderPickerTitle;
+        private Text reminderPickerStatusText;
         private Text voteTitle;
         private Text voteBody;
         private Text endgameTitle;
@@ -96,21 +197,55 @@ namespace BotcSolo.UnityPrototype
         private Text minionBadge;
         private Text demonBadge;
         private Text menuHint;
+        private Text settingsResolutionText;
+        private Text settingsFullscreenText;
+        private Text settingsMasterVolumeText;
+        private Text settingsMusicVolumeText;
+        private Text settingsUiVolumeText;
+        private Text settingsLocalLlmRendererText;
+        private Text settingsStatusText;
+        private Text menuSetupScriptText;
+        private Text menuSetupPlayerCountText;
+        private Text menuSetupRoleText;
+        private Text menuSetupSummaryText;
         private Image background;
+        private Image ambientFogAImage;
+        private Image ambientFogBImage;
+        private Image ambientGlowImage;
+        private Image ambientMoonImage;
         private AudioSource musicSource;
+        private AudioSource uiAudioSource;
+        private AudioClip typeTickClip;
         private string currentMood = "";
         private Sprite circleFillSprite;
         private Sprite circleRingSprite;
         private PrototypeViewModel vm;
         private DiagnosticsProcess bridgeProcess;
+        private DiagnosticsProcess localLlmProcess;
         private string viewModelPath;
         private string actionPath;
         private string statePath;
         private string resultPath;
+        private string localLlmEndpoint = "";
+        private string localLlmModelPath = "";
         private string bridgeLaunchStatus = "";
         private DateTime viewModelLastWriteUtc;
         private bool bridgeProcessStartedByUnity;
+        private bool localLlmProcessStartedByUnity;
         private bool bridgeLaunchProblem;
+        private int settingsResolutionIndex = 2;
+        private bool settingsFullscreen = true;
+        private float settingsMasterVolume = 1f;
+        private float settingsMusicVolume = 0.34f;
+        private float settingsUiVolume = 0.22f;
+        private bool settingsLocalLlmRenderer;
+        private string menuSetupScriptId = "tb";
+        private int menuSetupPlayerCount = 9;
+        private int menuSetupRoleIndex;
+        private MenuSetupCatalog menuSetupCatalog;
+        private bool gameplayEntered;
+        private bool entryDialogueShown;
+        private Coroutine delayedEntryDialogueRoutine;
         private string selectedPlayerId = "";
         private readonly List<string> privateClaimRoleIds = new List<string>();
         private int privateClaimRoleIndex;
@@ -122,12 +257,19 @@ namespace BotcSolo.UnityPrototype
         private string selectedActionModeId = "";
         private int actionTargetPage;
         private int actionRolePage;
+        private int storytellerQueuePage;
         private InputField actionQuestionInput;
         private string activeHandbookCategory = "all";
         private int activeHandbookRoleIndex;
         private int activeHandbookRolePage;
         private string activeRolePickerMode = "";
         private string activeRolePickerPlayerId = "";
+        private string activeRolePickerCategory = "all";
+        private int activeRolePickerPage;
+        private string activeReminderPlayerId = "";
+        private int activeReminderPage;
+        private bool reopenReminderPickerAfterRoleMark;
+        private InputField reminderCustomInput;
         private string privateChatStatus = "";
         private string pendingActionId = "";
         private string pendingActionType = "";
@@ -139,6 +281,46 @@ namespace BotcSolo.UnityPrototype
         private string voteAnimationKey = "";
         private float voteAnimationStartTime;
         private int voteAnimationStep = -1;
+        private Coroutine phaseTransitionRoutine;
+        private Coroutine delayedPhaseActionRoutine;
+        private Coroutine stageDialogueRoutine;
+        private string queuedPhaseTransitionStage = "";
+        private bool queuedPhaseTransitionPending;
+        private string lastPhaseTransitionKey = "";
+        private string lastTimelineNarrationKey = "";
+        private string lastPrivateInfoNarrationKey = "";
+        private string lastNightActionNarrationKey = "";
+        private bool hasPendingPostPhaseNarration;
+        private string pendingPostPhaseTimelinePreviousKey = "";
+        private string pendingPostPhaseTimelineNextKey = "";
+        private string pendingPostPhasePrivateInfoPreviousKey = "";
+        private string pendingPostPhasePrivateInfoNextKey = "";
+        private string pendingPostPhaseNightActionPreviousKey = "";
+        private string pendingPostPhaseNightActionNextKey = "";
+        private bool hasQueuedPhaseTransitionAfterDialogue;
+        private string queuedPhaseTransitionAfterDialogueStage = "";
+        private bool queuedPhaseTransitionAfterDialoguePending;
+        private readonly List<string> stageDialoguePages = new List<string>();
+        private readonly Queue<StageDialogueEntry> stageDialogueQueue = new Queue<StageDialogueEntry>();
+        private int stageDialoguePageIndex;
+        private bool stageDialogueTyping;
+        private string stageDialogueCurrentPageText = "";
+        private string stageDialogueSourceMode = "events";
+        private string stageDialogueFocusPlayerId = "";
+        private string lastProactiveOfferQueueKey = "";
+        private string snoozedProactiveOfferId = "";
+        private string lastProactiveWhisperRequestKey = "";
+        private readonly Dictionary<RectTransform, Coroutine> panelMotionRoutines = new Dictionary<RectTransform, Coroutine>();
+        private readonly List<Image> selectedTokenPulseImages = new List<Image>();
+        private readonly List<RectTransform> selectedTokenPulseRects = new List<RectTransform>();
+        private readonly List<Image> dialogueTokenPulseImages = new List<Image>();
+        private readonly List<RectTransform> dialogueTokenPulseRects = new List<RectTransform>();
+        private readonly List<Image> suggestedButtonGlows = new List<Image>();
+        private readonly List<Text> suggestedButtonMarkers = new List<Text>();
+        private float selectionPulseStartTime = -10f;
+        private float dialoguePulseStartTime = -10f;
+        private string stageDialogueSpeakerPlayerId = "";
+        private string stageDialogueTargetPlayerId = "";
         private bool bottomDockOpen;
         private bool moreActionsOpen;
         private bool tokenInspectorOpen;
@@ -159,15 +341,23 @@ namespace BotcSolo.UnityPrototype
 
         private void Start()
         {
+            LoadLocalSettings();
+            ApplyDisplaySettings();
             ConfigureBridgePaths();
             StartUnityBridgeIfAvailable();
             vm = LoadViewModel();
+            lastPhaseTransitionKey = PhaseTransitionKey(vm);
+            lastTimelineNarrationKey = LatestTimelineNarrationKey(vm);
+            lastPrivateInfoNarrationKey = PrivateInfoNarrationKey(vm);
+            lastNightActionNarrationKey = NightActionNarrationKey(vm);
             RememberViewModelTimestamp();
             BuildScene();
             RenderAll();
+            ApplyMainMenuState(true);
             ApplyUiSmokeMode();
             StartCoroutine(CaptureUiSmokeScreenshotIfRequested());
             SetMood(MoodFromState());
+            ApplyAudioSettings();
         }
 
         private void Update()
@@ -175,6 +365,11 @@ namespace BotcSolo.UnityPrototype
             UpdateBridgeProcessStatus();
             PollViewModelChanges();
             UpdateVoteAnimationFrame();
+            UpdateSelectedTokenPulse();
+            UpdateDialogueTokenPulse();
+            UpdateSuggestedButtonPulse();
+            UpdateAmbientMotion();
+            UpdatePhaseAssistProgress();
             UpdateSyncStatusText();
             if (privateChatPanel != null && privateChatPanel.gameObject.activeSelf && IsPendingPrivateChat()) UpdatePrivateChatPanelText();
             ApplyModalBackdropVisibility();
@@ -189,187 +384,13 @@ namespace BotcSolo.UnityPrototype
         private void OnApplicationQuit()
         {
             StopUnityBridgeProcess();
+            StopLocalLlmProcess();
         }
 
         private void OnDestroy()
         {
             StopUnityBridgeProcess();
-        }
-
-        private void ConfigureBridgePaths()
-        {
-            statePath = Path.Combine(Application.streamingAssetsPath, "unity_state.json");
-            viewModelPath = Path.Combine(Application.streamingAssetsPath, "unity_viewmodel.json");
-            actionPath = Path.Combine(Application.streamingAssetsPath, "unity_action.json");
-            resultPath = Path.Combine(Application.streamingAssetsPath, "unity_action_result.json");
-        }
-
-        private void StartUnityBridgeIfAvailable()
-        {
-            if (CommandLineFlag("-botc-no-bridge"))
-            {
-                bridgeLaunchStatus = "同步：UI smoke 未启动 bridge";
-                bridgeLaunchProblem = false;
-                return;
-            }
-
-            if (Application.isEditor)
-            {
-                bridgeLaunchStatus = "同步：Editor 手动 bridge";
-                bridgeLaunchProblem = false;
-                return;
-            }
-
-            var bridgeScript = FindUnityBridgeScript();
-            if (string.IsNullOrWhiteSpace(bridgeScript))
-            {
-                bridgeLaunchStatus = "同步：未找到 bridge";
-                bridgeLaunchProblem = true;
-                Debug.LogWarning("Unity action bridge script was not found in StreamingAssets.");
-                return;
-            }
-
-            try
-            {
-                var nodeExecutable = FindNodeExecutable();
-                var args = string.Join(
-                    " ",
-                    new[]
-                    {
-                        QuoteProcessArgument(bridgeScript),
-                        "--watch",
-                        "--state=" + QuoteProcessArgument(statePath),
-                        "--viewmodel=" + QuoteProcessArgument(viewModelPath),
-                        "--action=" + QuoteProcessArgument(actionPath),
-                        "--result=" + QuoteProcessArgument(resultPath)
-                    }
-                );
-                bridgeProcess = new DiagnosticsProcess
-                {
-                    StartInfo = new DiagnosticsProcessStartInfo
-                    {
-                        FileName = nodeExecutable,
-                        Arguments = args,
-                        WorkingDirectory = BridgeWorkingDirectory(bridgeScript),
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
-                    },
-                    EnableRaisingEvents = false
-                };
-                bridgeProcess.Start();
-                bridgeProcessStartedByUnity = true;
-                bridgeLaunchProblem = false;
-                bridgeLaunchStatus = IsBundledNodeRuntime(nodeExecutable) ? "同步：内置 bridge 已启动" : "同步：bridge 已启动";
-                Debug.Log($"Unity action bridge started from {bridgeScript} with {nodeExecutable}");
-            }
-            catch (Exception ex)
-            {
-                bridgeLaunchStatus = "同步：bridge 启动失败";
-                bridgeLaunchProblem = true;
-                Debug.LogWarning($"Failed to start Unity action bridge. Ensure Node.js is available in PATH. {ex.Message}");
-                bridgeProcessStartedByUnity = false;
-                bridgeProcess?.Dispose();
-                bridgeProcess = null;
-            }
-        }
-
-        private string FindUnityBridgeScript()
-        {
-            var streamingScript = Path.Combine(Application.streamingAssetsPath, "BotcJsCore", "scripts", "unity_action_bridge.mjs");
-            if (File.Exists(streamingScript)) return streamingScript;
-
-            var repoScript = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "scripts", "unity_action_bridge.mjs"));
-            if (File.Exists(repoScript)) return repoScript;
-
-            return "";
-        }
-
-        private string FindNodeExecutable()
-        {
-            var bundledNode = Path.Combine(Application.streamingAssetsPath, "BotcJsRuntime", "node.exe");
-            return File.Exists(bundledNode) ? bundledNode : "node";
-        }
-
-        private bool IsBundledNodeRuntime(string nodeExecutable)
-        {
-            if (string.IsNullOrWhiteSpace(nodeExecutable)) return false;
-            var bundledRoot = Path.Combine(Application.streamingAssetsPath, "BotcJsRuntime");
-            return nodeExecutable.StartsWith(bundledRoot, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private string BridgeWorkingDirectory(string bridgeScript)
-        {
-            var scriptsDir = Path.GetDirectoryName(bridgeScript);
-            var rootDir = string.IsNullOrWhiteSpace(scriptsDir) ? "" : Path.GetDirectoryName(scriptsDir);
-            return !string.IsNullOrWhiteSpace(rootDir) && Directory.Exists(rootDir)
-                ? rootDir
-                : Application.streamingAssetsPath;
-        }
-
-        private void UpdateBridgeProcessStatus()
-        {
-            if (!bridgeProcessStartedByUnity || bridgeProcess == null) return;
-
-            try
-            {
-                if (!bridgeProcess.HasExited) return;
-                bridgeLaunchStatus = $"同步：bridge 已退出 {bridgeProcess.ExitCode}";
-                bridgeLaunchProblem = true;
-                bridgeProcess.Dispose();
-                bridgeProcess = null;
-                bridgeProcessStartedByUnity = false;
-            }
-            catch (Exception ex)
-            {
-                bridgeLaunchStatus = "同步：bridge 状态未知";
-                Debug.LogWarning($"Failed to inspect Unity action bridge process: {ex.Message}");
-            }
-        }
-
-        private void StopUnityBridgeProcess()
-        {
-            if (!bridgeProcessStartedByUnity || bridgeProcess == null) return;
-
-            try
-            {
-                if (!bridgeProcess.HasExited)
-                {
-                    bridgeProcess.Kill();
-                    bridgeProcess.WaitForExit(600);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"Failed to stop Unity action bridge process: {ex.Message}");
-            }
-            finally
-            {
-                bridgeProcess.Dispose();
-                bridgeProcess = null;
-                bridgeProcessStartedByUnity = false;
-            }
-        }
-
-        private static string QuoteProcessArgument(string value)
-        {
-            return "\"" + (value ?? "").Replace("\"", "\\\"") + "\"";
-        }
-
-        private static bool CommandLineFlag(string name)
-        {
-            return Environment.GetCommandLineArgs().Any((arg) => string.Equals(arg, name, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static string CommandLineValue(string name)
-        {
-            var args = Environment.GetCommandLineArgs();
-            for (var i = 0; i < args.Length; i++)
-            {
-                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length) return args[i + 1];
-                if (args[i].StartsWith(name + "=", StringComparison.OrdinalIgnoreCase)) return args[i].Substring(name.Length + 1);
-            }
-            return "";
+            StopLocalLlmProcess();
         }
 
         private void BuildScene()
@@ -380,7 +401,11 @@ namespace BotcSolo.UnityPrototype
             BuildGrimoire();
             BuildSideControls();
             BuildBottomDock();
+            BuildStageDialoguePanel();
             BuildMoreActionsPanel();
+            BuildProactiveWhisperPanel();
+            BuildPhaseAssistPanel();
+            BuildNominationDebatePanel();
             BuildTokenInspectorPanel();
             BuildModalBackdrop();
             BuildPrivateChatPanel();
@@ -390,12 +415,20 @@ namespace BotcSolo.UnityPrototype
             BuildVotePanel();
             BuildEndgamePanel();
             BuildRolePickerPanel();
+            BuildReminderPickerPanel();
             BuildEventPanel();
             BuildTimelinePanel();
+            BuildSettingsPanel();
             BuildMainMenu();
+            BuildPhaseTransitionOverlay();
             musicSource = gameObject.AddComponent<AudioSource>();
             musicSource.loop = true;
             musicSource.volume = 0.34f;
+            uiAudioSource = gameObject.AddComponent<AudioSource>();
+            uiAudioSource.loop = false;
+            uiAudioSource.playOnAwake = false;
+            uiAudioSource.volume = 0.22f;
+            typeTickClip = CreateTypeTickClip();
         }
 
         private void EnsureEventSystem()
@@ -420,57 +453,81 @@ namespace BotcSolo.UnityPrototype
             AddImage("Top Shadow", canvas.transform, new Vector2(0f, 0.86f), Vector2.one, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.30f));
             AddCircleImage("Warm Center Wash", canvas.transform, 660f, new Color(0.95f, 0.78f, 0.44f, 0.028f), false);
             AddImage("Low Fog", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-960f, 0f), new Vector2(960f, 190f), new Color(0.02f, 0.03f, 0.04f, 0.20f));
+            BuildAmbientLayer();
+        }
+
+        private void BuildAmbientLayer()
+        {
+            ambientGlowImage = AddCircleImage("Ambient Breathing Glow", canvas.transform, 620f, new Color(1f, 0.78f, 0.38f, 0.035f), false);
+            ambientGlowRoot = ambientGlowImage.rectTransform;
+            ambientMoonImage = AddCircleImage("Ambient Moon Veil", canvas.transform, 210f, new Color(0.78f, 0.86f, 1f, 0.050f), false);
+            ambientMoonImage.rectTransform.anchorMin = ambientMoonImage.rectTransform.anchorMax = new Vector2(0.63f, 0.78f);
+            ambientFogAImage = AddImage("Ambient Fog A", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-1120f, 28f), new Vector2(1120f, 238f), new Color(0.62f, 0.72f, 0.78f, 0.040f));
+            ambientFogA = ambientFogAImage.rectTransform;
+            ambientFogBImage = AddImage("Ambient Fog B", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-980f, 148f), new Vector2(980f, 330f), new Color(0.50f, 0.58f, 0.66f, 0.030f));
+            ambientFogB = ambientFogBImage.rectTransform;
+            foreach (var image in new[] { ambientGlowImage, ambientMoonImage, ambientFogAImage, ambientFogBImage })
+            {
+                if (image != null) image.raycastTarget = false;
+            }
         }
 
         private void BuildTopHud()
         {
-            var bar = AddPanel("Top Grimoire Bar", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-830f, -88f), new Vector2(830f, -14f), new Color(0.010f, 0.012f, 0.014f, 0.78f));
-            AddFrame(bar.transform, "Top Bar Frame", 1f, new Color(0.85f, 0.62f, 0.32f, 0.26f));
-            AddImage("Top Bar Warm Strip", bar.transform, Vector2.zero, new Vector2(1f, 0.36f), new Vector2(0f, 0f), new Vector2(0f, 1.5f), new Color(0.74f, 0.48f, 0.18f, 0.055f));
+            var hud = AddPanel("Top Hud Root", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-830f, -88f), new Vector2(830f, -14f), new Color(0f, 0f, 0f, 0f));
+            topHudRoot = hud.GetComponent<RectTransform>();
+            var hudImage = hud.GetComponent<Image>();
+            if (hudImage != null) hudImage.raycastTarget = false;
 
-            headerText = AddText("Header", bar.transform, Vector2.zero, Vector2.one, new Vector2(24f, 34f), new Vector2(-1320f, -8f), "BOTC SOLO", 31, TextAnchor.UpperLeft, FontStyle.Bold);
-            tickerText = AddText("Ticker", bar.transform, Vector2.zero, Vector2.one, new Vector2(154f, 10f), new Vector2(-650f, -48f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            var leftPod = AddPanel("Top Left Pod", hud.transform, Vector2.zero, Vector2.zero, new Vector2(0f, 0f), new Vector2(560f, 74f), new Color(0.010f, 0.012f, 0.014f, 0.78f));
+            AddFrame(leftPod.transform, "Top Left Frame", 1f, new Color(0.85f, 0.62f, 0.32f, 0.26f));
+            AddImage("Top Left Warm Strip", leftPod.transform, Vector2.zero, new Vector2(1f, 0.36f), new Vector2(0f, 0f), new Vector2(0f, 1.5f), new Color(0.74f, 0.48f, 0.18f, 0.055f));
+
+            var rightPod = AddPanel("Top Right Pod", hud.transform, Vector2.zero, Vector2.zero, new Vector2(1014f, 0f), new Vector2(1660f, 74f), new Color(0.010f, 0.012f, 0.014f, 0.78f));
+            AddFrame(rightPod.transform, "Top Right Frame", 1f, new Color(0.85f, 0.62f, 0.32f, 0.26f));
+            AddImage("Top Right Warm Strip", rightPod.transform, Vector2.zero, new Vector2(1f, 0.36f), new Vector2(0f, 0f), new Vector2(0f, 1.5f), new Color(0.74f, 0.48f, 0.18f, 0.055f));
+
+            headerText = AddText("Header", leftPod.transform, Vector2.zero, Vector2.one, new Vector2(24f, 34f), new Vector2(-326f, -8f), "BOTC SOLO", 31, TextAnchor.UpperLeft, FontStyle.Bold);
+            tickerText = AddText("Ticker", leftPod.transform, Vector2.zero, Vector2.one, new Vector2(24f, 8f), new Vector2(-16f, -48f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
             tickerText.color = new Color(0.84f, 0.88f, 0.90f, 0.90f);
 
-            townsfolkBadge = AddBadge(bar.transform, new Vector2(196f, 48f), "民", "?", new Color(0.11f, 0.34f, 0.68f, 0.88f));
-            outsiderBadge = AddBadge(bar.transform, new Vector2(258f, 48f), "外", "?", new Color(0.09f, 0.22f, 0.42f, 0.88f));
-            minionBadge = AddBadge(bar.transform, new Vector2(320f, 48f), "爪", "?", new Color(0.52f, 0.10f, 0.15f, 0.88f));
-            demonBadge = AddBadge(bar.transform, new Vector2(382f, 48f), "恶", "?", new Color(0.56f, 0.03f, 0.06f, 0.88f));
+            townsfolkBadge = null;
+            outsiderBadge = null;
+            minionBadge = null;
+            demonBadge = null;
 
-            vitalsText = AddText("Vitals", bar.transform, Vector2.zero, Vector2.one, new Vector2(462f, 32f), new Vector2(-870f, -8f), "", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-            phaseText = AddText("Phase", bar.transform, Vector2.zero, Vector2.one, new Vector2(730f, 8f), new Vector2(-426f, -8f), "", 17, TextAnchor.MiddleRight, FontStyle.Normal);
-            syncStatusPill = AddPanel("Sync Status Pill", bar.transform, Vector2.zero, Vector2.one, new Vector2(730f, 42f), new Vector2(-426f, -8f), new Color(0.05f, 0.09f, 0.07f, 0.46f)).GetComponent<Image>();
+            vitalsText = AddText("Vitals", rightPod.transform, Vector2.zero, Vector2.one, new Vector2(18f, 44f), new Vector2(-420f, -6f), "", 15, TextAnchor.MiddleLeft, FontStyle.Bold);
+            phaseText = AddText("Phase", rightPod.transform, Vector2.zero, Vector2.one, new Vector2(196f, 44f), new Vector2(-16f, -6f), "", 16, TextAnchor.MiddleRight, FontStyle.Normal);
+            syncStatusPill = AddPanel("Sync Status Pill", rightPod.transform, Vector2.zero, Vector2.one, new Vector2(18f, 44f), new Vector2(-420f, -6f), new Color(0.05f, 0.09f, 0.07f, 0.46f)).GetComponent<Image>();
+            syncStatusPill.transform.SetAsFirstSibling();
             AddFrame(syncStatusPill.transform, "Sync Status Pill Frame", 0.8f, new Color(0.76f, 0.92f, 0.66f, 0.16f));
-            syncStatusText = AddText("Sync Status", bar.transform, Vector2.zero, Vector2.one, new Vector2(742f, 42f), new Vector2(-438f, -8f), "", 13, TextAnchor.MiddleRight, FontStyle.Bold);
-            AddButton("新局", bar.transform, new Vector2(1260f, 38f), new Vector2(86f, 36f), () => SelectDialoguePreset("new-game"));
-            AddButton("剧本手册", bar.transform, new Vector2(1390f, 38f), new Vector2(132f, 36f), () => SelectDialoguePreset("handbook"));
-            AddButton("主菜单", bar.transform, new Vector2(1530f, 38f), new Vector2(100f, 36f), () => ToggleMainMenu(true));
-        }
-
-        private void BuildGrimoire()
-        {
-            var board = AddPanel("Grimoire Board", canvas.transform, new Vector2(0.5f, 0.50f), new Vector2(0.5f, 0.50f), new Vector2(-920f, -472f), new Vector2(920f, 458f), new Color(0.36f, 0.32f, 0.24f, 0f));
-            grimoireRoot = board.GetComponent<RectTransform>();
-            AddFrame(board.transform, "Grimoire Soft Frame", 0.8f, new Color(0.85f, 0.66f, 0.34f, 0.026f));
+            syncStatusText = AddText("Sync Status", rightPod.transform, Vector2.zero, Vector2.one, new Vector2(28f, 44f), new Vector2(-430f, -6f), "", 12, TextAnchor.MiddleRight, FontStyle.Bold);
+            AddButton("新局", rightPod.transform, new Vector2(58f, 22f), new Vector2(92f, 32f), () => SelectDialoguePreset("new-game"));
+            AddButton("剧本手册", rightPod.transform, new Vector2(190f, 22f), new Vector2(132f, 32f), () => SelectDialoguePreset("handbook"));
+            AddButton("主菜单", rightPod.transform, new Vector2(326f, 22f), new Vector2(104f, 32f), () => ToggleMainMenu(true));
+            AddButton("设置", rightPod.transform, new Vector2(448f, 22f), new Vector2(82f, 32f), OpenSettingsPanel);
         }
 
         private void BuildSideControls()
         {
             var phaseDock = AddPanel("Phase Rail", canvas.transform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(18f, -176f), new Vector2(174f, 176f), new Color(0.006f, 0.013f, 0.020f, 0.22f)).GetComponent<RectTransform>();
+            phaseRailRoot = phaseDock;
             AddFrame(phaseDock, "Phase Rail Frame", 0.8f, new Color(0.82f, 0.56f, 0.25f, 0.18f));
             AddImage("Phase Rail Wash", phaseDock, Vector2.zero, Vector2.one, new Vector2(4f, 4f), new Vector2(-4f, -4f), new Color(0.12f, 0.075f, 0.030f, 0.10f));
             AddText("Phase Dock Title", phaseDock, Vector2.zero, Vector2.one, new Vector2(20f, 294f), new Vector2(-18f, -12f), "流程", 22, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddNavButton("‹ 上一阶段", phaseDock, new Vector2(78f, 238f), new Vector2(132f, 44f), () => CyclePhase("prev"));
-            AddNavButton("☀ 公聊", phaseDock, new Vector2(78f, 174f), new Vector2(132f, 44f), () => SelectDialoguePreset("public"));
-            AddNavButton("⚖ 提名", phaseDock, new Vector2(78f, 110f), new Vector2(132f, 44f), () => SelectDialoguePreset("nomination"));
+            flowGuideText = AddText("Flow Guide", phaseDock, Vector2.zero, Vector2.one, new Vector2(18f, 196f), new Vector2(-16f, -72f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
+            AddNavButton("☀ 公聊", phaseDock, new Vector2(78f, 110f), new Vector2(132f, 44f), () => SelectDialoguePreset("public"));
+            AddNavButton("⚖ 提名", phaseDock, new Vector2(78f, 46f), new Vector2(132f, 44f), () => SelectDialoguePreset("nomination"));
 
             var infoDock = AddPanel("Info Rail", canvas.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-174f, -176f), new Vector2(-18f, 176f), new Color(0.006f, 0.013f, 0.020f, 0.22f)).GetComponent<RectTransform>();
+            infoRailRoot = infoDock;
             AddFrame(infoDock, "Info Rail Frame", 0.8f, new Color(0.82f, 0.56f, 0.25f, 0.18f));
             AddImage("Info Rail Wash", infoDock, Vector2.zero, Vector2.one, new Vector2(4f, 4f), new Vector2(-4f, -4f), new Color(0.12f, 0.075f, 0.030f, 0.10f));
             AddText("Info Dock Title", infoDock, Vector2.zero, Vector2.one, new Vector2(20f, 294f), new Vector2(-18f, -12f), "资料", 22, TextAnchor.UpperLeft, FontStyle.Bold);
             AddNavButton("☷ 日志", infoDock, new Vector2(78f, 238f), new Vector2(132f, 44f), ToggleEventPanel);
             AddNavButton("✦ 时间线", infoDock, new Vector2(78f, 174f), new Vector2(132f, 44f), ToggleTimelinePanel);
-            AddNavButton("下一阶段 ›", infoDock, new Vector2(78f, 110f), new Vector2(132f, 44f), () => CyclePhase("next"));
+            nextPhaseButton = AddNavButton("下一阶段", infoDock, new Vector2(78f, 110f), new Vector2(132f, 44f), () => CyclePhase("next"));
+            nextPhaseButtonLabelText = nextPhaseButton.GetComponentInChildren<Text>();
             AddNavButton("◉ 全知", infoDock, new Vector2(78f, 46f), new Vector2(132f, 44f), () => SelectDialoguePreset("grimoire"));
         }
 
@@ -488,12 +545,12 @@ namespace BotcSolo.UnityPrototype
             dialogueTitle = AddText("Dialogue Title", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 68f), new Vector2(-1124f, -78f), "对话舞台", 19, TextAnchor.UpperLeft, FontStyle.Bold);
             dialogueBody = AddText("Dialogue Body", bottomDock, Vector2.zero, Vector2.one, new Vector2(34f, 24f), new Vector2(-1124f, -110f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
             actionSummaryText = AddText("Action Summary", bottomDock, Vector2.zero, Vector2.one, new Vector2(574f, 24f), new Vector2(-590f, -20f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("私聊", bottomDock, new Vector2(1180f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("private"));
-            AddButton("公聊", bottomDock, new Vector2(1320f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("public"));
-            AddButton("提名", bottomDock, new Vector2(1460f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("nomination"));
-            AddButton("行动", bottomDock, new Vector2(1180f, 58f), new Vector2(124f, 38f), SelectPrimaryAction);
-            AddButton("投票", bottomDock, new Vector2(1320f, 58f), new Vector2(124f, 38f), () => SelectDialoguePreset("vote-panel"));
-            AddButton("更多", bottomDock, new Vector2(1460f, 58f), new Vector2(124f, 38f), ToggleMoreActionsPanel);
+            AddToolActionButton("私", "私聊", bottomDock, new Vector2(1180f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("private"));
+            AddToolActionButton("公", "公聊", bottomDock, new Vector2(1320f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("public"));
+            AddToolActionButton("提", "提名", bottomDock, new Vector2(1460f, 112f), new Vector2(124f, 38f), () => SelectDialoguePreset("nomination"));
+            AddToolActionButton("行", "行动", bottomDock, new Vector2(1180f, 58f), new Vector2(124f, 38f), SelectPrimaryAction);
+            AddToolActionButton("票", "投票", bottomDock, new Vector2(1320f, 58f), new Vector2(124f, 38f), () => SelectDialoguePreset("vote-panel"));
+            AddToolActionButton("多", "更多", bottomDock, new Vector2(1460f, 58f), new Vector2(124f, 38f), ToggleMoreActionsPanel);
             AddButton("收起", bottomDock, new Vector2(1580f, 138f), new Vector2(72f, 28f), ToggleBottomDock);
             bottomDockToggle = AddButton("对话 / 行动", canvas.transform, new Vector2(960f, 40f), new Vector2(172f, 38f), ToggleBottomDock).GetComponent<RectTransform>();
             bottomDockToggle.gameObject.SetActive(false);
@@ -505,46 +562,48 @@ namespace BotcSolo.UnityPrototype
             AddFrame(moreActionsPanel, "More Actions Frame", 1f, new Color(0.92f, 0.62f, 0.28f, 0.36f));
             AddImage("More Actions Header Wash", moreActionsPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -62f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.060f));
             AddText("More Actions Title", moreActionsPanel, Vector2.zero, Vector2.one, new Vector2(20f, 188f), new Vector2(-20f, -12f), "更多动作", 23, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("More Actions Hint", moreActionsPanel, Vector2.zero, Vector2.one, new Vector2(410f, 196f), new Vector2(-18f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
+            AddText("More Actions Hint", moreActionsPanel, Vector2.zero, Vector2.one, new Vector2(410f, 196f), new Vector2(-18f, -18f), "", 12, TextAnchor.UpperRight, FontStyle.Normal);
             AddText("More Actions Body", moreActionsPanel, Vector2.zero, Vector2.one, new Vector2(22f, 152f), new Vector2(-22f, -56f), "低频工具收在这里，底部只保留对局中最高频的入口。", 13, TextAnchor.UpperLeft, FontStyle.Normal);
 
-            AddMoreActionButton("询身", 0, () => SelectDialoguePreset("ask-claim"));
-            AddMoreActionButton("骗身", 1, () => SelectDialoguePreset("decept-claim"));
-            AddMoreActionButton("保密", 2, () => SelectDialoguePreset("decept-secret"));
-            AddMoreActionButton("编夜信", 3, () => SelectDialoguePreset("decept-night"));
-            AddMoreActionButton("夜间", 4, () => SelectDialoguePreset("night"));
-            AddMoreActionButton("白天", 5, () => SelectDialoguePreset("day"));
-            AddMoreActionButton("说书人", 6, () => SelectDialoguePreset("storyteller"));
-            AddMoreActionButton("标记", 7, () => SelectDialoguePreset("mark-role"));
-            AddMoreActionButton("剧本", 8, () => SelectDialoguePreset("handbook"));
-            AddMoreActionButton("复盘", 9, () => { CloseMoreActionsPanel(); ShowInfoDrawer("recap"); });
-            AddMoreActionButton("全知", 10, () => SelectDialoguePreset("grimoire"));
-            AddMoreActionButton("关闭", 11, CloseMoreActionsPanel);
+            AddMoreActionButton("询", "询身", 0, () => SelectDialoguePreset("ask-claim"));
+            AddMoreActionButton("骗", "骗身", 1, () => SelectDialoguePreset("decept-claim"));
+            AddMoreActionButton("密", "保密", 2, () => SelectDialoguePreset("decept-secret"));
+            AddMoreActionButton("信", "编夜信", 3, () => SelectDialoguePreset("decept-night"));
+            AddMoreActionButton("夜", "夜间", 4, () => SelectDialoguePreset("night"));
+            AddMoreActionButton("昼", "白天", 5, () => SelectDialoguePreset("day"));
+            AddMoreActionButton("说", "说书人", 6, () => SelectDialoguePreset("storyteller"));
+            AddMoreActionButton("标", "标记", 7, () => SelectDialoguePreset("mark-role"));
+            AddMoreActionButton("册", "剧本", 8, () => SelectDialoguePreset("handbook"));
+            AddMoreActionButton("复", "复盘", 9, () => { CloseMoreActionsPanel(); ShowInfoDrawer("recap"); });
+            AddMoreActionButton("知", "全知", 10, () => SelectDialoguePreset("grimoire"));
+            AddMoreActionButton("收", "关闭", 11, CloseMoreActionsPanel);
             moreActionsPanel.gameObject.SetActive(false);
         }
 
-        private void AddMoreActionButton(string label, int index, UnityEngine.Events.UnityAction onClick)
+        private void AddMoreActionButton(string icon, string label, int index, UnityEngine.Events.UnityAction onClick)
         {
             var col = index % 4;
             var row = index / 4;
-            AddButton(label, moreActionsPanel, new Vector2(78f + col * 128f, 112f - row * 44f), new Vector2(112f, 30f), onClick);
+            AddToolActionButton(icon, label, moreActionsPanel, new Vector2(78f + col * 128f, 112f - row * 44f), new Vector2(112f, 30f), onClick, true);
         }
 
-        private void BuildTokenInspectorPanel()
+        private void BuildProactiveWhisperPanel()
         {
-            tokenInspectorPanel = AddPanel("Token Inspector", canvas.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(190f, 180f), new Vector2(620f, 506f), new Color(0.005f, 0.012f, 0.020f, 0.88f)).GetComponent<RectTransform>();
-            AddFrame(tokenInspectorPanel, "Token Inspector Frame", 1f, new Color(0.92f, 0.62f, 0.28f, 0.32f));
-            AddImage("Token Inspector Header Wash", tokenInspectorPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -78f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            AddImage("Token Inspector Body Wash", tokenInspectorPanel, Vector2.zero, Vector2.one, new Vector2(18f, 76f), new Vector2(-18f, -92f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
-            AddFrame(tokenInspectorPanel.GetChild(tokenInspectorPanel.childCount - 1), "Token Inspector Body Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
-            tokenInspectorTitle = AddText("Token Inspector Title", tokenInspectorPanel, Vector2.zero, Vector2.one, new Vector2(22f, 264f), new Vector2(-22f, -14f), "目标详情", 26, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Token Inspector Hint", tokenInspectorPanel, Vector2.zero, Vector2.one, new Vector2(300f, 274f), new Vector2(-18f, -20f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            tokenInspectorBody = AddText("Token Inspector Body", tokenInspectorPanel, Vector2.zero, Vector2.one, new Vector2(34f, 100f), new Vector2(-34f, -108f), "点击 token 查看公开可见信息。", 16, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("私聊", tokenInspectorPanel, new Vector2(62f, 40f), new Vector2(84f, 32f), () => SelectDialoguePreset("private"));
-            AddButton("提名", tokenInspectorPanel, new Vector2(160f, 40f), new Vector2(84f, 32f), () => SelectDialoguePreset("nomination"));
-            AddButton("行动", tokenInspectorPanel, new Vector2(258f, 40f), new Vector2(84f, 32f), SelectPrimaryAction);
-            AddButton("关闭", tokenInspectorPanel, new Vector2(356f, 40f), new Vector2(84f, 32f), CloseTokenInspector);
-            tokenInspectorPanel.gameObject.SetActive(false);
+            proactiveWhisperPanel = AddPanel("Proactive Whisper Panel", canvas.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-594f, 198f), new Vector2(-24f, 374f), new Color(0.004f, 0.010f, 0.016f, 0.91f)).GetComponent<RectTransform>();
+            AddFrame(proactiveWhisperPanel, "Proactive Whisper Frame", 1f, new Color(0.92f, 0.62f, 0.28f, 0.36f));
+            AddImage("Proactive Whisper Header Wash", proactiveWhisperPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -48f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
+            proactiveWhisperTokenImage = AddImage("Proactive Whisper Token", proactiveWhisperPanel, Vector2.zero, Vector2.one, new Vector2(22f, 62f), new Vector2(-462f, -20f), new Color(0.92f, 0.82f, 0.60f, 0.92f));
+            proactiveWhisperTokenImage.sprite = SpriteFromResource("Botc/ui/vote1") ?? GetCircleFillSprite();
+            proactiveWhisperTokenImage.preserveAspect = true;
+            proactiveWhisperTitleText = AddText("Proactive Whisper Title", proactiveWhisperPanel, Vector2.zero, Vector2.one, new Vector2(116f, 132f), new Vector2(-168f, -14f), "私聊邀请", 22, TextAnchor.UpperLeft, FontStyle.Bold);
+            proactiveWhisperQueueText = AddText("Proactive Whisper Queue", proactiveWhisperPanel, Vector2.zero, Vector2.one, new Vector2(410f, 136f), new Vector2(-18f, -18f), "", 13, TextAnchor.UpperRight, FontStyle.Bold);
+            proactiveWhisperBodyText = AddText("Proactive Whisper Body", proactiveWhisperPanel, Vector2.zero, Vector2.one, new Vector2(116f, 82f), new Vector2(-20f, -58f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            proactiveWhisperMetaText = AddText("Proactive Whisper Meta", proactiveWhisperPanel, Vector2.zero, Vector2.one, new Vector2(116f, 54f), new Vector2(-20f, -92f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
+            proactiveWhisperMetaText.color = new Color(0.76f, 0.86f, 0.90f, 0.90f);
+            AddToolActionButton("✓", "接受", proactiveWhisperPanel, new Vector2(292f, 28f), new Vector2(98f, 32f), AcceptProactiveWhisperOffer, true);
+            AddToolActionButton("…", "稍后", proactiveWhisperPanel, new Vector2(400f, 28f), new Vector2(86f, 32f), SnoozeProactiveWhisperOffer, true);
+            AddToolActionButton("×", "拒绝", proactiveWhisperPanel, new Vector2(498f, 28f), new Vector2(86f, 32f), DeclineProactiveWhisperOffer, true);
+            proactiveWhisperPanel.gameObject.SetActive(false);
         }
 
         private void BuildModalBackdrop()
@@ -558,145 +617,6 @@ namespace BotcSolo.UnityPrototype
             modalBackdrop.gameObject.SetActive(false);
         }
 
-        private void BuildEventPanel()
-        {
-            eventPanel = AddPanel("Event Panel", canvas.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-516f, -300f), new Vector2(-64f, 286f), new Color(0.004f, 0.010f, 0.017f, 0.82f)).GetComponent<RectTransform>();
-            AddFrame(eventPanel, "Event Panel Frame", 1.2f, new Color(0.82f, 0.56f, 0.25f, 0.36f));
-            AddImage("Info Drawer Header Wash", eventPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -86f), new Vector2(-1f, -1f), new Color(0.72f, 0.45f, 0.18f, 0.075f));
-            AddImage("Info Drawer Content Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 66f), new Vector2(-16f, -112f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
-            AddImage("Info Drawer Sub Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 16f), new Vector2(-16f, -438f), new Color(0.65f, 0.43f, 0.18f, 0.065f));
-            infoDrawerTitle = AddText("Info Drawer Title", eventPanel, Vector2.zero, Vector2.one, new Vector2(24f, 534f), new Vector2(-24f, -14f), "资料抽屉", 26, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Info Drawer Hint", eventPanel, Vector2.zero, Vector2.one, new Vector2(336f, 544f), new Vector2(-24f, -20f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            eventTabText = AddButton("日志", eventPanel, new Vector2(68f, 492f), new Vector2(82f, 30f), () => ShowInfoDrawer("events")).GetComponentInChildren<Text>();
-            timelineTabText = AddButton("时间", eventPanel, new Vector2(158f, 492f), new Vector2(82f, 30f), () => ShowInfoDrawer("timeline")).GetComponentInChildren<Text>();
-            handbookTabText = AddButton("手册", eventPanel, new Vector2(248f, 492f), new Vector2(82f, 30f), () => SelectDialoguePreset("handbook")).GetComponentInChildren<Text>();
-            recapTabText = AddButton("复盘", eventPanel, new Vector2(338f, 492f), new Vector2(82f, 30f), () => ShowInfoDrawer("recap")).GetComponentInChildren<Text>();
-            eventBody = AddText("Info Drawer Main", eventPanel, Vector2.zero, Vector2.one, new Vector2(26f, 162f), new Vector2(-26f, -106f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            queueBody = AddText("Info Drawer Sub", eventPanel, Vector2.zero, Vector2.one, new Vector2(26f, 42f), new Vector2(-26f, -434f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
-            eventPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildPrivateChatPanel()
-        {
-            privateChatPanel = AddPanel("Private Chat Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-640f, 118f), new Vector2(640f, 818f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
-            AddFrame(privateChatPanel, "Private Chat Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
-            AddImage("Private Chat Header Wash", privateChatPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.075f));
-            AddText("Private Chat Title", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(30f, 642f), new Vector2(-30f, -14f), "私聊面板", 32, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Private Chat Hint", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(1050f, 652f), new Vector2(-30f, -20f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            privateTargetText = AddText("Private Target", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(32f, 606f), new Vector2(-30f, -76f), "目标：未选择", 20, TextAnchor.UpperLeft, FontStyle.Normal);
-
-            privateTargetCardRoot = AddPanel("Private Target Card", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(28f, 84f), new Vector2(-1000f, -112f), new Color(0.020f, 0.028f, 0.036f, 0.34f)).GetComponent<RectTransform>();
-
-            var privateHistoryWash = AddImage("Private History Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 316f), new Vector2(-34f, -128f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
-            AddFrame(privateHistoryWash.transform, "Private History Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            AddText("Private History Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 540f), new Vector2(-58f, -132f), "最近私聊", 19, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateHistoryText = AddText("Private History Text", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 348f), new Vector2(-58f, -186f), "选择一名玩家后显示最近私聊。", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            privateHistoryText.color = new Color(0.90f, 0.84f, 0.72f, 0.96f);
-            privateHistoryText.gameObject.SetActive(false);
-            privateDialogueRoot = AddPanel("Private Dialogue Bubbles", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 338f), new Vector2(-58f, -178f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-
-            var composeWash = AddImage("Private Compose Wash", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 84f), new Vector2(-34f, -392f), new Color(0.020f, 0.028f, 0.036f, 0.30f));
-            AddFrame(composeWash.transform, "Private Compose Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            AddText("Private Compose Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 264f), new Vector2(-58f, -410f), "本次私聊内容", 19, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddButton("身份范围", privateChatPanel, new Vector2(490f, 248f), new Vector2(126f, 30f), () => SendPrivateQuickQuestion("你愿意给身份范围吗？", "followup-range"));
-            AddButton("硬信息", privateChatPanel, new Vector2(628f, 248f), new Vector2(118f, 30f), () => SendPrivateQuickQuestion("你有硬信息能证明自己吗？", "followup-proof"));
-            AddButton("昨晚信息", privateChatPanel, new Vector2(766f, 248f), new Vector2(126f, 30f), () => SendPrivateQuickQuestion("你昨晚得到了什么信息？", "followup-night"));
-            AddButton("提名意向", privateChatPanel, new Vector2(914f, 248f), new Vector2(136f, 30f), () => SendPrivateQuickQuestion("你现在想提名谁？", "followup-nomination"));
-            AddText("Claim Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 206f), new Vector2(-900f, -464f), "声称身份", 16, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateClaimRoleText = AddText("Claim Role", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(446f, 204f), new Vector2(-348f, -464f), "不声称", 18, TextAnchor.UpperLeft, FontStyle.Normal);
-            privateClaimRoleGridRoot = AddPanel("Private Claim Role Icon", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(930f, 174f), new Vector2(-210f, -424f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-            AddButton("‹", privateChatPanel, new Vector2(1030f, 218f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(-1));
-            AddButton("›", privateChatPanel, new Vector2(1084f, 218f), new Vector2(42f, 30f), () => CyclePrivateClaimRole(1));
-            AddText("Night Info Label", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(342f, 158f), new Vector2(-900f, -512f), "夜间说法", 16, TextAnchor.UpperLeft, FontStyle.Bold);
-            privateNightInput = AddInputField("Private Night Input", privateChatPanel, new Vector2(446f, 144f), new Vector2(1188f, 184f), "例如：我昨晚看到 3 号和 7 号不同阵营");
-            privateSecretToggle = AddToggle("Private Secret Toggle", privateChatPanel, new Vector2(342f, 96f), "请求对方暂时保密");
-            privateStatusText = AddText("Private Status", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(696f, 84f), new Vector2(-318f, -578f), "准备发送给 JS Core。", 14, TextAnchor.UpperLeft, FontStyle.Normal);
-            privateStatusText.color = new Color(0.82f, 0.88f, 0.90f, 0.90f);
-            AddButton("询问身份", privateChatPanel, new Vector2(870f, 44f), new Vector2(130f, 38f), () => SendPrivateClaimQuestion());
-            AddButton("发送私聊", privateChatPanel, new Vector2(1022f, 44f), new Vector2(142f, 38f), () => SendPrivatePanelMessage());
-            AddButton("关闭", privateChatPanel, new Vector2(1160f, 44f), new Vector2(96f, 38f), () => privateChatPanel.gameObject.SetActive(false));
-            privateTargetPickerRoot = AddPanel("Private Target Picker", privateChatPanel, Vector2.zero, Vector2.one, new Vector2(318f, 84f), new Vector2(-34f, -108f), new Color(0.004f, 0.010f, 0.017f, 0.95f)).GetComponent<RectTransform>();
-            PopulatePrivateClaimRoles();
-            privateChatPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildActionFormPanel()
-        {
-            actionFormPanel = AddPanel("Action Form Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-660f, -350f), new Vector2(660f, 350f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
-            AddFrame(actionFormPanel, "Action Form Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
-            AddImage("Action Form Header Wash", actionFormPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -92f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            actionFormTitle = AddText("Action Form Title", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(34f, 644f), new Vector2(-34f, -16f), "行动表单", 31, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Action Form Hint", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(1100f, 654f), new Vector2(-34f, -22f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            AddImage("Action Form Summary Wash", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(32f, 524f), new Vector2(-32f, -100f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
-            actionFormBody = AddText("Action Form Body", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(52f, 536f), new Vector2(-52f, -114f), "", 16, TextAnchor.UpperLeft, FontStyle.Normal);
-            actionOptionRoot = AddPanel("Action Option Root", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(32f, 142f), new Vector2(-32f, -224f), new Color(0.020f, 0.028f, 0.036f, 0.24f)).GetComponent<RectTransform>();
-            AddFrame(actionOptionRoot, "Action Option Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            actionFormStatusText = AddText("Action Form Status", actionFormPanel, Vector2.zero, Vector2.one, new Vector2(38f, 56f), new Vector2(-512f, -608f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            actionFormStatusText.color = new Color(0.86f, 0.90f, 0.92f, 0.94f);
-            AddButton("自动合法选择", actionFormPanel, new Vector2(888f, 48f), new Vector2(154f, 36f), () => SendActiveActionFormAuto());
-            AddButton("确认发送", actionFormPanel, new Vector2(1058f, 48f), new Vector2(132f, 36f), () => SendActionFormComposed());
-            AddButton("关闭", actionFormPanel, new Vector2(1200f, 48f), new Vector2(98f, 36f), () => actionFormPanel.gameObject.SetActive(false));
-            actionFormPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildStorytellerPanel()
-        {
-            storytellerPanel = AddPanel("Storyteller Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-660f, -350f), new Vector2(660f, 350f), new Color(0.005f, 0.012f, 0.020f, 0.93f)).GetComponent<RectTransform>();
-            AddFrame(storytellerPanel, "Storyteller Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.36f));
-            AddImage("Storyteller Header Wash", storytellerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -92f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            storytellerTitle = AddText("Storyteller Title", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 644f), new Vector2(-34f, -16f), "Storyteller 队列", 31, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Storyteller Hint", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(1100f, 654f), new Vector2(-34f, -22f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            storytellerBody = AddText("Storyteller Body", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(36f, 594f), new Vector2(-36f, -78f), "", 16, TextAnchor.UpperLeft, FontStyle.Normal);
-            storytellerBody.color = new Color(0.86f, 0.90f, 0.92f, 0.94f);
-            storytellerQueueListRoot = AddPanel("Storyteller Queue List", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(32f, 108f), new Vector2(-784f, -118f), new Color(0.020f, 0.028f, 0.036f, 0.28f)).GetComponent<RectTransform>();
-            storytellerDetailRoot = AddPanel("Storyteller Detail", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(568f, 328f), new Vector2(-32f, -118f), new Color(0.020f, 0.028f, 0.036f, 0.30f)).GetComponent<RectTransform>();
-            storytellerTargetRoot = AddPanel("Storyteller Targets", storytellerPanel, Vector2.zero, Vector2.one, new Vector2(568f, 108f), new Vector2(-32f, -374f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
-            AddButton("处理当前", storytellerPanel, new Vector2(792f, 48f), new Vector2(138f, 36f), () => OpenActionFormPanel("storyteller-action"));
-            AddButton("自动处理", storytellerPanel, new Vector2(946f, 48f), new Vector2(138f, 36f), SendStorytellerAuto);
-            AddButton("刷新", storytellerPanel, new Vector2(1102f, 48f), new Vector2(100f, 36f), RenderStorytellerPanel);
-            AddButton("关闭", storytellerPanel, new Vector2(1210f, 48f), new Vector2(98f, 36f), () => storytellerPanel.gameObject.SetActive(false));
-            storytellerPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildHandbookPanel()
-        {
-            handbookPanel = AddPanel("Handbook Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-740f, -380f), new Vector2(740f, 380f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
-            AddFrame(handbookPanel, "Handbook Frame", 1.1f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
-            AddImage("Handbook Header Wash", handbookPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            handbookTitle = AddText("Handbook Title", handbookPanel, Vector2.zero, Vector2.one, new Vector2(34f, 704f), new Vector2(-34f, -18f), "剧本手册", 31, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Handbook Hint", handbookPanel, Vector2.zero, Vector2.one, new Vector2(1220f, 712f), new Vector2(-34f, -24f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            AddButton("全部", handbookPanel, new Vector2(84f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("all"));
-            AddButton("镇民", handbookPanel, new Vector2(192f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("townsfolk"));
-            AddButton("外来者", handbookPanel, new Vector2(300f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("outsider"));
-            AddButton("爪牙", handbookPanel, new Vector2(408f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("minion"));
-            AddButton("恶魔", handbookPanel, new Vector2(516f, 646f), new Vector2(98f, 32f), () => SelectHandbookCategory("demon"));
-            handbookRoleListRoot = AddPanel("Handbook Role List", handbookPanel, Vector2.zero, Vector2.one, new Vector2(30f, 100f), new Vector2(-850f, -134f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
-            AddFrame(handbookRoleListRoot, "Handbook List Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.18f));
-            AddImage("Handbook Detail Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(666f, 318f), new Vector2(-32f, -134f), new Color(0.020f, 0.028f, 0.036f, 0.28f));
-            handbookDetailText = AddText("Handbook Detail", handbookPanel, Vector2.zero, Vector2.one, new Vector2(694f, 342f), new Vector2(-60f, -158f), "", 17, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddImage("Handbook Order Wash", handbookPanel, Vector2.zero, Vector2.one, new Vector2(666f, 100f), new Vector2(-32f, -456f), new Color(0.020f, 0.028f, 0.036f, 0.24f));
-            handbookOrderText = AddText("Handbook Order", handbookPanel, Vector2.zero, Vector2.one, new Vector2(694f, 118f), new Vector2(-60f, -472f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddButton("关闭", handbookPanel, new Vector2(1376f, 46f), new Vector2(100f, 34f), () => handbookPanel.gameObject.SetActive(false));
-            handbookPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildVotePanel()
-        {
-            votePanel = AddPanel("Vote Panel", canvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-610f, 130f), new Vector2(610f, 780f), new Color(0.005f, 0.012f, 0.020f, 0.92f)).GetComponent<RectTransform>();
-            AddFrame(votePanel, "Vote Panel Frame", 1.2f, new Color(0.92f, 0.62f, 0.28f, 0.42f));
-            AddImage("Vote Header Wash", votePanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -88f), new Vector2(-1f, -1f), new Color(0.78f, 0.48f, 0.18f, 0.070f));
-            voteTitle = AddText("Vote Title", votePanel, Vector2.zero, Vector2.one, new Vector2(30f, 594f), new Vector2(-30f, -14f), "投票仪式", 31, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Vote Hint", votePanel, Vector2.zero, Vector2.one, new Vector2(1000f, 604f), new Vector2(-30f, -18f), "Esc 关闭", 12, TextAnchor.UpperRight, FontStyle.Normal);
-            voteBody = AddText("Vote Body", votePanel, Vector2.zero, Vector2.one, new Vector2(34f, 508f), new Vector2(-34f, -72f), "", 19, TextAnchor.UpperLeft, FontStyle.Normal);
-            voteAnimationRoot = AddPanel("Vote Animation Root", votePanel, Vector2.zero, Vector2.one, new Vector2(36f, 118f), new Vector2(-36f, -174f), new Color(0.020f, 0.028f, 0.036f, 0.26f)).GetComponent<RectTransform>();
-            AddFrame(voteAnimationRoot, "Vote Animation Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            voteAnimationRowsRoot = AddPanel("Vote Animation Rows", votePanel, Vector2.zero, Vector2.one, new Vector2(36f, 70f), new Vector2(-36f, -520f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-            AddButton("打开提名", votePanel, new Vector2(138f, 42f), new Vector2(148f, 36f), () => SelectDialoguePreset("nomination"));
-            AddButton("重播举手", votePanel, new Vector2(336f, 42f), new Vector2(136f, 36f), () => RestartVoteAnimation());
-            AddButton("关闭", votePanel, new Vector2(1110f, 42f), new Vector2(98f, 36f), () => votePanel.gameObject.SetActive(false));
-            votePanel.gameObject.SetActive(false);
-        }
-
         private void BuildEndgamePanel()
         {
             endgamePanel = AddPanel("Endgame Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-520f, -310f), new Vector2(520f, 310f), new Color(0.004f, 0.009f, 0.014f, 0.94f)).GetComponent<RectTransform>();
@@ -705,7 +625,8 @@ namespace BotcSolo.UnityPrototype
             AddImage("Endgame Body Wash", endgamePanel, Vector2.zero, Vector2.one, new Vector2(30f, 118f), new Vector2(-520f, -138f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
             AddImage("Endgame Events Wash", endgamePanel, Vector2.zero, Vector2.one, new Vector2(540f, 118f), new Vector2(-30f, -138f), new Color(0.020f, 0.028f, 0.036f, 0.30f));
             endgameTitle = AddText("Endgame Title", endgamePanel, Vector2.zero, Vector2.one, new Vector2(34f, 546f), new Vector2(-34f, -18f), "终局", 36, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Endgame Hint", endgamePanel, Vector2.zero, Vector2.one, new Vector2(820f, 556f), new Vector2(-34f, -24f), "Esc 关闭", 13, TextAnchor.UpperRight, FontStyle.Normal);
+            AddText("Endgame Hint", endgamePanel, Vector2.zero, Vector2.one, new Vector2(802f, 556f), new Vector2(-144f, -24f), "", 13, TextAnchor.UpperRight, FontStyle.Normal);
+            AddToolActionButton("关", "关闭", endgamePanel, new Vector2(960f, 560f), new Vector2(104f, 34f), CloseEndgamePanel, true);
             endgameBody = AddText("Endgame Body", endgamePanel, Vector2.zero, Vector2.one, new Vector2(54f, 154f), new Vector2(-540f, -154f), "", 18, TextAnchor.UpperLeft, FontStyle.Normal);
             AddText("Endgame Events Label", endgamePanel, Vector2.zero, Vector2.one, new Vector2(562f, 482f), new Vector2(-54f, -124f), "终局事件", 20, TextAnchor.UpperLeft, FontStyle.Bold);
             endgameEventsText = AddText("Endgame Events", endgamePanel, Vector2.zero, Vector2.one, new Vector2(562f, 152f), new Vector2(-54f, -168f), "", 15, TextAnchor.UpperLeft, FontStyle.Normal);
@@ -723,52 +644,6 @@ namespace BotcSolo.UnityPrototype
             endgamePanel.gameObject.SetActive(false);
         }
 
-        private void BuildRolePickerPanel()
-        {
-            rolePickerPanel = AddPanel("Role Picker Panel", canvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-760f, -380f), new Vector2(760f, 380f), new Color(0.001f, 0.004f, 0.007f, 0.96f)).GetComponent<RectTransform>();
-            AddFrame(rolePickerPanel, "Role Picker Frame", 1.2f, new Color(0.92f, 0.62f, 0.28f, 0.40f));
-            AddImage("Role Picker Header Wash", rolePickerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -82f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.070f));
-            rolePickerTitle = AddText("Role Picker Title", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 690f), new Vector2(-124f, -14f), "选择角色", 36, TextAnchor.UpperCenter, FontStyle.Bold);
-            AddButton("×", rolePickerPanel, new Vector2(1472f, 714f), new Vector2(44f, 36f), CloseRolePicker);
-            rolePickerStatusText = AddText("Role Picker Status", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 628f), new Vector2(-48f, -94f), "选择一个身份 token。", 16, TextAnchor.UpperCenter, FontStyle.Normal);
-            rolePickerGridRoot = AddPanel("Role Picker Grid", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(40f, 96f), new Vector2(-40f, -132f), new Color(0.006f, 0.010f, 0.014f, 0.44f)).GetComponent<RectTransform>();
-            AddFrame(rolePickerGridRoot, "Role Picker Grid Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
-            AddText("Role Picker Category Hint", rolePickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 30f), new Vector2(-48f, -706f), "蓝色：好人阵营    红色：邪恶阵营    金色外圈表示当前选择", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
-            rolePickerPanel.gameObject.SetActive(false);
-        }
-
-        private void BuildTimelinePanel()
-        {
-            timelinePanel = AddPanel("Timeline Panel", canvas.transform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(118f, -260f), new Vector2(418f, 220f), new Color(0.004f, 0.010f, 0.017f, 0.70f)).GetComponent<RectTransform>();
-            AddFrame(timelinePanel, "Timeline Panel Frame", 1.2f, new Color(0.82f, 0.56f, 0.25f, 0.30f));
-            AddText("Timeline Title", timelinePanel, Vector2.zero, Vector2.one, new Vector2(20f, 430f), new Vector2(-20f, -10f), "对话时间线", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-            timelineBody = AddText("Timeline Body", timelinePanel, Vector2.zero, Vector2.one, new Vector2(20f, 18f), new Vector2(-20f, -58f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
-            timelinePanel.gameObject.SetActive(false);
-        }
-
-        private void BuildMainMenu()
-        {
-            mainMenuRoot = AddPanel("Main Menu Overlay", canvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.005f, 0.010f, 0.014f, 0.82f)).GetComponent<RectTransform>();
-            AddImage("Menu Warm Halo", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-560f, -360f), new Vector2(560f, 360f), new Color(0.95f, 0.72f, 0.38f, 0.10f));
-            var card = AddPanel("Main Menu Card", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-460f, -320f), new Vector2(460f, 330f), new Color(0.012f, 0.014f, 0.016f, 0.90f));
-            AddFrame(card.transform, "Main Menu Card Frame", 2f, new Color(0.88f, 0.62f, 0.28f, 0.56f));
-            AddImage("Menu Inner Glow", card.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-18f, -18f), new Color(0.78f, 0.54f, 0.24f, 0.055f));
-            var title = AddText("Menu Title", card.transform, Vector2.zero, Vector2.one, new Vector2(34f, 520f), new Vector2(-34f, -34f), "BOTC SOLO", 58, TextAnchor.UpperLeft, FontStyle.Bold);
-            title.color = new Color(1f, 0.86f, 0.58f, 1f);
-            AddText("Menu Subtitle", card.transform, Vector2.zero, Vector2.one, new Vector2(38f, 474f), new Vector2(-430f, -114f), "血染钟楼单机模拟器 · Unity 原型", 18, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddMenuButton("新游戏 / 进入魔典", card.transform, new Vector2(220f, 390f), () => ToggleMainMenu(false));
-            AddMenuButton("继续当前局", card.transform, new Vector2(220f, 326f), () => ToggleMainMenu(false));
-            AddMenuButton("设置", card.transform, new Vector2(220f, 262f), () => ShowMenuMessage("设置\n\n分辨率、窗口模式和音量滑条会接入这里。当前音乐已根据白天、夜晚和提名阶段切换。"));
-            AddMenuButton("剧本手册", card.transform, new Vector2(220f, 198f), () => SendUnityAction("script-handbook"));
-            AddMenuButton("退出原型", card.transform, new Vector2(220f, 134f), () => Application.Quit());
-            var info = AddPanel("Menu Info Panel", card.transform, Vector2.zero, Vector2.zero, new Vector2(450f, 112f), new Vector2(870f, 454f), new Color(0.006f, 0.012f, 0.018f, 0.70f));
-            AddFrame(info.transform, "Menu Info Frame", 1.2f, new Color(0.82f, 0.56f, 0.25f, 0.32f));
-            AddText("Menu Info Title", info.transform, Vector2.zero, Vector2.one, new Vector2(22f, 292f), new Vector2(-22f, -12f), "当前对局", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-            menuHint = AddText("Menu Hint", info.transform, Vector2.zero, Vector2.one, new Vector2(22f, 28f), new Vector2(-22f, -74f), BuildMenuInfoText(), 16, TextAnchor.UpperLeft, FontStyle.Normal);
-            AddText("Menu Footer", card.transform, Vector2.zero, Vector2.one, new Vector2(38f, 28f), new Vector2(-38f, -590f), "Unity 负责界面外壳；规则、AI 与行动结算仍由 JS Core 驱动。", 14, TextAnchor.LowerCenter, FontStyle.Normal);
-            mainMenuRoot.gameObject.SetActive(true);
-        }
-
         private void RenderAllAndMood()
         {
             RenderAll();
@@ -783,15 +658,14 @@ namespace BotcSolo.UnityPrototype
                 background.preserveAspect = false;
             }
             headerText.text = IsGameOver() ? "BOTC SOLO · 终局" : "BOTC SOLO";
-            if (vitalsText != null) vitalsText.text = IsGameOver()
-                ? $"{OutcomeWinnerLabel()}胜利 | 存活 {vm.alive} | 死亡 {vm.dead}"
-                : $"存活 {vm.alive} | 死亡 {vm.dead}";
+            if (vitalsText != null) vitalsText.text = "";
             UpdateSetupBadges();
-            phaseText.text = Ellipsize($"{DisplayScriptName()} - D{vm.day}/N{vm.night} - {PhaseLabel()}", 42);
+            phaseText.text = Ellipsize(PhaseLabel(), 18);
             UpdateSyncStatusText();
             tickerText.text = Ellipsize(LatestEvent(), 72);
             if (objectiveTitleText != null) objectiveTitleText.text = Ellipsize(string.IsNullOrWhiteSpace(vm.phaseObjectiveTitle) ? "阶段目标" : vm.phaseObjectiveTitle, 18);
             if (objectiveHintText != null) objectiveHintText.text = ClampTextBlock(string.IsNullOrWhiteSpace(vm.phaseObjectiveHint) ? "等待 JS Core 更新。" : vm.phaseObjectiveHint, 2, 38);
+            UpdateFlowGuideUi();
             dialogueTitle.text = string.IsNullOrWhiteSpace(vm.dialogueTitle) ? "对话舞台" : vm.dialogueTitle;
             dialogueBody.text = string.IsNullOrWhiteSpace(vm.dialogueText)
                 ? "点击任意 token 查看玩家；再使用私聊、公聊、提名、夜间行动或标记。"
@@ -807,17 +681,23 @@ namespace BotcSolo.UnityPrototype
             queueBody.text = BuildInfoDrawerSubText();
             UpdateInfoDrawerTabs();
             timelineBody.text = BuildTimelineText();
+            EnsureActiveActionFormStillValid();
             UpdateVotePanelText();
             UpdatePrivateChatPanelText();
             UpdateTokenInspectorText();
+            RenderProactiveWhisperPanel();
+            RenderPhaseAssistPanel();
+            RenderNominationDebatePanel();
             RenderStorytellerPanel();
             if (handbookPanel != null && handbookPanel.gameObject.activeSelf) RenderHandbookPanel();
+            if (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf) RenderReminderPickerPanel();
             RenderEndgamePanel();
             ApplyBottomDockVisibility();
             ApplyTokenInspectorVisibility();
             ApplyAuxPanelVisibility();
             ApplyModalBackdropVisibility();
             RenderGrimoire();
+            if (mainMenuRoot != null && mainMenuRoot.gameObject.activeSelf) SetGameplayChromeVisible(false);
         }
 
         private void ApplyUiSmokeMode()
@@ -825,7 +705,21 @@ namespace BotcSolo.UnityPrototype
             var mode = CommandLineValue("-botc-ui-smoke").Trim().ToLowerInvariant();
             if (string.IsNullOrWhiteSpace(mode)) return;
 
+            if (mode == "main-menu" || mode == "menu")
+            {
+                ApplyMainMenuState(true);
+                return;
+            }
+
             if (mainMenuRoot != null) mainMenuRoot.gameObject.SetActive(false);
+            gameplayEntered = true;
+            SetGameplayChromeVisible(true);
+
+            if (mode == "settings" || mode == "settings-panel")
+            {
+                OpenSettingsPanel();
+                return;
+            }
             if (endgamePanel != null)
             {
                 endgameDismissed = true;
@@ -840,7 +734,30 @@ namespace BotcSolo.UnityPrototype
                 return;
             }
 
-            if (mode == "private" || mode == "private-chat")
+            if (mode == "inspector" || mode == "token-inspector")
+            {
+                tokenInspectorOpen = true;
+                bottomDockOpen = true;
+                UpdateTokenInspectorText();
+                ApplyTokenInspectorVisibility();
+                ApplyBottomDockVisibility();
+            }
+            else if (mode == "actions" || mode == "more-actions")
+            {
+                bottomDockOpen = true;
+                moreActionsOpen = true;
+                ApplyBottomDockVisibility();
+                ApplyMoreActionsVisibility();
+            }
+            else if (mode == "info" || mode == "info-drawer")
+            {
+                ShowInfoDrawer("events");
+            }
+            else if (mode == "intel" || mode == "information" || mode == "information-drawer")
+            {
+                ShowInfoDrawer("intel");
+            }
+            else if (mode == "private" || mode == "private-chat")
             {
                 OpenPrivateChatPanel();
             }
@@ -865,7 +782,31 @@ namespace BotcSolo.UnityPrototype
                 activeRolePickerMode = "mark-role";
                 activeRolePickerPlayerId = selectedPlayerId;
                 RenderRolePickerPanel();
-                if (rolePickerPanel != null) rolePickerPanel.gameObject.SetActive(true);
+                ShowModalPanel(rolePickerPanel);
+            }
+            else if (mode == "reminder-picker" || mode == "reminders")
+            {
+                var target = SelectedPlayer() ?? (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && !player.human);
+                if (target != null) OpenReminderPickerForPlayer(target);
+            }
+            else if (mode == "stage-dialogue" || mode == "dialogue-toast")
+            {
+                ShowStageDialogueStill(
+                    "说书人",
+                    "天亮了。昨夜的结果已经写入日志；如果有私聊、公聊或说书人提示，它们会从底部弹出，并保留到你读完。\n新的正式对话框支持分页、跳过打字、打开来源。长句不会再挤在资料抽屉里，也不会一闪而过。\n点击继续可以翻到下一段；点击来源会打开日志、时间线或私聊面板。",
+                    "流程提示");
+            }
+            else if (mode == "phase-transition" || mode == "transition" || mode == "transition-day")
+            {
+                ShowPhaseTransitionStill("private");
+            }
+            else if (mode == "transition-night")
+            {
+                ShowPhaseTransitionStill("night");
+            }
+            else if (mode == "transition-nomination")
+            {
+                ShowPhaseTransitionStill("nomination");
             }
 
             ApplyModalBackdropVisibility();
@@ -877,14 +818,6 @@ namespace BotcSolo.UnityPrototype
             return players.FirstOrDefault((player) => player != null && !player.human)?.id
                 ?? players.FirstOrDefault((player) => player != null)?.id
                 ?? "";
-        }
-
-        private string FirstAvailableActionFormId()
-        {
-            var forms = vm?.actionForms ?? Array.Empty<ActionFormViewModel>();
-            return forms.FirstOrDefault((form) => form != null && form.available)?.id
-                ?? forms.FirstOrDefault((form) => form != null)?.id
-                ?? "night-action";
         }
 
         private IEnumerator CaptureUiSmokeScreenshotIfRequested()
@@ -964,7 +897,7 @@ namespace BotcSolo.UnityPrototype
                 return;
             }
 
-            endgamePanel.gameObject.SetActive(true);
+            if (!endgamePanel.gameObject.activeSelf) ShowModalPanel(endgamePanel);
             if (endgameTitle != null) endgameTitle.text = OutcomeTitle();
             var reason = FirstNonEmpty(vm?.winnerReason, vm?.outcome?.reason);
             var bodyLines = new List<string>
@@ -994,227 +927,32 @@ namespace BotcSolo.UnityPrototype
             ApplyModalBackdropVisibility();
         }
 
-        private void RenderGrimoire()
+        private void RenderStageDialogueTokenHint(Transform tokenRoot, PlayerViewModel player)
         {
-            for (var i = grimoireRoot.childCount - 1; i >= 0; i--) Destroy(grimoireRoot.GetChild(i).gameObject);
-            AddCircleImage("Outer Circle", grimoireRoot, 548f, new Color(1f, 0.78f, 0.36f, 0.14f), true);
-            AddCircleImage("Middle Circle", grimoireRoot, 462f, new Color(1f, 0.78f, 0.36f, 0.065f), true);
-            AddCircleImage("Inner Mist", grimoireRoot, 396f, new Color(0.05f, 0.04f, 0.035f, 0.085f), false);
-            var title = AddText("Script Title", grimoireRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-360f, -56f), new Vector2(360f, 56f), DisplayScriptName(), 52, TextAnchor.MiddleCenter, FontStyle.BoldAndItalic);
-            title.color = new Color(1f, 0.72f, 0.30f, 0.94f);
-            var players = vm.players ?? Array.Empty<PlayerViewModel>();
-            var radius = Mathf.Clamp(Mathf.Min(Screen.width, Screen.height) * 0.383f, 372f, 424f);
-            for (var i = 0; i < players.Length; i++)
-            {
-                var angle = Mathf.PI * 0.5f - Mathf.PI * 2f * i / Mathf.Max(1, players.Length);
-                RenderPlayerToken(players[i], new Vector2(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius));
-            }
-            RenderBluffs();
-        }
+            if (stageDialoguePanel == null || !stageDialoguePanel.gameObject.activeSelf || player == null) return;
+            var isSpeaker = !string.IsNullOrWhiteSpace(stageDialogueSpeakerPlayerId) && player.id == stageDialogueSpeakerPlayerId;
+            var isTarget = !string.IsNullOrWhiteSpace(stageDialogueTargetPlayerId) && player.id == stageDialogueTargetPlayerId && !isSpeaker;
+            if (!isSpeaker && !isTarget) return;
 
-        private void RenderPlayerToken(PlayerViewModel player, Vector2 position)
-        {
-            var root = new GameObject($"Player {player.seat}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
-            root.transform.SetParent(grimoireRoot, false);
-            var rt = root.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = position;
-            rt.sizeDelta = new Vector2(176f, 196f);
-            root.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
-            root.GetComponent<Button>().onClick.AddListener(() => ShowTokenDialogue(player));
-            if (!string.IsNullOrWhiteSpace(selectedPlayerId) && player.id == selectedPlayerId)
-            {
-                var halo = AddImage("Selected Token Halo", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-82f, -150f), new Vector2(82f, 14f), new Color(1f, 0.80f, 0.32f, 0.34f));
-                halo.sprite = GetCircleRingSprite();
-                halo.preserveAspect = true;
-                halo.raycastTarget = false;
-            }
-            var token = AddImage("Token", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-TokenSize / 2f, -TokenSize - 8f), new Vector2(TokenSize / 2f, -8f), Color.white);
-            var tokenSprite = SpriteFromResource(player.revealed ? "Botc/ui/token1" : "Botc/ui/vote1");
-            var usingTokenFallback = tokenSprite == null;
-            token.sprite = tokenSprite ?? GetCircleFillSprite();
-            token.color = usingTokenFallback ? new Color(0.86f, 0.78f, 0.60f, 0.90f) : Color.white;
-            token.preserveAspect = true;
-            token.raycastTarget = false;
-            if (usingTokenFallback)
-            {
-                var tokenRing = AddImage("Token Fallback Ring", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-TokenSize / 2f, -TokenSize - 8f), new Vector2(TokenSize / 2f, -8f), new Color(1f, 0.82f, 0.48f, 0.36f));
-                tokenRing.sprite = GetCircleRingSprite();
-                tokenRing.preserveAspect = true;
-                tokenRing.raycastTarget = false;
-                if (!player.revealed)
-                {
-                    var tokenMark = AddText("Token Fallback Mark", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-42f, -104f), new Vector2(42f, -34f), "?", 44, TextAnchor.MiddleCenter, FontStyle.Bold);
-                    tokenMark.color = new Color(1f, 0.92f, 0.72f, 0.92f);
-                    tokenMark.raycastTarget = false;
-                }
-            }
-            if (player.revealed && !string.IsNullOrWhiteSpace(player.roleId))
-            {
-                var roleSprite = SpriteFromResource($"Botc/roles/{player.roleId}");
-                if (roleSprite != null)
-                {
-                    var roleIcon = AddImage("Role Icon", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-RoleIconSize / 2f, -98f), new Vector2(RoleIconSize / 2f, -24f), Color.white);
-                    roleIcon.sprite = roleSprite;
-                    roleIcon.preserveAspect = true;
-                    roleIcon.raycastTarget = false;
-                }
-                else
-                {
-                    var fallback = AddImage("Role Icon Fallback", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-RoleIconSize / 2f, -98f), new Vector2(RoleIconSize / 2f, -24f), new Color(0.10f, 0.070f, 0.040f, 0.48f));
-                    fallback.sprite = GetCircleFillSprite();
-                    fallback.preserveAspect = true;
-                    fallback.raycastTarget = false;
-                    var fallbackRing = AddImage("Role Icon Fallback Ring", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-RoleIconSize / 2f, -98f), new Vector2(RoleIconSize / 2f, -24f), new Color(1f, 0.82f, 0.48f, 0.30f));
-                    fallbackRing.sprite = GetCircleRingSprite();
-                    fallbackRing.preserveAspect = true;
-                    fallbackRing.raycastTarget = false;
-                    var fallbackText = AddText("Role Icon Fallback Text", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-RoleIconSize / 2f, -93f), new Vector2(RoleIconSize / 2f, -29f), RoleIconFallbackLabel(player), 22, TextAnchor.MiddleCenter, FontStyle.Bold);
-                    fallbackText.color = new Color(1f, 0.90f, 0.68f, 0.95f);
-                    fallbackText.raycastTarget = false;
-                }
-            }
-            else if (!player.revealed && !string.IsNullOrWhiteSpace(player.markedRoleId))
-            {
-                RenderMarkedRoleBadge(root.transform, player);
-            }
-            if (!player.alive)
-            {
-                var shroud = AddImage("Shroud", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-52f, -112f), new Vector2(12f, -18f), Color.white);
-                shroud.sprite = SpriteFromResource("Botc/ui/shroud1");
-                shroud.preserveAspect = true;
-                shroud.raycastTarget = false;
-            }
-            var suspicion = AddPanel("Suspicion", root.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-66f, -28f), new Vector2(-14f, -5f), new Color(0.025f, 0.019f, 0.014f, 0.84f));
-            AddFrame(suspicion.transform, "Suspicion Frame", 0.9f, SuspicionColor(player.suspicion));
-            AddText("Suspicion Text", suspicion.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, player.suspicion > 0 ? $"{player.suspicion}%" : "--", 15, TextAnchor.MiddleCenter, FontStyle.Bold).color = Color.white;
-            var namePlate = AddPanel("Name Plate", root.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-78f, 56f), new Vector2(78f, 88f), new Color(0.12f, 0.060f, 0.024f, 0.92f));
-            AddFrame(namePlate.transform, "Name Plate Frame", 0.9f, new Color(0.96f, 0.68f, 0.34f, 0.28f));
-            AddText("Name", namePlate.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, player.name, 20, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var roleLabel = player.revealed ? player.roleName : "未知";
-            if (!string.IsNullOrWhiteSpace(player.markedRoleName) && !player.revealed) roleLabel = $"标记：{player.markedRoleName}";
-            var role = AddText("Role Label", root.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-104f, 20f), new Vector2(104f, 52f), roleLabel, 17, TextAnchor.MiddleCenter, FontStyle.Normal);
-            role.color = new Color(0.98f, 0.90f, 0.78f, player.revealed ? 0.95f : 0.74f);
-            RenderReminders(root.transform, player.reminders);
-        }
-
-        private void RenderMarkedRoleBadge(Transform tokenRoot, PlayerViewModel player)
-        {
-            var role = RoleForId(player.markedRoleId);
-            var badge = AddImage("Marked Role Badge", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(28f, -120f), new Vector2(82f, -66f), new Color(0.018f, 0.014f, 0.010f, 0.92f));
-            badge.sprite = GetCircleFillSprite();
-            badge.preserveAspect = true;
-            badge.raycastTarget = false;
-            var halo = AddImage("Marked Role Halo", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(24f, -124f), new Vector2(86f, -62f), RoleHaloColor(role?.category, role?.team, true));
+            var halo = AddImage(
+                isSpeaker ? "Dialogue Speaker Halo" : "Dialogue Target Halo",
+                tokenRoot,
+                new Vector2(0.5f, 1f),
+                new Vector2(0.5f, 1f),
+                new Vector2(-94f, -162f),
+                new Vector2(94f, 26f),
+                isSpeaker ? new Color(1f, 0.78f, 0.28f, 0.42f) : new Color(0.48f, 0.74f, 1f, 0.36f));
             halo.sprite = GetCircleRingSprite();
             halo.preserveAspect = true;
             halo.raycastTarget = false;
-            var icon = AddImage("Marked Role Icon", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(35f, -112f), new Vector2(75f, -74f), Color.white);
-            icon.sprite = SpriteFromResource($"Botc/roles/{player.markedRoleId}");
-            icon.preserveAspect = true;
-            icon.raycastTarget = false;
-            if (icon.sprite == null)
-            {
-                icon.color = new Color(1f, 1f, 1f, 0f);
-                var label = AddText("Marked Role Fallback", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(36f, -112f), new Vector2(76f, -74f), RoleFallbackLabel(player.markedRoleId, player.markedRoleName), 16, TextAnchor.MiddleCenter, FontStyle.Bold);
-                label.color = new Color(1f, 0.88f, 0.56f, 0.98f);
-                label.raycastTarget = false;
-            }
-            var mark = AddText("Marked Role Tag", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(18f, -75f), new Vector2(50f, -51f), "标", 11, TextAnchor.MiddleCenter, FontStyle.Bold);
-            mark.color = new Color(0.98f, 0.82f, 0.44f, 1f);
-            mark.raycastTarget = false;
-        }
-
-        private void RenderReminders(Transform tokenRoot, string[] reminders)
-        {
-            if (reminders == null || reminders.Length == 0) return;
-            for (var i = 0; i < reminders.Length && i < 5; i++)
-            {
-                var x = -80f + i * 40f;
-                var y = i < 3 ? -140f : -184f;
-                var reminder = AddImage($"Reminder {i}", tokenRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(x - 22f, y - 22f), new Vector2(x + 22f, y + 22f), Color.white);
-                reminder.sprite = SpriteFromResource("Botc/ui/reminder1");
-                reminder.preserveAspect = true;
-                reminder.raycastTarget = false;
-                AddText("Reminder Text", reminder.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, ReminderShort(reminders[i]), 12, TextAnchor.MiddleCenter, FontStyle.Bold).color = Color.white;
-            }
-        }
-
-        private void RenderBluffs()
-        {
-            var panel = AddPanel("Bluffs", grimoireRoot, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(30f, 42f), new Vector2(380f, 142f), new Color(0.02f, 0.017f, 0.013f, 0.64f));
-            AddFrame(panel.transform, "Bluffs Frame", 1f, new Color(0.82f, 0.56f, 0.25f, 0.25f));
-            AddText("Bluff Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 104f), new Vector2(-18f, -6f), "恶魔的伪装", 23, TextAnchor.UpperCenter, FontStyle.Bold);
-            var body = AddText("Bluff Body", panel.transform, Vector2.zero, Vector2.one, new Vector2(20f, 16f), new Vector2(-20f, -44f), BuildBluffText(), 18, TextAnchor.MiddleCenter, FontStyle.Normal);
-            body.color = new Color(0.98f, 0.91f, 0.78f, 0.94f);
-        }
-
-        private void ShowTokenDialogue(PlayerViewModel player)
-        {
-            selectedPlayerId = player.id ?? "";
-            SendUnityAction("select-token", selectedPlayerId, "", "", "", trackPending: false);
-            tokenInspectorOpen = true;
-            UpdateTokenInspectorText(player);
-            ApplyTokenInspectorVisibility();
-            if (vm.phase == "day" && vm.dayStage == "private" && !player.human)
-            {
-                OpenPrivateChatPanel();
-                dialogueTitle.text = $"私聊 · {player.name}";
-                dialogueBody.text = "已打开私聊面板。选中 token 只作为本地目标，不再等待 JS Core 选中同步。";
-            }
-            else
-            {
-                dialogueTitle.text = $"已选中 · {player.name}";
-                dialogueBody.text = player.human
-                    ? "这是主视角 token。详情已移到左下 Inspector；底部继续保留阶段目标和常用行动。"
-                    : $"详情见左下 Inspector。可直接使用底部：私聊、提名、投票或行动。";
-            }
-            if (privateChatPanel != null && privateChatPanel.gameObject.activeSelf) UpdatePrivateChatPanelText();
-            bottomDockOpen = true;
-            ApplyBottomDockVisibility();
-        }
-
-        private void UpdateTokenInspectorText(PlayerViewModel explicitPlayer = null)
-        {
-            if (tokenInspectorTitle == null || tokenInspectorBody == null) return;
-            var player = explicitPlayer ?? SelectedPlayer();
-            if (player == null)
-            {
-                tokenInspectorTitle.text = "目标详情";
-                tokenInspectorBody.text = "点击魔典 token 查看公开可见信息。";
-                return;
-            }
-
-            tokenInspectorTitle.text = $"目标 · {player.name}";
-            var role = player.revealed
-                ? string.IsNullOrWhiteSpace(player.roleName) ? "未知" : player.roleName
-                : !string.IsNullOrWhiteSpace(player.markedRoleName) ? $"标记：{player.markedRoleName}" : "未知";
-            var state = $"{(player.alive ? "存活" : "死亡")} / {(player.ghostVoteAvailable ? "有鬼票" : "无鬼票")}";
-            var lines = new List<string>
-            {
-                $"身份：{role}",
-                $"状态：{state}",
-                $"怀疑：{player.suspicion}%",
-            };
-            if (!string.IsNullOrWhiteSpace(player.perceivedRoleId) && player.human) lines.Add($"你的认知角色：{RoleNameForId(player.perceivedRoleId)}");
-            if (player.reminders != null && player.reminders.Length > 0) lines.Add($"提醒物：{string.Join(" / ", player.reminders.Take(5))}");
-            lines.Add("");
-            lines.Add(player.human ? "主视角 token：行动会以这个视角提交。" : "快捷：私聊 / 提名 / 行动。");
-            lines.Add(player.revealed ? "身份已公开，可在魔典中直接查看。" : "未公开身份不会泄露真实底牌。");
-            tokenInspectorBody.text = ClampTextLines(lines, 9, 44);
-        }
-
-        private PlayerViewModel SelectedPlayer()
-        {
-            if (string.IsNullOrWhiteSpace(selectedPlayerId)) return null;
-            return (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && player.id == selectedPlayerId);
-        }
-
-        private PlayerViewModel SelectedPrivateChatTarget()
-        {
-            var player = SelectedPlayer();
-            return player != null && !player.human ? player : null;
+            dialogueTokenPulseImages.Add(halo);
+            dialogueTokenPulseRects.Add(halo.rectTransform);
+            AddTokenStatusBadge(
+                tokenRoot,
+                isSpeaker ? "说" : "听",
+                new Vector2(isSpeaker ? -70f : 70f, -42f),
+                isSpeaker ? new Color(0.22f, 0.11f, 0.025f, 0.96f) : new Color(0.025f, 0.070f, 0.13f, 0.94f),
+                isSpeaker ? new Color(1f, 0.78f, 0.30f, 0.66f) : new Color(0.42f, 0.72f, 1f, 0.54f));
         }
 
         private void SelectDialoguePreset(string mode)
@@ -1252,23 +990,29 @@ namespace BotcSolo.UnityPrototype
             if (mode == "public")
             {
                 dialogueTitle.text = "公聊请求";
-                SendUnityAction("public-discussion", "", "public", "", "");
-                dialogueBody.text = BuildTimelineText();
+                SendUnityAction("ai-public-step");
+                dialogueBody.text = "已请求 AI 按公聊时钟推进一段发言。后续可继续公聊，或开启提名窗口。";
                 return;
             }
             if (mode == "nomination")
             {
-                dialogueTitle.text = "提名请求";
-                OpenVotePanel();
+                dialogueTitle.text = "提名窗口";
                 if (vm.phase != "day" || vm.dayStage != "nomination")
                 {
-                    RequestPhaseStage("nomination", "进入提名");
+                    SendUnityAction("open-nomination-window");
+                    dialogueBody.text = vm.dayStage == "private"
+                        ? "已请求开启提名窗口；如果当前仍在私聊阶段，JS Core 会要求先进入公聊。"
+                        : "已请求开启提名窗口。窗口中可以由你或 AI 主动提名。";
                     return;
                 }
-                SendUnityAction("nomination", selectedPlayerId, "", "", "");
-                dialogueBody.text = string.IsNullOrWhiteSpace(selectedPlayerId)
-                    ? "已请求进入提名阶段。请选择一名 token，再次点击提名。"
-                    : "已发送给 JS Core：提名选中玩家，等待投票刷新。";
+                var nominationTarget = SelectedPlayer();
+                if (nominationTarget == null || nominationTarget.human)
+                {
+                    SendHumanNominationIntent();
+                    return;
+                }
+                SendHumanNominationIntent();
+                dialogueBody.text = "已提交提名意图；接下来会进入双方互辩，再进入投票仪式。";
                 return;
             }
             if (mode == "vote-panel")
@@ -1418,10 +1162,71 @@ namespace BotcSolo.UnityPrototype
         {
             if (direction == "prev")
             {
-                ShowPhaseGuardMessage("阶段不能回退", "JS Core 当前只支持向前推进。需要复盘时请使用日志、时间线或全知视角。");
+                ShowPhaseGuideMessage();
                 return;
             }
             RequestPhaseStage(NextPhaseStageFromViewModel(), "下一阶段");
+        }
+
+        private void ShowPhaseGuideMessage()
+        {
+            ShowPhaseGuardMessage("当前流程", BuildFlowGuideText());
+        }
+
+        private void UpdateFlowGuideUi()
+        {
+            if (flowGuideText != null) flowGuideText.text = BuildFlowGuideText(true);
+            var suggestNextPhase = ShouldHighlightNextPhaseButton();
+            if (nextPhaseButtonLabelText != null)
+            {
+                var label = NextPhaseButtonLabel();
+                nextPhaseButtonLabelText.text = suggestNextPhase ? $"> {label}" : label;
+                var guard = vm?.phaseAdvance;
+                nextPhaseButtonLabelText.color = guard != null && guard.blocked
+                    ? new Color(1f, 0.68f, 0.36f, 1f)
+                    : suggestNextPhase ? new Color(1f, 0.84f, 0.36f, 1f) : new Color(0.98f, 0.91f, 0.78f, 1f);
+            }
+            SetButtonSuggested(nextPhaseButton, suggestNextPhase);
+        }
+
+        private bool ShouldHighlightNextPhaseButton()
+        {
+            var guard = vm?.phaseAdvance;
+            if (guard == null) return true;
+            if (guard.blocked) return true;
+            if (guard.requiresConfirm) return true;
+            return guard.canAdvance || !string.IsNullOrWhiteSpace(guard.targetStage);
+        }
+
+        private string NextPhaseButtonLabel()
+        {
+            var guard = vm?.phaseAdvance;
+            if (guard != null && guard.blocked) return "处理事项";
+            if (guard != null && guard.requiresConfirm) return "确认推进";
+            var stage = NextPhaseStageFromViewModel();
+            if (stage == "public") return "开始公聊";
+            if (stage == "nomination") return "进入提名";
+            if (stage == "night") return "结束白天";
+            if (stage == "day" || stage == "private") return "结算夜晚";
+            return "下一阶段";
+        }
+
+        private string BuildFlowGuideText(bool compact = false)
+        {
+            var guard = vm?.phaseAdvance;
+            var title = string.IsNullOrWhiteSpace(vm?.phaseObjectiveTitle) ? PhaseLabel() : vm.phaseObjectiveTitle;
+            var hint = string.IsNullOrWhiteSpace(vm?.phaseObjectiveHint) ? "观察当前可用行动，再决定是否推进。" : vm.phaseObjectiveHint;
+            var next = FirstNonEmpty(guard?.label, PhaseTransitionStageName(NormalizePhaseTransitionStage(NextPhaseStageFromViewModel())));
+            var lines = new List<string>
+            {
+                title,
+                compact ? Ellipsize(hint, 34) : hint,
+                $"下一步：{next}"
+            };
+            if (guard != null && guard.blocked) lines.Add($"需处理：{FirstNonEmpty(guard.reason, "当前阶段还有必要事项。")}");
+            else if (guard != null && guard.requiresConfirm) lines.Add($"确认：{FirstNonEmpty(guard.hint, guard.reason, "再次点击继续。")}");
+            else if (guard?.warnings != null && guard.warnings.Length > 0) lines.Add($"提示：{guard.warnings[0]}");
+            return ClampTextLines(lines, compact ? 5 : 7, compact ? 18 : 54);
         }
 
         private string NextPhaseStageFromViewModel()
@@ -1459,8 +1264,25 @@ namespace BotcSolo.UnityPrototype
             }
             pendingPhaseConfirmStage = "";
             pendingPhaseConfirmUntil = -1f;
+            if (NormalizePhaseTransitionStage(stage) == "night")
+            {
+                ShowPhaseGuardMessage("夜幕降临", "所有人闭眼。夜间顺序开始流动，稍后自动结算并天亮。");
+                if (delayedPhaseActionRoutine != null) StopCoroutine(delayedPhaseActionRoutine);
+                BeginPhaseTransition("night", false);
+                delayedPhaseActionRoutine = StartCoroutine(SendPhaseActionAfterInterlude(stage, needsConfirm));
+                return;
+            }
             ShowPhaseGuardMessage(label, "已发送给 JS Core；阶段切换成功后界面会自动刷新。");
+            var normalizedStage = NormalizePhaseTransitionStage(stage);
+            if (normalizedStage != "private") BeginPhaseTransition(stage, true);
             SendUnityAction("phase", "", stage, "", "", "", "", "", "", false, needsConfirm ? "confirm" : "");
+        }
+
+        private IEnumerator SendPhaseActionAfterInterlude(string stage, bool needsConfirm)
+        {
+            yield return new WaitForSecondsRealtime(UiMotionDisabled() ? 0.05f : 3.25f);
+            SendUnityAction("phase", "", stage, "", "", "", "", "", "", false, needsConfirm ? "confirm" : "");
+            delayedPhaseActionRoutine = null;
         }
 
         private void ShowPhaseGuardMessage(string title, string body)
@@ -1547,227 +1369,6 @@ namespace BotcSolo.UnityPrototype
             return string.Join("\n", lines);
         }
 
-        private string InfoDrawerTitle()
-        {
-            if (infoDrawerTab == "timeline") return "资料抽屉 · 时间";
-            if (infoDrawerTab == "handbook") return "资料抽屉 · 手册";
-            if (infoDrawerTab == "recap") return "资料抽屉 · 复盘";
-            return "资料抽屉 · 日志";
-        }
-
-        private void UpdateInfoDrawerTabs()
-        {
-            SetInfoTabStyle(eventTabText, "events", "日志");
-            SetInfoTabStyle(timelineTabText, "timeline", "时间");
-            SetInfoTabStyle(handbookTabText, "handbook", "手册");
-            SetInfoTabStyle(recapTabText, "recap", "复盘");
-        }
-
-        private void SetInfoTabStyle(Text label, string tab, string title)
-        {
-            if (label == null) return;
-            var active = infoDrawerTab == tab;
-            label.text = active ? $"◆ {title}" : title;
-            label.color = active ? new Color(1f, 0.82f, 0.42f, 1f) : new Color(0.86f, 0.78f, 0.64f, 0.86f);
-            label.fontStyle = active ? FontStyle.Bold : FontStyle.Normal;
-        }
-
-        private string BuildInfoDrawerMainText()
-        {
-            if (infoDrawerTab == "timeline") return BuildTimelineOnlyText();
-            if (infoDrawerTab == "handbook") return BuildHandbookText();
-            if (infoDrawerTab == "recap") return BuildRecapText();
-            return BuildEventText();
-        }
-
-        private string BuildInfoDrawerSubText()
-        {
-            if (infoDrawerTab == "handbook")
-            {
-                var roles = vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-                var townsfolk = roles.Count((entry) => entry.category == "townsfolk");
-                var outsider = roles.Count((entry) => entry.category == "outsider");
-                var minion = roles.Count((entry) => entry.category == "minion");
-                var demon = roles.Count((entry) => entry.category == "demon");
-                return $"角色数：{roles.Length}  民 {townsfolk} / 外 {outsider} / 爪 {minion} / 恶 {demon}";
-            }
-            if (infoDrawerTab == "recap")
-            {
-                var count = vm.aiRecapDetails?.Length ?? 0;
-                return $"AI 条目：{count}  ·  来源：JS Core belief trail";
-            }
-            return BuildQueueText();
-        }
-
-        private string BuildHandbookText()
-        {
-            var handbook = vm.scriptHandbook;
-            if (handbook == null) return "剧本手册不可用。";
-            var lines = new List<string> { $"{handbook.scriptName}", "────────", "首夜顺序" };
-            var first = handbook.firstNightOrder ?? Array.Empty<string>();
-            lines.Add(ShortOrder(first));
-            lines.Add("");
-            lines.Add("其他夜晚");
-            var other = handbook.otherNightOrder ?? Array.Empty<string>();
-            lines.Add(ShortOrder(other));
-            lines.Add("");
-            lines.Add("角色预览");
-            var grouped = (handbook.roles ?? Array.Empty<ScriptRoleViewModel>())
-                .GroupBy((role) => role.category ?? "")
-                .OrderBy((group) => CategorySort(group.Key));
-            foreach (var group in grouped)
-            {
-                var names = string.Join(" / ", group.Take(4).Select((role) => role.name));
-                lines.Add($"{CategoryLabel(group.Key)}：{names}");
-            }
-            return string.Join("\n", lines);
-        }
-
-        private string BuildTimelineText()
-        {
-            var timeline = vm.timeline ?? Array.Empty<TimelineEntryViewModel>();
-            var start = Mathf.Max(0, timeline.Length - 8);
-            var lines = new List<string>();
-            for (var i = start; i < timeline.Length; i++)
-            {
-                var item = timeline[i];
-                var speaker = NameForPlayerId(item.speakerId);
-                var target = NameForPlayerId(item.targetId);
-                var arrow = string.IsNullOrWhiteSpace(item.targetId) ? "" : $" -> {target}";
-                lines.Add($"[{TimelineModeLabel(item.mode)}] {speaker}{arrow}: {item.text}");
-            }
-            if (vm.aiRecap != null && vm.aiRecap.Length > 0)
-            {
-                if (lines.Count > 0) lines.Add("");
-                lines.Add("AI 复盘摘要：");
-                for (var i = 0; i < vm.aiRecap.Length && i < 4; i++) lines.Add($"- {vm.aiRecap[i]}");
-            }
-            if (vm.aiRecapDetails != null && vm.aiRecapDetails.Length > 0)
-            {
-                var detail = vm.aiRecapDetails[0];
-                lines.Add("");
-                lines.Add($"首位 AI 证据簿：{detail.name} -> {detail.target} {detail.score}");
-                var targets = detail.targets ?? Array.Empty<AiRecapTargetViewModel>();
-                if (targets.Length > 0)
-                {
-                    var target = targets[0];
-                    lines.Add($"{target.name}：{target.reason}");
-                    var trail = target.trail ?? Array.Empty<AiTrailViewModel>();
-                    for (var i = 0; i < trail.Length && i < 2; i++)
-                    {
-                        lines.Add($"  {trail[i].evidenceKind} {trail[i].before:0}%->{trail[i].after:0}% {trail[i].reason}");
-                    }
-                }
-            }
-            if (lines.Count == 0) return "暂无公聊 / 私聊时间线。";
-            return string.Join("\n", lines);
-        }
-
-        private string BuildTimelineOnlyText()
-        {
-            var timeline = vm.timeline ?? Array.Empty<TimelineEntryViewModel>();
-            if (timeline.Length == 0) return "暂无公聊 / 私聊时间线。";
-            var start = Mathf.Max(0, timeline.Length - 12);
-            var lines = new List<string> { "最近对话", "────────" };
-            for (var i = start; i < timeline.Length; i++)
-            {
-                var item = timeline[i];
-                var speaker = NameForPlayerId(item.speakerId);
-                var target = NameForPlayerId(item.targetId);
-                var arrow = string.IsNullOrWhiteSpace(item.targetId) ? "" : $" -> {target}";
-                lines.Add($"[{TimelineModeLabel(item.mode)}] {speaker}{arrow}: {item.text}");
-            }
-            return ClampTextLines(lines, 14, 48);
-        }
-
-        private string BuildPrivateHistoryText()
-        {
-            if (string.IsNullOrWhiteSpace(selectedPlayerId)) return "选择一名玩家后显示最近私聊。";
-            var lines = PrivateTimelineEntriesForSelected().Select(FormatPrivateHistoryLine).ToList();
-            if (lines.Count == 0) return $"暂无与 {NameForPlayerId(selectedPlayerId)} 的私聊记录。";
-            return ClampTextLines(lines.Skip(Mathf.Max(0, lines.Count - 8)), 8, 86);
-        }
-
-        private List<TimelineEntryViewModel> PrivateTimelineEntriesForSelected()
-        {
-            var entries = new List<TimelineEntryViewModel>();
-            if (string.IsNullOrWhiteSpace(selectedPlayerId)) return entries;
-            var humanId = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player.human)?.id ?? "";
-            foreach (var item in vm.timeline ?? Array.Empty<TimelineEntryViewModel>())
-            {
-                if (item == null || !IsPrivateTimelineEntry(item.mode)) continue;
-                var selectedSpeaksToHuman = item.speakerId == selectedPlayerId && (string.IsNullOrWhiteSpace(item.targetId) || item.targetId == humanId);
-                var humanSpeaksToSelected = !string.IsNullOrWhiteSpace(humanId) && item.speakerId == humanId && item.targetId == selectedPlayerId;
-                var selectedIsTarget = item.targetId == selectedPlayerId;
-                if (selectedSpeaksToHuman || humanSpeaksToSelected || selectedIsTarget) entries.Add(item);
-            }
-            return entries;
-        }
-
-        private string FormatPrivateHistoryLine(TimelineEntryViewModel item)
-        {
-            var humanId = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player.human)?.id ?? "";
-            var speaker = item.speakerId == humanId ? "你" : NameForPlayerId(item.speakerId);
-            var target = string.IsNullOrWhiteSpace(item.targetId) ? "" : item.targetId == humanId ? " -> 你" : $" -> {NameForPlayerId(item.targetId)}";
-            return $"{TimelineStamp(item)} {speaker}{target}：{item.text}";
-        }
-
-        private static bool IsPrivateTimelineEntry(string mode)
-        {
-            if (string.IsNullOrWhiteSpace(mode)) return false;
-            return mode.IndexOf("whisper", StringComparison.OrdinalIgnoreCase) >= 0
-                || mode.IndexOf("private", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static string TimelineStamp(TimelineEntryViewModel item)
-        {
-            if (item == null) return "";
-            if (item.day > 0) return $"D{item.day}";
-            if (item.night > 0) return $"N{item.night}";
-            return "时间线";
-        }
-
-        private string BuildRecapText()
-        {
-            var outcomeLines = new List<string>();
-            if (IsGameOver())
-            {
-                outcomeLines.Add("终局结果");
-                outcomeLines.Add("────────");
-                outcomeLines.Add($"{OutcomeWinnerLabel()}胜利");
-                var reason = FirstNonEmpty(vm?.winnerReason, vm?.outcome?.reason);
-                if (!string.IsNullOrWhiteSpace(reason)) outcomeLines.Add(reason);
-                outcomeLines.Add($"结束于 D{vm.day}/N{vm.night} · 存活 {vm.alive} · 死亡 {vm.dead}");
-                outcomeLines.Add("");
-            }
-            var details = vm.aiRecapDetails ?? Array.Empty<AiRecapViewModel>();
-            if (details.Length == 0)
-            {
-                var recap = vm.aiRecap != null && vm.aiRecap.Length > 0 ? $"AI 摘要\n────────\n{string.Join("\n", vm.aiRecap.Take(8).Select((entry) => $"- {entry}"))}" : "暂无 AI 复盘摘要。";
-                return outcomeLines.Count > 0 ? ClampTextLines(outcomeLines.Concat(new[] { recap }), 14, 52) : recap;
-            }
-            var lines = new List<string>();
-            lines.AddRange(outcomeLines);
-            lines.Add("AI 推理摘要");
-            lines.Add("────────");
-            foreach (var detail in details.Take(3))
-            {
-                lines.Add($"{detail.name} -> {detail.target} {detail.score}");
-                lines.Add($"  {detail.reason}");
-                var top = detail.targets?.FirstOrDefault();
-                if (top != null)
-                {
-                    lines.Add($"  关注 {top.name}：{top.reason}");
-                    var trail = top.trail ?? Array.Empty<AiTrailViewModel>();
-                    foreach (var entry in trail.TakeLast(2))
-                    {
-                        lines.Add($"    {entry.evidenceKind} {entry.before:0}%->{entry.after:0}% {entry.reason}");
-                    }
-                }
-            }
-            return ClampTextLines(lines, 14, 48);
-        }
-
         private static int CategorySort(string category)
         {
             if (category == "townsfolk") return 0;
@@ -1777,88 +1378,9 @@ namespace BotcSolo.UnityPrototype
             return 9;
         }
 
-        private static string CategoryLabel(string category)
-        {
-            if (category == "townsfolk") return "镇民";
-            if (category == "outsider") return "外来者";
-            if (category == "minion") return "爪牙";
-            if (category == "demon") return "恶魔";
-            return "其他";
-        }
-
-        private static string TeamLabel(string team)
-        {
-            if (team == "good") return "善良";
-            if (team == "evil") return "邪恶";
-            return string.IsNullOrWhiteSpace(team) ? "未知阵营" : team;
-        }
-
-        private string RoleHandbookTag(ScriptRoleViewModel role)
-        {
-            if (role == null) return "";
-            var players = vm.players ?? Array.Empty<PlayerViewModel>();
-            if (players.Any((player) => player.human && (player.roleId == role.id || player.perceivedRoleId == role.id))) return " · 你";
-            if (players.Any((player) => player.markedRoleId == role.id || player.markedRoleName == role.name)) return " · 标";
-            return "";
-        }
-
-        private string RoleHandbookUseLine(ScriptRoleViewModel role)
-        {
-            var tag = RoleHandbookTag(role);
-            if (tag.Contains("你")) return "提示：这是主视角相关身份。";
-            if (tag.Contains("标")) return "提示：已有 token 使用这个魔典标记。";
-            return "提示：点击左侧角色可切换详情；手册不读取隐藏真相。";
-        }
-
-        private static string ShortOrder(string[] order)
-        {
-            if (order == null || order.Length == 0) return "暂无";
-            var values = order.Where((item) => !string.IsNullOrWhiteSpace(item)).ToArray();
-            if (values.Length == 0) return "暂无";
-            var lines = new List<string>();
-            for (var i = 0; i < values.Length; i += 5)
-            {
-                lines.Add(string.Join(" / ", values.Skip(i).Take(5)));
-            }
-            return string.Join("\n      ", lines);
-        }
-
         private static int CountCategory(Dictionary<string, int> counts, string category)
         {
             return counts != null && counts.TryGetValue(category, out var value) ? value : 0;
-        }
-
-        private string BuildBluffText()
-        {
-            var bluffs = vm.bluffs ?? Array.Empty<string>();
-            return bluffs.Length == 0 ? "暂无伪装" : string.Join("     ", bluffs);
-        }
-
-        private bool HasPendingAction()
-        {
-            return !string.IsNullOrWhiteSpace(pendingActionId) && pendingActionStartedAt >= 0f;
-        }
-
-        private bool IsPendingPrivateChat()
-        {
-            return HasPendingAction() && (pendingActionType == "private-chat" || pendingActionType == "private-preset");
-        }
-
-        private bool IsPendingPrivateChatForTarget(PlayerViewModel target)
-        {
-            return target != null
-                && IsPendingPrivateChat()
-                && (string.IsNullOrWhiteSpace(pendingActionPlayerId) || pendingActionPlayerId == target.id);
-        }
-
-        private float PendingActionElapsed()
-        {
-            return HasPendingAction() ? Mathf.Max(0f, Time.realtimeSinceStartup - pendingActionStartedAt) : 0f;
-        }
-
-        private bool PendingActionTimedOut()
-        {
-            return HasPendingAction() && PendingActionElapsed() >= BridgeTimeoutSeconds;
         }
 
         private void UpdateSyncStatusText()
@@ -1945,33 +1467,6 @@ namespace BotcSolo.UnityPrototype
             return $"{value.Substring(0, Mathf.Max(1, maxChars - 1))}…";
         }
 
-        private static string RoleIconFallbackLabel(PlayerViewModel player)
-        {
-            var roleName = player?.roleName ?? "";
-            var paren = roleName.IndexOf("(", StringComparison.Ordinal);
-            if (paren > 0) roleName = roleName.Substring(0, paren).Trim();
-            if (!string.IsNullOrWhiteSpace(roleName)) return roleName.Substring(0, Mathf.Min(1, roleName.Length));
-            var roleId = player?.roleId ?? "";
-            return string.IsNullOrWhiteSpace(roleId) ? "?" : roleId.Substring(0, 1).ToUpperInvariant();
-        }
-
-        private static string RoleFallbackLabel(string roleId, string roleName)
-        {
-            if (!string.IsNullOrWhiteSpace(roleName)) return roleName.Substring(0, Mathf.Min(1, roleName.Length));
-            return string.IsNullOrWhiteSpace(roleId) ? "?" : roleId.Substring(0, 1).ToUpperInvariant();
-        }
-
-        private static Color RoleHaloColor(string category, string team, bool selected)
-        {
-            if (selected) return new Color(1f, 0.76f, 0.30f, 0.96f);
-            if (string.Equals(team, "evil", StringComparison.OrdinalIgnoreCase) || category == "minion" || category == "demon")
-            {
-                return category == "demon" ? new Color(0.72f, 0.05f, 0.10f, 0.86f) : new Color(0.78f, 0.10f, 0.18f, 0.74f);
-            }
-            if (category == "outsider") return new Color(0.18f, 0.45f, 0.92f, 0.72f);
-            return new Color(0.16f, 0.50f, 0.95f, 0.76f);
-        }
-
         private string BuildActionSummaryText()
         {
             var lines = new List<string>();
@@ -2039,15 +1534,6 @@ namespace BotcSolo.UnityPrototype
             return Mathf.Clamp(page, 0, PageCount(itemCount, pageSize) - 1);
         }
 
-        private string BuildVoteCeremonyText()
-        {
-            var vote = vm.voteCeremony;
-            if (vote == null || string.IsNullOrWhiteSpace(vote.nomineeId)) return "";
-            var voters = vote.voters ?? Array.Empty<VoteViewModel>();
-            var raised = voters.Where((entry) => entry.vote).Take(6).Select((entry) => entry.voterName);
-            return $"投票仪式：{vote.nominatorName} -> {vote.nomineeName}\n{vote.resultText}\n举手：{string.Join(" / ", raised)}";
-        }
-
         private string BuildActionFormsText()
         {
             var forms = vm.actionForms ?? Array.Empty<ActionFormViewModel>();
@@ -2069,21 +1555,6 @@ namespace BotcSolo.UnityPrototype
             return lines.Count == 0 ? "" : string.Join("\n", lines);
         }
 
-        private string BuildMenuInfoText()
-        {
-            var queueCount = vm.storytellerQueue?.Length ?? 0;
-            var timelineCount = vm.timeline?.Length ?? 0;
-            var bluffs = vm.bluffs == null || vm.bluffs.Length == 0 ? "未知" : string.Join(" / ", vm.bluffs);
-            return $"{DisplayScriptName()}\n"
-                + $"D{vm.day}/N{vm.night} - {PhaseLabel()}\n"
-                + $"存活 {vm.alive} - 死亡 {vm.dead}\n"
-                + $"配置 {vm.setup}\n\n"
-                + $"说书人队列：{queueCount} 项\n"
-                + $"对话时间线：{timelineCount} 条\n"
-                + $"恶魔伪装：{bluffs}\n\n"
-                + "提示：进入魔典后，先选择 token，再使用行动托盘。";
-        }
-
         private string DisplayScriptName()
         {
             var scriptName = string.IsNullOrWhiteSpace(vm.scriptName) ? "未知剧本" : vm.scriptName;
@@ -2099,1634 +1570,114 @@ namespace BotcSolo.UnityPrototype
             return playerId == "storyteller" ? "说书人" : playerId;
         }
 
-        private string DefaultClaimRoleId()
+        private bool GameplayOverlayOpen()
         {
-            var roles = vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-            var human = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player.human);
-            foreach (var role in roles)
-            {
-                if (string.IsNullOrWhiteSpace(role.id)) continue;
-                if (role.id == human?.roleId || role.id == human?.perceivedRoleId) continue;
-                if (role.category == "townsfolk" || role.team == "good") return role.id;
-            }
-            return roles.FirstOrDefault((role) => !string.IsNullOrWhiteSpace(role.id))?.id ?? "";
-        }
-
-        private string RoleNameForId(string roleId)
-        {
-            if (string.IsNullOrWhiteSpace(roleId)) return "未指定身份";
-            var roles = vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-            foreach (var role in roles) if (role.id == roleId) return string.IsNullOrWhiteSpace(role.name) ? role.id : role.name;
-            return roleId;
-        }
-
-        private ScriptRoleViewModel RoleForId(string roleId)
-        {
-            if (string.IsNullOrWhiteSpace(roleId)) return null;
-            return (vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>()).FirstOrDefault((role) => role != null && role.id == roleId);
-        }
-
-        private void OpenPrivateClaimRolePicker()
-        {
-            activeRolePickerMode = "private-claim";
-            activeRolePickerPlayerId = selectedPlayerId;
-            RenderRolePickerPanel();
-            if (rolePickerPanel != null) rolePickerPanel.gameObject.SetActive(true);
-            ApplyModalBackdropVisibility();
-        }
-
-        private void OpenGrimoireRoleMarkPicker()
-        {
-            var target = SelectedPlayer();
-            if (target == null)
-            {
-                dialogueTitle.text = "标记身份";
-                dialogueBody.text = "请先选择一个 token，再打开角色图标标记器。";
-                return;
-            }
-            activeRolePickerMode = "mark-role";
-            activeRolePickerPlayerId = target.id;
-            RenderRolePickerPanel();
-            if (rolePickerPanel != null) rolePickerPanel.gameObject.SetActive(true);
-            ApplyModalBackdropVisibility();
-        }
-
-        private void CloseRolePicker()
-        {
-            if (rolePickerPanel != null) rolePickerPanel.gameObject.SetActive(false);
-            activeRolePickerMode = "";
-            activeRolePickerPlayerId = "";
-            ApplyModalBackdropVisibility();
-        }
-
-        private void RenderRolePickerPanel()
-        {
-            if (rolePickerGridRoot == null) return;
-            for (var i = rolePickerGridRoot.childCount - 1; i >= 0; i--) Destroy(rolePickerGridRoot.GetChild(i).gameObject);
-            AddFrame(rolePickerGridRoot, "Role Picker Grid Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
-
-            var roles = (vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>())
-                .Where((role) => role != null && !string.IsNullOrWhiteSpace(role.id))
-                .OrderBy((role) => CategorySort(role.category ?? ""))
-                .ThenBy((role) => role.name ?? role.id ?? "")
-                .ToArray();
-            var target = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && player.id == activeRolePickerPlayerId);
-            var selectedRoleId = activeRolePickerMode == "private-claim" ? SelectedPrivateClaimRoleId() : target?.markedRoleId ?? "";
-
-            if (rolePickerTitle != null)
-            {
-                rolePickerTitle.text = activeRolePickerMode == "mark-role"
-                    ? $"为玩家 {target?.name ?? "未选择"} 选择标记身份"
-                    : "选择私聊声称身份";
-            }
-            if (rolePickerStatusText != null)
-            {
-                var currentRoleName = string.IsNullOrWhiteSpace(selectedRoleId)
-                    ? (activeRolePickerMode == "mark-role" ? "未标记" : "不声称")
-                    : RoleNameForId(selectedRoleId);
-                rolePickerStatusText.text = activeRolePickerMode == "mark-role"
-                    ? $"目标：{target?.name ?? "未选择"}  ·  当前标记：{currentRoleName}  ·  只进入你的魔典认知。"
-                    : $"当前声称：{currentRoleName}  ·  点击角色 token 切换，也可以选择不声称。";
-            }
-
-            var columns = 11;
-            var startX = 72f;
-            var startY = 408f;
-            var spacingX = 118f;
-            var spacingY = 128f;
-            for (var i = 0; i < roles.Length; i++)
-            {
-                var role = roles[i];
-                var col = i % columns;
-                var row = i / columns;
-                var roleId = role.id;
-                AddRoleTokenButton(
-                    rolePickerGridRoot,
-                    role.id,
-                    role.name,
-                    role.category,
-                    role.team,
-                    new Vector2(startX + col * spacingX, startY - row * spacingY),
-                    82f,
-                    selectedRoleId == role.id,
-                    () => ApplyRolePickerChoice(roleId)
-                );
-            }
-
-            var blankLabel = activeRolePickerMode == "mark-role" ? "清除" : "不声称";
-            AddBlankRoleTokenButton(rolePickerGridRoot, blankLabel, new Vector2(startX + (roles.Length % columns) * spacingX, startY - (roles.Length / columns) * spacingY), 82f, string.IsNullOrWhiteSpace(selectedRoleId), () => ApplyRolePickerChoice(""));
-        }
-
-        private void ApplyRolePickerChoice(string roleId)
-        {
-            if (activeRolePickerMode == "private-claim")
-            {
-                SetPrivateClaimRole(roleId);
-                privateChatStatus = string.IsNullOrWhiteSpace(roleId) ? "本次私聊不会主动声称身份。" : $"本次私聊声称身份：{RoleNameForId(roleId)}。";
-                UpdatePrivateChatPanelText();
-                CloseRolePicker();
-                return;
-            }
-            if (activeRolePickerMode == "mark-role")
-            {
-                if (!string.IsNullOrWhiteSpace(activeRolePickerPlayerId))
-                {
-                    SendUnityAction("grimoire-mark-role", activeRolePickerPlayerId, "", "", "", "", roleId);
-                    dialogueTitle.text = "魔典标记";
-                    dialogueBody.text = string.IsNullOrWhiteSpace(roleId)
-                        ? $"已清除 {NameForPlayerId(activeRolePickerPlayerId)} 的身份标记。"
-                        : $"已将 {NameForPlayerId(activeRolePickerPlayerId)} 标记为 {RoleNameForId(roleId)}。";
-                }
-                CloseRolePicker();
-            }
-        }
-
-        private void SetPrivateClaimRole(string roleId)
-        {
-            PopulatePrivateClaimRoles();
-            privateClaimRoleIndex = Mathf.Max(0, privateClaimRoleIds.IndexOf(roleId ?? ""));
-        }
-
-        private void OpenPrivateChatPanel()
-        {
-            CloseMoreActionsPanel();
-            CloseAuxPanels();
-            if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(false);
-            if (votePanel != null) votePanel.gameObject.SetActive(false);
-            if (string.IsNullOrWhiteSpace(privateChatStatus))
-            {
-                privateChatStatus = SelectedPrivateChatTarget() == null
-                    ? "先选择一名私聊目标。"
-                    : "选择身份、填写夜间信息或勾选保密后发送。";
-            }
-            PopulatePrivateClaimRoles();
-            UpdatePrivateChatPanelText();
-            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(true);
-        }
-
-        private void PopulatePrivateClaimRoles()
-        {
-            privateClaimRoleIds.Clear();
-            privateClaimRoleIds.Add("");
-            var roles = vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-            foreach (var role in roles)
-            {
-                if (!string.IsNullOrWhiteSpace(role.id)) privateClaimRoleIds.Add(role.id);
-            }
-            if (privateClaimRoleIndex < 0 || privateClaimRoleIndex >= privateClaimRoleIds.Count) privateClaimRoleIndex = 0;
-            UpdatePrivateChatPanelText();
-        }
-
-        private void CyclePrivateClaimRole(int delta)
-        {
-            PopulatePrivateClaimRoles();
-            if (privateClaimRoleIds.Count == 0) return;
-            privateClaimRoleIndex = (privateClaimRoleIndex + delta + privateClaimRoleIds.Count) % privateClaimRoleIds.Count;
-            UpdatePrivateChatPanelText();
-        }
-
-        private string SelectedPrivateClaimRoleId()
-        {
-            if (privateClaimRoleIds.Count == 0) PopulatePrivateClaimRoles();
-            return privateClaimRoleIndex > 0 && privateClaimRoleIndex < privateClaimRoleIds.Count ? privateClaimRoleIds[privateClaimRoleIndex] : "";
-        }
-
-        private string PendingPrivateChatStatusText()
-        {
-            if (!IsPendingPrivateChat()) return "";
-            if (PendingActionTimedOut())
-            {
-                return "仍未收到 JS Core 刷新。请确认 demo 是通过 npm run unity:demo 启动，或另开 npm run unity:bridge:build。";
-            }
-            return $"已写入私聊 action，等待 JS Core 回复（{PendingActionElapsed():0.0}s）。";
-        }
-
-        private void UpdatePrivateChatPanelText()
-        {
-            var target = SelectedPrivateChatTarget();
-            var hasTarget = target != null;
-            if (privateTargetText != null) privateTargetText.text = hasTarget ? $"目标：{target.name}" : "目标：未选择 token";
-            if (privateClaimRoleText != null)
-            {
-                var roleId = SelectedPrivateClaimRoleId();
-                privateClaimRoleText.text = !hasTarget
-                    ? "先选目标"
-                    : string.IsNullOrWhiteSpace(roleId) ? "不私下声称" : RoleNameForId(roleId);
-            }
-            RenderPrivateClaimRoleIcon(hasTarget);
-            if (privateHistoryText != null) privateHistoryText.text = BuildPrivateHistoryText();
-            if (privateStatusText != null)
-            {
-                var pendingPrivateStatus = PendingPrivateChatStatusText();
-                var status = !hasTarget
-                    ? "先在右侧选择目标，或直接点击魔典 token。"
-                    : !string.IsNullOrWhiteSpace(pendingPrivateStatus) ? pendingPrivateStatus
-                    : string.IsNullOrWhiteSpace(privateChatStatus) ? "准备发送给 JS Core；AI 回复会刷新到 timeline。" : privateChatStatus;
-                privateStatusText.text = ClampTextBlock(status, 2, 28);
-                privateStatusText.color = PendingActionTimedOut() && IsPendingPrivateChat()
-                    ? new Color(1f, 0.56f, 0.38f, 1f)
-                    : new Color(0.82f, 0.88f, 0.90f, 0.90f);
-            }
-            RenderPrivateTargetCard(target);
-            RenderPrivateDialogueBubbles(target);
-            RenderPrivateTargetPicker();
-        }
-
-        private void RenderPrivateClaimRoleIcon(bool hasTarget)
-        {
-            if (privateClaimRoleGridRoot == null) return;
-            for (var i = privateClaimRoleGridRoot.childCount - 1; i >= 0; i--) Destroy(privateClaimRoleGridRoot.GetChild(i).gameObject);
-            var roleId = SelectedPrivateClaimRoleId();
-            var role = RoleForId(roleId);
-            if (!hasTarget || role == null)
-            {
-                AddBlankRoleTokenButton(privateClaimRoleGridRoot, hasTarget ? "选择" : "未选", new Vector2(48f, 44f), 46f, false, OpenPrivateClaimRolePicker);
-                return;
-            }
-            AddRoleTokenButton(privateClaimRoleGridRoot, role.id, role.name, role.category, role.team, new Vector2(48f, 44f), 46f, true, OpenPrivateClaimRolePicker);
-        }
-
-        private void RenderPrivateDialogueBubbles(PlayerViewModel target)
-        {
-            if (privateDialogueRoot == null) return;
-            for (var i = privateDialogueRoot.childCount - 1; i >= 0; i--) Destroy(privateDialogueRoot.GetChild(i).gameObject);
-
-            var width = Mathf.Max(640f, privateDialogueRoot.rect.width);
-            var height = Mathf.Max(188f, privateDialogueRoot.rect.height);
-            if (target == null)
-            {
-                AddText("Private Dialogue Empty", privateDialogueRoot, Vector2.zero, Vector2.one, new Vector2(18f, 72f), new Vector2(-18f, -72f), "选择一名玩家后，这里会显示最近私聊。", 16, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var entries = PrivateTimelineEntriesForSelected();
-            var showPending = IsPendingPrivateChatForTarget(target);
-            if (entries.Count == 0 && !showPending)
-            {
-                AddText("Private Dialogue None", privateDialogueRoot, Vector2.zero, Vector2.one, new Vector2(18f, 72f), new Vector2(-18f, -72f), $"暂无与 {target.name} 的私聊记录。", 16, TextAnchor.MiddleCenter, FontStyle.Normal);
-                AddText("Private Dialogue Prompt", privateDialogueRoot, Vector2.zero, Vector2.one, new Vector2(18f, 34f), new Vector2(-18f, -118f), "点击“询问身份”或发送本次私聊后，对话会刷新到这里。", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var maxRecent = showPending ? 2 : 3;
-            var recent = entries.Skip(Mathf.Max(0, entries.Count - maxRecent)).ToArray();
-            var humanId = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player.human)?.id ?? "";
-            for (var i = 0; i < recent.Length; i++)
-            {
-                var item = recent[i];
-                var fromHuman = !string.IsNullOrWhiteSpace(humanId) && item.speakerId == humanId;
-                var bubbleWidth = fromHuman ? 470f : 520f;
-                var x = fromHuman ? width - bubbleWidth - 10f : 10f;
-                var y = height - 58f - i * 58f;
-                var color = fromHuman
-                    ? new Color(0.18f, 0.090f, 0.032f, 0.86f)
-                    : new Color(0.018f, 0.032f, 0.046f, 0.86f);
-                var border = fromHuman
-                    ? new Color(0.95f, 0.68f, 0.34f, 0.36f)
-                    : new Color(0.62f, 0.78f, 0.92f, 0.22f);
-                var bubble = AddPanel($"Private Bubble {i}", privateDialogueRoot, Vector2.zero, Vector2.zero, new Vector2(x, y), new Vector2(x + bubbleWidth, y + 48f), color);
-                AddFrame(bubble.transform, "Private Bubble Frame", 0.8f, border);
-                var speaker = fromHuman ? "你" : NameForPlayerId(item.speakerId);
-                var text = ClampTextLines(new[] { $"{speaker}：{item.text}" }, 2, fromHuman ? 42 : 48);
-                var label = AddText("Bubble Text", bubble.transform, Vector2.zero, Vector2.one, new Vector2(12f, 4f), new Vector2(-12f, -4f), text, 14, fromHuman ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, FontStyle.Normal);
-                label.color = new Color(0.96f, 0.91f, 0.82f, 0.98f);
-            }
-            if (showPending) RenderPrivatePendingBubble(width, height, recent.Length);
-        }
-
-        private void RenderPrivatePendingBubble(float width, float height, int rowIndex)
-        {
-            var timedOut = PendingActionTimedOut();
-            var bubbleWidth = timedOut ? 600f : 500f;
-            var x = (width - bubbleWidth) * 0.5f;
-            var y = height - 58f - rowIndex * 58f;
-            var color = timedOut ? new Color(0.26f, 0.060f, 0.036f, 0.88f) : new Color(0.16f, 0.120f, 0.040f, 0.88f);
-            var border = timedOut ? new Color(1f, 0.36f, 0.26f, 0.58f) : new Color(1f, 0.76f, 0.32f, 0.42f);
-            var bubble = AddPanel("Private Pending Bubble", privateDialogueRoot, Vector2.zero, Vector2.zero, new Vector2(x, y), new Vector2(x + bubbleWidth, y + 48f), color);
-            AddFrame(bubble.transform, "Private Pending Bubble Frame", 0.8f, border);
-            var dots = new string('.', 1 + Mathf.FloorToInt(PendingActionElapsed() * 2f) % 3);
-            var text = timedOut
-                ? "仍未收到 JS Core 刷新；请确认 bridge 正在运行。"
-                : $"等待对方回应{dots} {PendingActionElapsed():0.0}s";
-            var label = AddText("Private Pending Text", bubble.transform, Vector2.zero, Vector2.one, new Vector2(12f, 4f), new Vector2(-12f, -4f), text, 14, TextAnchor.MiddleCenter, FontStyle.Bold);
-            label.color = timedOut ? new Color(1f, 0.78f, 0.64f, 1f) : new Color(1f, 0.88f, 0.52f, 1f);
-        }
-
-        private void RenderPrivateTargetCard(PlayerViewModel target)
-        {
-            if (privateTargetCardRoot == null) return;
-            for (var i = privateTargetCardRoot.childCount - 1; i >= 0; i--) Destroy(privateTargetCardRoot.GetChild(i).gameObject);
-
-            AddFrame(privateTargetCardRoot, "Private Target Card Frame", 0.9f, new Color(0.92f, 0.62f, 0.28f, 0.30f));
-            AddImage("Private Target Card Glow", privateTargetCardRoot, new Vector2(0f, 0.52f), new Vector2(1f, 1f), new Vector2(8f, -8f), new Vector2(-8f, -8f), new Color(1f, 0.76f, 0.36f, 0.055f));
-
-            if (target == null)
-            {
-                AddText("Private Target Card Title", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(18f, 416f), new Vector2(-18f, -18f), "未选择", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-                var unknown = AddImage("Private Target Unknown Token", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(42f, 218f), new Vector2(-42f, -98f), new Color(0.86f, 0.78f, 0.62f, 0.78f));
-                unknown.sprite = SpriteFromResource("Botc/ui/vote1") ?? GetCircleFillSprite();
-                unknown.preserveAspect = true;
-                AddText("Private Target Unknown Mark", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(70f, 250f), new Vector2(-70f, -132f), "?", 56, TextAnchor.MiddleCenter, FontStyle.Bold);
-                AddText("Private Target Empty Hint", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(22f, 96f), new Vector2(-22f, -312f), "先选择一名玩家，再开始私聊。", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
-                AddText("Private Target Empty Style", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(22f, 36f), new Vector2(-22f, -386f), "普通风格", 14, TextAnchor.MiddleCenter, FontStyle.Bold);
-                return;
-            }
-
-            AddText("Private Target Card Title", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(18f, 416f), new Vector2(-18f, -18f), $"{target.seat}号", 28, TextAnchor.UpperLeft, FontStyle.Bold);
-            var state = $"{(target.alive ? "存活" : "死亡")} / {(target.ghostVoteAvailable ? "有鬼票" : "无鬼票")}";
-            AddText("Private Target Suspicion", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(96f, 420f), new Vector2(-18f, -24f), $"{target.suspicion}%", 15, TextAnchor.UpperRight, FontStyle.Bold);
-
-            var token = AddImage("Private Target Token", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(34f, 210f), new Vector2(-34f, -88f), new Color(0.92f, 0.82f, 0.60f, 0.92f));
-            token.sprite = SpriteFromResource(target.revealed ? "Botc/ui/token1" : "Botc/ui/vote1") ?? GetCircleFillSprite();
-            token.preserveAspect = true;
-
-            if (target.revealed && !string.IsNullOrWhiteSpace(target.roleId))
-            {
-                var roleIcon = AddImage("Private Target Role Icon", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(68f, 242f), new Vector2(-68f, -124f), Color.white);
-                roleIcon.sprite = SpriteFromResource($"Botc/roles/{target.roleId}");
-                roleIcon.preserveAspect = true;
-                if (roleIcon.sprite == null) roleIcon.color = new Color(1f, 1f, 1f, 0f);
-            }
-            else
-            {
-                AddText("Private Target Unknown Role", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(70f, 246f), new Vector2(-70f, -130f), "?", 52, TextAnchor.MiddleCenter, FontStyle.Bold);
-            }
-
-            AddText("Private Target Name", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(22f, 150f), new Vector2(-22f, -290f), target.name, 26, TextAnchor.MiddleCenter, FontStyle.Bold);
-            AddText("Private Target Role", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(18f, 110f), new Vector2(-18f, -334f), PrivateRoleDisplay(target), 17, TextAnchor.MiddleCenter, FontStyle.Normal);
-            AddText("Private Target State", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(18f, 72f), new Vector2(-18f, -372f), state, 14, TextAnchor.MiddleCenter, FontStyle.Normal);
-            AddText("Private Target Style", privateTargetCardRoot, Vector2.zero, Vector2.one, new Vector2(22f, 36f), new Vector2(-22f, -386f), "普通风格", 14, TextAnchor.MiddleCenter, FontStyle.Bold);
-        }
-
-        private string PrivateRoleDisplay(PlayerViewModel player)
-        {
-            if (player == null) return "未选择";
-            if (player.revealed) return string.IsNullOrWhiteSpace(player.roleName) ? "未知" : player.roleName;
-            if (!string.IsNullOrWhiteSpace(player.markedRoleName)) return $"标记：{player.markedRoleName}";
-            return "未知身份";
-        }
-
-        private void RenderPrivateTargetPicker()
-        {
-            if (privateTargetPickerRoot == null) return;
-            var needsTarget = SelectedPrivateChatTarget() == null;
-            privateTargetPickerRoot.gameObject.SetActive(needsTarget);
-            if (!needsTarget) return;
-
-            for (var i = privateTargetPickerRoot.childCount - 1; i >= 0; i--) Destroy(privateTargetPickerRoot.GetChild(i).gameObject);
-            AddFrame(privateTargetPickerRoot, "Private Target Picker Frame", 0.9f, new Color(0.92f, 0.62f, 0.28f, 0.28f));
-            AddText("Private Target Picker Title", privateTargetPickerRoot, Vector2.zero, Vector2.one, new Vector2(28f, 402f), new Vector2(-28f, -18f), "选择私聊目标", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Private Target Picker Hint", privateTargetPickerRoot, Vector2.zero, Vector2.one, new Vector2(28f, 360f), new Vector2(-28f, -58f), "点一名玩家后，右侧会切换为本次私聊内容。", 15, TextAnchor.UpperLeft, FontStyle.Normal);
-
-            var targets = (vm.players ?? Array.Empty<PlayerViewModel>())
-                .Where((player) => player != null && !player.human)
-                .OrderBy((player) => player.seat)
-                .Take(9)
-                .ToArray();
-            if (targets.Length == 0)
-            {
-                AddText("Private Target Empty", privateTargetPickerRoot, Vector2.zero, Vector2.one, new Vector2(22f, 112f), new Vector2(-22f, -98f), "暂无可私聊目标。", 17, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            for (var i = 0; i < targets.Length; i++)
-            {
-                var target = targets[i];
-                var col = i % 3;
-                var row = i / 3;
-                var targetId = target.id;
-                AddButton($"{target.seat}号", privateTargetPickerRoot, new Vector2(130f + col * 246f, 286f - row * 58f), new Vector2(154f, 38f), () => SelectPrivateChatTarget(targetId));
-            }
-        }
-
-        private void SelectPrivateChatTarget(string playerId)
-        {
-            selectedPlayerId = playerId ?? "";
-            if (!string.IsNullOrWhiteSpace(selectedPlayerId))
-            {
-                SendUnityAction("select-token", selectedPlayerId, "", "", "", trackPending: false);
-                privateChatStatus = $"已选择 {NameForPlayerId(selectedPlayerId)}；可以询问身份或发送私聊。";
-            }
-            UpdateTokenInspectorText();
-            UpdatePrivateChatPanelText();
-        }
-
-        private void SendPrivateClaimQuestion()
-        {
-            if (SelectedPrivateChatTarget() == null)
-            {
-                dialogueTitle.text = "私聊：询问身份";
-                dialogueBody.text = "请先点击一名非主视角玩家 token。";
-                return;
-            }
-            SendUnityAction("private-chat", selectedPlayerId, "", "你是什么身份？", "claim");
-            privateChatStatus = $"已询问 {NameForPlayerId(selectedPlayerId)} 的身份说法，等待 JS Core 刷新回复。";
-            UpdatePrivateChatPanelText();
-            dialogueTitle.text = "私聊：询问身份";
-            dialogueBody.text = "已发送私聊请求。详情与历史保留在私聊面板。";
-        }
-
-        private void SendPrivateQuickQuestion(string question, string intent)
-        {
-            if (SelectedPrivateChatTarget() == null)
-            {
-                OpenPrivateChatPanel();
-                dialogueTitle.text = "私聊：继续追问";
-                dialogueBody.text = "请先选择一名非主视角玩家作为私聊目标。";
-                return;
-            }
-            SendUnityAction("private-chat", selectedPlayerId, "", question, intent);
-            privateChatStatus = $"已追问 {NameForPlayerId(selectedPlayerId)}，等待 JS Core 写入回复。";
-            UpdatePrivateChatPanelText();
-            dialogueTitle.text = "私聊：继续追问";
-            dialogueBody.text = $"已发送：{question}";
-        }
-
-        private void SendPrivatePanelMessage()
-        {
-            if (SelectedPrivateChatTarget() == null)
-            {
-                dialogueTitle.text = "私聊发送";
-                dialogueBody.text = "请先点击一名非主视角玩家 token。";
-                return;
-            }
-            var claimRoleId = SelectedPrivateClaimRoleId();
-            var nightInfo = privateNightInput == null ? "" : privateNightInput.text.Trim();
-            var askSecret = privateSecretToggle != null && privateSecretToggle.isOn;
-            var intent = !string.IsNullOrWhiteSpace(claimRoleId) ? "claim" : !string.IsNullOrWhiteSpace(nightInfo) ? "night" : askSecret ? "trust" : "generic";
-            var line = askSecret ? "这条信息先只在我们之间对齐。" : "我想和你私下交换一下信息。";
-            SendUnityAction("private-chat", selectedPlayerId, "", line, intent, claimRoleId: claimRoleId, nightInfo: nightInfo, askSecret: askSecret);
-            privateChatStatus = $"已发送给 {NameForPlayerId(selectedPlayerId)}；等待 JS Core 写入私聊历史。";
-            UpdatePrivateChatPanelText();
-            dialogueTitle.text = "私聊已发送";
-            dialogueBody.text = "已发送私聊内容。底部保持简短，后续回复请看私聊面板或时间线。";
-        }
-
-        private ActionFormViewModel ActiveActionForm()
-        {
-            return (vm.actionForms ?? Array.Empty<ActionFormViewModel>()).FirstOrDefault((entry) => entry != null && entry.id == activeActionFormId);
-        }
-
-        private void OpenStorytellerPanel()
-        {
-            CloseMoreActionsPanel();
-            CloseAuxPanels();
-            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
-            if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(false);
-            if (votePanel != null) votePanel.gameObject.SetActive(false);
-            if (handbookPanel != null) handbookPanel.gameObject.SetActive(false);
-            RenderStorytellerPanel();
-            if (storytellerPanel != null) storytellerPanel.gameObject.SetActive(true);
-        }
-
-        private void RenderStorytellerPanel()
-        {
-            if (storytellerTitle != null) storytellerTitle.text = "Storyteller 队列";
-            var queue = vm.storytellerQueue ?? Array.Empty<string>();
-            var details = vm.storytellerQueueDetails ?? Array.Empty<StorytellerQueueItemViewModel>();
-            var action = vm.pendingStorytellerAction;
-            var queueCount = Mathf.Max(queue.Length, details.Length);
-
-            if (storytellerBody != null)
-            {
-                var currentLine = action != null && action.available
-                    ? $"当前：{action.roleName} · {StorytellerActionTypeLabel(action.type)} · {StorytellerInputLabel(action.inputType)}"
-                    : $"当前：{(string.IsNullOrWhiteSpace(action?.reason) ? "没有待处理行动" : action.reason)}";
-                storytellerBody.text = ClampTextLines(new[]
-                {
-                    queueCount == 0 ? "队列为空。阶段推进不会被 Storyteller 队列阻塞。" : $"待处理 {queueCount} 项。JS Core 会按队首优先处理；当前面板只展示并提交队首行动。",
-                    currentLine
-                }, 2, 92);
-            }
-
-            RenderStorytellerQueueCards(queue, details);
-            RenderStorytellerCurrentAction(action, details.FirstOrDefault((entry) => entry != null && entry.current));
-            RenderStorytellerTargetPreview(action);
-        }
-
-        private void RenderStorytellerQueueCards(string[] queue, StorytellerQueueItemViewModel[] details)
-        {
-            if (storytellerQueueListRoot == null) return;
-            ClearChildren(storytellerQueueListRoot);
-            AddFrame(storytellerQueueListRoot, "Storyteller Queue Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            AddText("Storyteller Queue Label", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(18f, 398f), new Vector2(-18f, -14f), "待处理队列", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-
-            var count = Mathf.Max(queue?.Length ?? 0, details?.Length ?? 0);
-            if (count == 0)
-            {
-                AddText("Storyteller Queue Empty", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(24f, 150f), new Vector2(-24f, -120f), "暂无队列。\n死亡触发、被动信息或特殊角色选择会出现在这里。", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var visible = Mathf.Min(5, count);
-            for (var i = 0; i < visible; i++)
-            {
-                var detail = details != null && i < details.Length ? details[i] : null;
-                var prompt = detail != null && !string.IsNullOrWhiteSpace(detail.prompt)
-                    ? detail.prompt
-                    : queue != null && i < queue.Length ? queue[i] : "待处理行动";
-                var roleName = detail != null && !string.IsNullOrWhiteSpace(detail.roleName) ? detail.roleName : "Storyteller";
-                var active = detail?.current ?? i == 0;
-                var y = 370f - i * 70f;
-                var cardColor = active ? new Color(0.13f, 0.072f, 0.030f, 0.86f) : new Color(0.009f, 0.016f, 0.024f, 0.72f);
-                var card = AddPanel($"Storyteller Queue Card {i}", storytellerQueueListRoot, Vector2.zero, Vector2.zero, new Vector2(16f, y - 58f), new Vector2(388f, y), cardColor);
-                AddFrame(card.transform, "Queue Card Frame", 0.8f, active ? new Color(1f, 0.70f, 0.30f, 0.42f) : new Color(0.86f, 0.58f, 0.26f, 0.16f));
-                AddText("Queue Card Index", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 22f), new Vector2(-320f, -8f), active ? "当前" : $"{i + 1}", 14, TextAnchor.MiddleLeft, FontStyle.Bold).color = active ? new Color(1f, 0.78f, 0.36f, 1f) : new Color(0.82f, 0.78f, 0.68f, 0.92f);
-                AddText("Queue Card Role", card.transform, Vector2.zero, Vector2.one, new Vector2(74f, 28f), new Vector2(-16f, -6f), Ellipsize(roleName, 18), 15, TextAnchor.MiddleLeft, FontStyle.Bold);
-                AddText("Queue Card Prompt", card.transform, Vector2.zero, Vector2.one, new Vector2(74f, 6f), new Vector2(-16f, -30f), Ellipsize(prompt, 34), 12, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.86f, 0.88f, 0.88f, 0.86f);
-            }
-
-            if (count > visible)
-            {
-                AddText("Storyteller Queue More", storytellerQueueListRoot, Vector2.zero, Vector2.one, new Vector2(24f, 18f), new Vector2(-24f, -384f), $"还有 {count - visible} 项等待处理", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
-            }
-        }
-
-        private void RenderStorytellerCurrentAction(RoleActionViewModel action, StorytellerQueueItemViewModel currentDetail)
-        {
-            if (storytellerDetailRoot == null) return;
-            ClearChildren(storytellerDetailRoot);
-            AddFrame(storytellerDetailRoot, "Storyteller Detail Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            AddText("Storyteller Detail Label", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(20f, 174f), new Vector2(-20f, -16f), "当前行动", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-
-            if (action == null || !action.available)
-            {
-                var reason = string.IsNullOrWhiteSpace(action?.reason) ? "当前没有可处理的 Storyteller 行动。" : action.reason;
-                AddText("Storyteller Detail Empty", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(26f, 58f), new Vector2(-26f, -58f), reason, 16, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var role = RoleForId(action.roleId);
-            AddRoleTokenButton(storytellerDetailRoot, action.roleId, string.IsNullOrWhiteSpace(action.roleName) ? role?.name : action.roleName, role?.category ?? "", role?.team ?? "", new Vector2(80f, 92f), 70f, true, () => { });
-            AddText("Storyteller Current Role", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 136f), new Vector2(-24f, -42f), $"{action.roleName} · {StorytellerActionTypeLabel(action.type)}", 20, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Storyteller Current Meta", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 106f), new Vector2(-24f, -74f), $"{StorytellerInputLabel(action.inputType)}  ·  目标 {action.minTargetCount}-{action.maxTargetCount}  ·  可选 {(action.options?.Length ?? 0) + (action.roleOptions?.Length ?? 0) + (action.modes?.Length ?? 0)}", 14, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.88f, 0.86f, 0.78f, 0.94f);
-            var phase = currentDetail != null && !string.IsNullOrWhiteSpace(currentDetail.phaseLabel) ? currentDetail.phaseLabel : $"D{vm.day}/N{vm.night}";
-            AddText("Storyteller Current Phase", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 80f), new Vector2(-24f, -102f), $"来源：{phase}  ·  队首优先", 13, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.90f);
-            AddText("Storyteller Current Prompt", storytellerDetailRoot, Vector2.zero, Vector2.one, new Vector2(156f, 24f), new Vector2(-24f, -130f), ClampTextBlock(action.prompt, 3, 58), 14, TextAnchor.UpperLeft, FontStyle.Normal);
-        }
-
-        private void RenderStorytellerTargetPreview(RoleActionViewModel action)
-        {
-            if (storytellerTargetRoot == null) return;
-            ClearChildren(storytellerTargetRoot);
-            AddFrame(storytellerTargetRoot, "Storyteller Target Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.18f));
-            AddText("Storyteller Target Label", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(20f, 154f), new Vector2(-20f, -16f), "目标 / 输入预览", 17, TextAnchor.UpperLeft, FontStyle.Bold);
-
-            if (action == null || !action.available)
-            {
-                AddText("Storyteller Target Empty", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(24f, 58f), new Vector2(-24f, -58f), "有队列后，这里会预览合法目标或输入类型。", 15, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            if ((action.options?.Length ?? 0) == 0)
-            {
-                var text = action.inputType == "info"
-                    ? "信息型行动：无需额外选择，处理后会把私有信息写入主视角可见信息。"
-                    : $"此行动需要 {StorytellerInputLabel(action.inputType)}。点击“处理当前”进入完整表单。";
-                AddText("Storyteller Target Info", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(24f, 60f), new Vector2(-24f, -56f), ClampTextBlock(text, 3, 58), 15, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var options = action.options.Take(6).ToArray();
-            for (var i = 0; i < options.Length; i++)
-            {
-                var option = options[i];
-                var col = i % 3;
-                var row = i / 3;
-                var x = 18f + col * 210f;
-                var y = 122f - row * 62f;
-                var card = AddPanel($"Storyteller Target {i}", storytellerTargetRoot, Vector2.zero, Vector2.zero, new Vector2(x, y - 44f), new Vector2(x + 192f, y), new Color(0.010f, 0.017f, 0.026f, 0.74f));
-                AddFrame(card.transform, "Target Preview Frame", 0.7f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
-                var name = string.IsNullOrWhiteSpace(option.name) ? option.id : option.name;
-                AddText("Target Name", card.transform, Vector2.zero, Vector2.one, new Vector2(12f, 18f), new Vector2(-12f, -4f), Ellipsize(name, 16), 14, TextAnchor.MiddleLeft, FontStyle.Bold);
-                AddText("Target Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(12f, 2f), new Vector2(-12f, -24f), option.alive ? "存活目标" : "死亡目标", 11, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.82f);
-            }
-
-            if ((action.options?.Length ?? 0) > options.Length)
-            {
-                AddText("Target More", storytellerTargetRoot, Vector2.zero, Vector2.one, new Vector2(496f, 18f), new Vector2(-18f, -154f), $"+{action.options.Length - options.Length}", 13, TextAnchor.MiddleRight, FontStyle.Bold);
-            }
-        }
-
-        private static string StorytellerInputLabel(string inputType)
-        {
-            if (inputType == "info") return "信息确认";
-            if (inputType == "player-target") return "选择玩家";
-            if (inputType == "player-role") return "玩家 + 身份";
-            if (inputType == "role") return "选择身份";
-            if (inputType == "question") return "是/否问题";
-            if (inputType == "guesses") return "猜测输入";
-            if (inputType == "charge-or-targets") return "模式 / 目标";
-            return string.IsNullOrWhiteSpace(inputType) ? "默认选择" : inputType;
-        }
-
-        private static string StorytellerActionTypeLabel(string type)
-        {
-            if (type == "ravenkeeper-info") return "守鸦人信息";
-            if (type == "sage-info") return "贤者信息";
-            if (type == "moonchild-choice") return "月之子选择";
-            if (type == "klutz-choice") return "呆瓜选择";
-            if (type == "barber-swap") return "理发师换位";
-            return string.IsNullOrWhiteSpace(type) ? "Storyteller 行动" : type;
-        }
-
-        private void SendStorytellerAuto()
-        {
-            var action = vm.pendingStorytellerAction;
-            if (action == null || !action.available)
-            {
-                dialogueTitle.text = "Storyteller 队列";
-                dialogueBody.text = string.IsNullOrWhiteSpace(action?.reason) ? "当前没有待处理 Storyteller 行动。" : action.reason;
-                return;
-            }
-            SendUnityAction("storyteller-action");
-            dialogueTitle.text = "Storyteller 队列已发送";
-            dialogueBody.text = "已发送给 JS Core：使用当前合法默认选择处理队首行动。";
-        }
-
-        private void OpenActionFormPanel(string formId)
-        {
-            CloseMoreActionsPanel();
-            CloseAuxPanels();
-            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
-            if (votePanel != null) votePanel.gameObject.SetActive(false);
-            if (storytellerPanel != null) storytellerPanel.gameObject.SetActive(false);
-            if (handbookPanel != null) handbookPanel.gameObject.SetActive(false);
-            activeActionFormId = formId;
-            selectedActionTargetIds.Clear();
-            selectedActionRoleId = "";
-            selectedActionModeId = "";
-            actionTargetPage = 0;
-            actionRolePage = 0;
-            actionQuestionInput = null;
-            RenderActionFormPanel();
-            if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(true);
-        }
-
-        private void OpenHandbookPanel()
-        {
-            CloseMoreActionsPanel();
-            CloseAuxPanels();
-            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
-            if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(false);
-            if (votePanel != null) votePanel.gameObject.SetActive(false);
-            if (storytellerPanel != null) storytellerPanel.gameObject.SetActive(false);
-            RenderHandbookPanel();
-            if (handbookPanel != null) handbookPanel.gameObject.SetActive(true);
-        }
-
-        private void SelectHandbookCategory(string category)
-        {
-            activeHandbookCategory = string.IsNullOrWhiteSpace(category) ? "all" : category;
-            activeHandbookRoleIndex = 0;
-            activeHandbookRolePage = 0;
-            RenderHandbookPanel();
-        }
-
-        private void SelectHandbookRole(int index)
-        {
-            activeHandbookRoleIndex = index;
-            activeHandbookRolePage = Mathf.Max(0, activeHandbookRoleIndex / HandbookRolePageSize);
-            RenderHandbookPanel();
-        }
-
-        private void ChangeHandbookRolePage(int delta)
-        {
-            var roles = vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-            var count = roles.Count((role) => activeHandbookCategory == "all" || role.category == activeHandbookCategory);
-            activeHandbookRolePage = ClampPage(activeHandbookRolePage + delta, count, HandbookRolePageSize);
-            if (count > 0) activeHandbookRoleIndex = Mathf.Min(activeHandbookRolePage * HandbookRolePageSize, count - 1);
-            RenderHandbookPanel();
-        }
-
-        private void RenderHandbookPanel()
-        {
-            var handbook = vm.scriptHandbook;
-            var roles = handbook?.roles ?? Array.Empty<ScriptRoleViewModel>();
-            var filtered = roles
-                .Where((role) => activeHandbookCategory == "all" || role.category == activeHandbookCategory)
-                .OrderBy((role) => CategorySort(role.category ?? ""))
-                .ThenBy((role) => role.name ?? role.id ?? "")
-                .ToArray();
-            if (activeHandbookRoleIndex < 0 || activeHandbookRoleIndex >= filtered.Length) activeHandbookRoleIndex = 0;
-            var handbookPages = PageCount(filtered.Length, HandbookRolePageSize);
-            activeHandbookRolePage = ClampPage(activeHandbookRolePage, filtered.Length, HandbookRolePageSize);
-            if (filtered.Length > 0 && (activeHandbookRoleIndex < activeHandbookRolePage * HandbookRolePageSize || activeHandbookRoleIndex >= (activeHandbookRolePage + 1) * HandbookRolePageSize))
-            {
-                activeHandbookRoleIndex = Mathf.Min(activeHandbookRolePage * HandbookRolePageSize, filtered.Length - 1);
-            }
-            var selected = filtered.Length > 0 ? filtered[activeHandbookRoleIndex] : null;
-
-            if (handbookTitle != null) handbookTitle.text = $"剧本手册 · {(string.IsNullOrWhiteSpace(handbook?.scriptName) ? DisplayScriptName() : handbook.scriptName)}";
-            if (handbookRoleListRoot != null)
-            {
-                for (var i = handbookRoleListRoot.childCount - 1; i >= 0; i--) Destroy(handbookRoleListRoot.GetChild(i).gameObject);
-                AddFrame(handbookRoleListRoot, "Handbook List Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.18f));
-                var pageStart = activeHandbookRolePage * HandbookRolePageSize;
-                var pageRoles = filtered.Skip(pageStart).Take(HandbookRolePageSize).ToArray();
-                for (var i = 0; i < pageRoles.Length; i++)
-                {
-                    var role = pageRoles[i];
-                    var absoluteIndex = pageStart + i;
-                    var active = absoluteIndex == activeHandbookRoleIndex;
-                    var row = i / 5;
-                    var col = i % 5;
-                    var index = absoluteIndex;
-                    AddRoleTokenButton(handbookRoleListRoot, role.id, role.name, role.category, role.team, new Vector2(66f + col * 108f, 408f - row * 128f), 66f, active, () => SelectHandbookRole(index));
-                    if (!string.IsNullOrWhiteSpace(RoleHandbookTag(role)))
-                    {
-                        AddText("Handbook Role Tag", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(42f + col * 108f, 456f - row * 128f), new Vector2(90f + col * 108f, 478f - row * 128f), "标", 11, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.78f, 0.36f, 1f);
-                    }
-                }
-                AddText("Handbook Page Label", handbookRoleListRoot, Vector2.zero, Vector2.zero, new Vector2(196f, 28f), new Vector2(432f, 56f), $"第 {activeHandbookRolePage + 1}/{handbookPages} 页 · {filtered.Length} 个角色", 13, TextAnchor.MiddleCenter, FontStyle.Normal);
-                AddButton("‹", handbookRoleListRoot, new Vector2(82f, 42f), new Vector2(54f, 28f), () => ChangeHandbookRolePage(-1));
-                AddButton("›", handbookRoleListRoot, new Vector2(530f, 42f), new Vector2(54f, 28f), () => ChangeHandbookRolePage(1));
-            }
-
-            if (handbookDetailText != null)
-            {
-                if (selected == null)
-                {
-                    handbookDetailText.text = "当前剧本手册没有可显示角色。";
-                }
-                else
-                {
-                    handbookDetailText.text = ClampTextLines(new[]
-                    {
-                        $"{selected.name}  ·  {CategoryLabel(selected.category)} / {TeamLabel(selected.team)}",
-                        $"ID：{selected.id}",
-                        "",
-                        string.IsNullOrWhiteSpace(selected.ability) ? "暂无能力文本。" : selected.ability,
-                        "",
-                        RoleHandbookUseLine(selected),
-                    }, 10, 66);
-                }
-            }
-
-            if (handbookOrderText != null)
-            {
-                var first = handbook?.firstNightOrder ?? Array.Empty<string>();
-                var other = handbook?.otherNightOrder ?? Array.Empty<string>();
-                var lines = new List<string> { "夜晚顺序", "首夜：" + ShortOrder(first), "其后：" + ShortOrder(other) };
-                var counts = roles.GroupBy((role) => role.category ?? "").ToDictionary((group) => group.Key, (group) => group.Count());
-                lines.Add($"角色数：民 {CountCategory(counts, "townsfolk")} / 外 {CountCategory(counts, "outsider")} / 爪 {CountCategory(counts, "minion")} / 恶 {CountCategory(counts, "demon")}");
-                handbookOrderText.text = ClampTextLines(lines, 12, 92);
-            }
-        }
-
-        private void OpenVotePanel()
-        {
-            CloseMoreActionsPanel();
-            CloseAuxPanels();
-            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
-            if (actionFormPanel != null) actionFormPanel.gameObject.SetActive(false);
-            if (storytellerPanel != null) storytellerPanel.gameObject.SetActive(false);
-            if (handbookPanel != null) handbookPanel.gameObject.SetActive(false);
-            if (votePanel != null) votePanel.gameObject.SetActive(true);
-            RestartVoteAnimation();
-        }
-
-        private void UpdateVotePanelText()
-        {
-            if (voteTitle != null) voteTitle.text = vm.voteCeremony == null ? "投票仪式" : $"投票仪式 · 第 {vm.voteCeremony.day} 天";
-            if (voteBody == null) return;
-            var vote = vm.voteCeremony;
-            if (vote == null)
-            {
-                voteBody.text = ClampTextBlock("暂无投票结果。\n\n流程：进入提名阶段 -> 选择被提名者 -> JS Core 结算逐人投票 -> 这里展示举手名单。", 4, 58);
-                RenderVoteTokenCeremony(0, true);
-                return;
-            }
-            var voters = vote.voters ?? Array.Empty<VoteViewModel>();
-            var key = VoteAnimationKey(vote);
-            if (key != voteAnimationKey)
-            {
-                voteAnimationKey = key;
-                voteAnimationStartTime = Time.time;
-                voteAnimationStep = -1;
-            }
-            var visible = Mathf.Clamp(voteAnimationStep, 0, voters.Length);
-            var shownYes = voters.OrderBy((entry) => entry.seat).Take(visible).Count((entry) => entry.vote);
-            var suffix = visible >= voters.Length ? vote.resultText : $"正在逐个询问：{visible}/{voters.Length}";
-            voteBody.text = ClampTextLines(new[]
-            {
-                $"{vote.nominatorName}  提名  {vote.nomineeName}",
-                $"实时计票：{shownYes} / {vote.threshold} 票",
-                suffix
-            }, 3, 58);
-            RenderVoteTokenCeremony(visible, false);
-        }
-
-        private void RestartVoteAnimation()
-        {
-            voteAnimationKey = VoteAnimationKey(vm.voteCeremony);
-            voteAnimationStartTime = Time.time;
-            voteAnimationStep = -1;
-            UpdateVotePanelText();
-        }
-
-        private void UpdateVoteAnimationFrame()
-        {
-            if (votePanel == null || !votePanel.gameObject.activeSelf || vm.voteCeremony == null) return;
-            var voters = vm.voteCeremony.voters ?? Array.Empty<VoteViewModel>();
-            if (voters.Length == 0) return;
-            var nextStep = Mathf.Clamp(Mathf.FloorToInt((Time.time - voteAnimationStartTime) / 0.42f) + 1, 0, voters.Length);
-            if (nextStep == voteAnimationStep) return;
-            voteAnimationStep = nextStep;
-            UpdateVotePanelText();
-        }
-
-        private void RenderVoteTokenCeremony(int visibleCount, bool forceEmpty)
-        {
-            if (voteAnimationRoot == null || voteAnimationRowsRoot == null) return;
-            for (var i = voteAnimationRoot.childCount - 1; i >= 0; i--) Destroy(voteAnimationRoot.GetChild(i).gameObject);
-            for (var i = voteAnimationRowsRoot.childCount - 1; i >= 0; i--) Destroy(voteAnimationRowsRoot.GetChild(i).gameObject);
-            AddFrame(voteAnimationRoot, "Vote Animation Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.22f));
-            if (forceEmpty || vm.voteCeremony == null)
-            {
-                AddText("Vote Empty", voteAnimationRoot, Vector2.zero, Vector2.one, new Vector2(16f, 92f), new Vector2(-16f, -16f), "暂无可播放的投票数据。", 16, TextAnchor.MiddleCenter, FontStyle.Normal);
-                return;
-            }
-
-            var voters = (vm.voteCeremony.voters ?? Array.Empty<VoteViewModel>()).OrderBy((entry) => entry.seat).Take(15).ToArray();
-            var voterCount = Mathf.Max(1, voters.Length);
-            var dense = voterCount > 12;
-            var radiusX = dense ? 506f : 488f;
-            var radiusY = dense ? 132f : 116f;
-            var center = new Vector2(574f, dense ? 176f : 170f);
-            var baseSize = dense ? 58f : 66f;
-            var currentSize = dense ? 70f : 78f;
-            var labelHalfWidth = dense ? 50f : 58f;
-            var labelFontSize = dense ? 11 : 12;
-            for (var i = 0; i < voters.Length; i++)
-            {
-                var voter = voters[i];
-                var revealed = i < visibleCount;
-                var raised = revealed && voter.vote;
-                var abstain = revealed && voter.abstain;
-                var angle = Mathf.PI * 0.5f - Mathf.PI * 2f * i / voterCount;
-                var pos = new Vector2(center.x + Mathf.Cos(angle) * radiusX, center.y + Mathf.Sin(angle) * radiusY);
-                var current = i == Mathf.Clamp(visibleCount - 1, 0, voters.Length - 1);
-                var size = current ? currentSize : baseSize;
-                var color = !revealed
-                    ? new Color(0.035f, 0.040f, 0.050f, 0.68f)
-                    : raised ? new Color(0.48f, 0.31f, 0.10f, 0.88f) : new Color(0.050f, 0.055f, 0.062f, 0.78f);
-                var token = AddPanel($"Vote Token {i}", voteAnimationRoot, Vector2.zero, Vector2.zero, pos - new Vector2(size, size) * 0.5f, pos + new Vector2(size, size) * 0.5f, color);
-                var image = token.GetComponent<Image>();
-                image.sprite = GetCircleFillSprite();
-                image.preserveAspect = true;
-                AddCircleImage("Vote Token Ring", token.transform, size * 0.50f, raised ? new Color(1f, 0.76f, 0.32f, 0.72f) : new Color(0.72f, 0.55f, 0.34f, revealed ? 0.34f : 0.16f), true);
-                var mark = !revealed ? "?" : raised ? "举" : abstain ? "弃" : "落";
-                AddText("Vote Token Mark", token.transform, Vector2.zero, Vector2.one, new Vector2(0f, 12f), new Vector2(0f, -8f), mark, current ? 22 : 18, TextAnchor.MiddleCenter, FontStyle.Bold).color = raised ? new Color(1f, 0.86f, 0.48f, 1f) : new Color(0.86f, 0.82f, 0.74f, 0.92f);
-                AddText("Vote Token Name", voteAnimationRoot, Vector2.zero, Vector2.zero, pos + new Vector2(-labelHalfWidth, -46f), pos + new Vector2(labelHalfWidth, -20f), $"{voter.seat}号 {voter.voterName}", labelFontSize, TextAnchor.MiddleCenter, FontStyle.Normal);
-            }
-        }
-
-        private static string VoteAnimationKey(VoteCeremonyViewModel vote)
-        {
-            if (vote == null) return "";
-            var voters = vote.voters ?? Array.Empty<VoteViewModel>();
-            var voterBits = string.Join(",", voters.OrderBy((entry) => entry.seat).Select((entry) => $"{entry.voterId}:{entry.vote}:{entry.abstain}:{entry.ghostVote}"));
-            return $"{vote.day}:{vote.nominatorId}:{vote.nomineeId}:{vote.yesVotes}:{vote.threshold}:{voterBits}";
-        }
-
-        private void RenderActionFormPanel()
-        {
-            if (actionOptionRoot != null)
-            {
-                ClearChildren(actionOptionRoot);
-                AddFrame(actionOptionRoot, "Action Option Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
-            }
-            var form = ActiveActionForm();
-            if (form == null)
-            {
-                if (actionFormTitle != null) actionFormTitle.text = "行动表单";
-                if (actionFormBody != null) actionFormBody.text = "当前 viewmodel 尚未导出这个行动表单。";
-                if (actionFormStatusText != null) actionFormStatusText.text = "";
-                return;
-            }
-            if (actionFormTitle != null) actionFormTitle.text = form.title ?? "行动表单";
-            if (actionFormBody != null)
-            {
-                actionFormBody.text = form.available
-                    ? ClampTextLines(new[]
-                    {
-                        $"{form.roleName} · {ActionInputLabel(form.inputType)} · {ActionRequirementLabel(form)}",
-                        string.IsNullOrWhiteSpace(form.prompt) ? "JS Core 已导出行动，等待选择。" : form.prompt,
-                        $"当前：{ActionFormSelectionText(form)}"
-                    }, 3, 104)
-                    : ClampTextBlock($"当前不可用：{form.reason}", 3, 104);
-            }
-            if (!form.available || actionOptionRoot == null) return;
-            actionQuestionInput = null;
-            var y = 318f;
-            if (NeedsMode(form))
-            {
-                AddActionSectionHeader("Mode", "模式", ActionFormInstruction(form), y);
-                RenderActionModeChoices(form, y - 38f);
-                y -= 78f;
-            }
-            if (NeedsTargets(form))
-            {
-                AddActionSectionHeader("Target", "目标", ActionTargetHint(form), y);
-                RenderActionTargetChoices(form, y - 38f);
-                y -= NeedsRole(form) ? 128f : (form.options?.Length ?? 0) > ActionChoicePageSize ? 136f : 116f;
-            }
-            if (NeedsRole(form))
-            {
-                AddActionSectionHeader("Role", "身份", "选择身份 token 后再确认发送。", y);
-                RenderActionRoleChoices(form, y - 44f, NeedsTargets(form));
-                y -= NeedsTargets(form) ? 128f : 170f;
-            }
-            if (NeedsQuestion(form))
-            {
-                AddActionSectionHeader("Question", "问题", "写下要交给 JS Core 的是/否问题。", y);
-                actionQuestionInput = AddInputField("Action Question Input", actionOptionRoot, new Vector2(24f, Mathf.Max(28f, y - 74f)), new Vector2(1078f, Mathf.Max(68f, y - 28f)), "输入要提交给 JS Core 的问题");
-            }
-            if (!NeedsMode(form) && !NeedsTargets(form) && !NeedsRole(form) && !NeedsQuestion(form))
-            {
-                AddText("Info Action", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(28f, 126f), new Vector2(-28f, -116f), "这是信息型行动，无需额外输入。\n点击确认发送或自动合法选择后，JS Core 会写入结果。", 17, TextAnchor.MiddleCenter, FontStyle.Normal);
-            }
-            if (actionFormStatusText != null) actionFormStatusText.text = ClampTextBlock(ActionFormStatus(form), 2, 88);
-        }
-
-        private void AddActionSectionHeader(string key, string title, string hint, float y)
-        {
-            if (actionOptionRoot == null) return;
-            const float optionRootHeight = 334f;
-            var topOffset = -(optionRootHeight - (y + 8f));
-            AddText($"{key} Label", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(22f, y - 18f), new Vector2(-22f, topOffset), title, 16, TextAnchor.UpperLeft, FontStyle.Bold);
-            if (!string.IsNullOrWhiteSpace(hint))
-            {
-                AddText($"{key} Hint", actionOptionRoot, Vector2.zero, Vector2.one, new Vector2(100f, y - 16f), new Vector2(-24f, topOffset), Ellipsize(hint, 88), 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.86f);
-            }
-        }
-
-        private void AddActionTargetCard(ActionOptionViewModel option, Vector2 center, bool selected, UnityEngine.Events.UnityAction onClick)
-        {
-            var size = new Vector2(196f, 38f);
-            var card = AddPanel($"Action Target {option.id}", actionOptionRoot, Vector2.zero, Vector2.zero, center - size * 0.5f, center + size * 0.5f, selected ? new Color(0.15f, 0.082f, 0.032f, 0.90f) : new Color(0.010f, 0.017f, 0.026f, 0.74f));
-            AddImage("Target Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(4f, 0f), selected ? new Color(1f, 0.74f, 0.30f, 0.84f) : new Color(0.70f, 0.50f, 0.28f, 0.25f));
-            AddFrame(card.transform, "Target Card Frame", 0.8f, selected ? new Color(1f, 0.70f, 0.30f, 0.48f) : new Color(0.86f, 0.58f, 0.26f, 0.16f));
-            var image = card.GetComponent<Image>();
-            image.raycastTarget = true;
-            var button = card.AddComponent<Button>();
-            button.targetGraphic = image;
-            button.onClick.AddListener(onClick);
-            ApplyButtonStyle(button);
-
-            var name = string.IsNullOrWhiteSpace(option.name) ? option.id : option.name;
-            var prefix = selected ? "✓ " : "";
-            AddText("Target Name", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 14f), new Vector2(-12f, -4f), Ellipsize(prefix + name, 17), 14, TextAnchor.MiddleLeft, FontStyle.Bold).color = selected ? new Color(1f, 0.82f, 0.38f, 1f) : new Color(0.95f, 0.89f, 0.76f, 0.98f);
-            var meta = option.seat > 0 ? $"{option.seat}号" : "目标";
-            meta += option.alive ? " · 存活" : " · 死亡/不可用";
-            AddText("Target Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(14f, 0f), new Vector2(-12f, -22f), Ellipsize(meta, 24), 11, TextAnchor.MiddleLeft, FontStyle.Normal).color = new Color(0.78f, 0.84f, 0.88f, 0.82f);
-        }
-
-        private void RenderActionTargetChoices(ActionFormViewModel form, float y)
-        {
-            var options = form.options ?? Array.Empty<ActionOptionViewModel>();
-            actionTargetPage = ClampPage(actionTargetPage, options.Length, ActionChoicePageSize);
-            var pageStart = actionTargetPage * ActionChoicePageSize;
-            var pageOptions = options.Skip(pageStart).Take(ActionChoicePageSize).ToArray();
-            for (var i = 0; i < pageOptions.Length; i++)
-            {
-                var option = pageOptions[i];
-                var col = i % 5;
-                var row = i / 5;
-                var selected = selectedActionTargetIds.Contains(option.id);
-                AddActionTargetCard(option, new Vector2(112f + col * 216f, y - row * 48f), selected, () => ToggleActionFormTarget(option.id));
-            }
-            RenderActionChoicePager("Target", actionTargetPage, PageCount(options.Length, ActionChoicePageSize), y - 106f, () => ChangeActionTargetPage(-1), () => ChangeActionTargetPage(1));
-        }
-
-        private void RenderActionRoleChoices(ActionFormViewModel form, float y, bool compact)
-        {
-            var options = ActionRoleChoices(form).ToArray();
-            actionRolePage = ClampPage(actionRolePage, options.Length, ActionChoicePageSize);
-            var pageStart = actionRolePage * ActionChoicePageSize;
-            var pageOptions = options.Skip(pageStart).Take(ActionChoicePageSize).ToArray();
-            for (var i = 0; i < pageOptions.Length; i++)
-            {
-                var option = pageOptions[i];
-                var col = i % 5;
-                var row = i / 5;
-                var selected = selectedActionRoleId == option.id;
-                var roleId = option.id;
-                AddRoleTokenButton(actionOptionRoot, option.id, option.name, option.category, option.team, new Vector2(96f + col * 200f, y - row * (compact ? 74f : 88f)), compact ? 52f : 58f, selected, () => SelectActionFormRole(roleId));
-            }
-            RenderActionChoicePager("Role", actionRolePage, PageCount(options.Length, ActionChoicePageSize), y - (compact ? 138f : 168f), () => ChangeActionRolePage(-1), () => ChangeActionRolePage(1));
-        }
-
-        private void RenderActionModeChoices(ActionFormViewModel form, float y)
-        {
-            var modes = form.modes ?? Array.Empty<ActionModeViewModel>();
-            for (var i = 0; i < modes.Length && i < 4; i++)
-            {
-                var mode = modes[i];
-                var selected = selectedActionModeId == mode.id;
-                var label = $"{(selected ? "✓ " : "")}{(string.IsNullOrWhiteSpace(mode.label) ? mode.id : mode.label)}";
-                AddButton(label, actionOptionRoot, new Vector2(112f + i * 202f, y), new Vector2(184f, 32f), () => SelectActionFormMode(mode.id));
-            }
-        }
-
-        private void RenderActionChoicePager(string name, int page, int totalPages, float y, UnityEngine.Events.UnityAction prev, UnityEngine.Events.UnityAction next)
-        {
-            if (actionOptionRoot == null || totalPages <= 1) return;
-            AddText($"{name} Page Label", actionOptionRoot, Vector2.zero, Vector2.zero, new Vector2(834f, y - 14f), new Vector2(982f, y + 12f), $"第 {page + 1}/{totalPages} 页", 12, TextAnchor.MiddleRight, FontStyle.Normal);
-            AddButton("‹", actionOptionRoot, new Vector2(1010f, y), new Vector2(40f, 26f), prev);
-            AddButton("›", actionOptionRoot, new Vector2(1058f, y), new Vector2(40f, 26f), next);
-        }
-
-        private void ChangeActionTargetPage(int delta)
-        {
-            var count = ActiveActionForm()?.options?.Length ?? 0;
-            actionTargetPage = ClampPage(actionTargetPage + delta, count, ActionChoicePageSize);
-            RenderActionFormPanel();
-        }
-
-        private void ChangeActionRolePage(int delta)
-        {
-            var form = ActiveActionForm();
-            var count = form == null ? 0 : ActionRoleChoices(form).Count();
-            actionRolePage = ClampPage(actionRolePage + delta, count, ActionChoicePageSize);
-            RenderActionFormPanel();
-        }
-
-        private static bool NeedsTargets(ActionFormViewModel form)
-        {
-            var type = form?.inputType ?? "";
-            return (form?.options?.Length ?? 0) > 0 && (type.Contains("target") || type == "player-role" || type == "guesses" || type == "charge-or-targets");
-        }
-
-        private static bool NeedsRole(ActionFormViewModel form)
-        {
-            var type = form?.inputType ?? "";
-            return type == "role" || type == "player-role" || type == "guesses";
-        }
-
-        private static bool NeedsMode(ActionFormViewModel form)
-        {
-            return (form?.modes?.Length ?? 0) > 0 || (form?.inputType ?? "") == "charge-or-targets";
-        }
-
-        private static bool NeedsQuestion(ActionFormViewModel form)
-        {
-            return (form?.inputType ?? "") == "question";
-        }
-
-        private IEnumerable<ActionRoleOptionViewModel> ActionRoleChoices(ActionFormViewModel form)
-        {
-            var direct = form?.roleOptions ?? Array.Empty<ActionRoleOptionViewModel>();
-            if (direct.Length > 0) return direct;
-            return (vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>())
-                .Select((role) => new ActionRoleOptionViewModel { id = role.id, name = role.name, category = role.category, team = role.team });
-        }
-
-        private static string ActionInputLabel(string inputType)
-        {
-            if (inputType == "info") return "信息确认";
-            if (inputType == "player-target") return "选择玩家";
-            if (inputType == "player-role") return "玩家 + 身份";
-            if (inputType == "role") return "选择身份";
-            if (inputType == "question") return "是/否问题";
-            if (inputType == "guesses") return "猜测输入";
-            if (inputType == "charge-or-targets") return "模式 / 目标";
-            return string.IsNullOrWhiteSpace(inputType) ? "默认选择" : inputType;
-        }
-
-        private static string ActionRequirementLabel(ActionFormViewModel form)
-        {
-            if (form == null) return "";
-            if (NeedsTargets(form)) return $"目标 {form.minTargetCount}-{form.maxTargetCount}";
-            if (NeedsRole(form)) return "需要身份";
-            if (NeedsQuestion(form)) return "需要问题";
-            if (NeedsMode(form)) return "需要模式";
-            return "无需额外输入";
-        }
-
-        private static string ActionTargetHint(ActionFormViewModel form)
-        {
-            if (form == null) return "";
-            if (form.maxTargetCount > 1) return $"可多选，至少 {form.minTargetCount} 个，最多 {form.maxTargetCount} 个。";
-            return "选择一个合法目标；完整规则仍由 JS Core 校验。";
-        }
-
-        private string ActionFormInstruction(ActionFormViewModel form)
-        {
-            if (form == null) return "";
-            if (!form.available) return form.reason ?? "";
-            if (form.inputType == "guesses") return "选择一个玩家和一个身份后确认，Unity 会提交 guess 给 JS Core。";
-            if (form.inputType == "player-role") return "选择目标和身份后确认。";
-            if (form.inputType == "role") return "选择一个身份后确认。";
-            if (form.inputType == "question") return "输入问题后确认。";
-            if (form.inputType == "charge-or-targets") return "选择模式；若模式需要目标，再选择玩家后确认。";
-            if (form.inputType == "info") return "信息型行动无需额外输入。";
-            return $"需要 {form.minTargetCount}-{form.maxTargetCount} 项选择。";
-        }
-
-        private string ActionFormSelectionText(ActionFormViewModel form)
-        {
-            var parts = new List<string>();
-            if (selectedActionTargetIds.Count > 0) parts.Add($"目标 {string.Join(" / ", selectedActionTargetIds.Select(NameForPlayerId))}");
-            if (!string.IsNullOrWhiteSpace(selectedActionRoleId)) parts.Add($"身份 {RoleNameForId(selectedActionRoleId)}");
-            if (!string.IsNullOrWhiteSpace(selectedActionModeId)) parts.Add($"模式 {selectedActionModeId}");
-            if (form != null && NeedsQuestion(form) && actionQuestionInput != null && !string.IsNullOrWhiteSpace(actionQuestionInput.text)) parts.Add($"问题 {actionQuestionInput.text}");
-            return parts.Count == 0 ? "未选择" : string.Join("；", parts);
-        }
-
-        private string ActionFormStatus(ActionFormViewModel form)
-        {
-            if (form == null) return "";
-            if (!form.available) return form.reason ?? "当前不可用。";
-            if (form.inputType == "guesses" && (selectedActionTargetIds.Count == 0 || string.IsNullOrWhiteSpace(selectedActionRoleId))) return "猜测类行动需要玩家 + 身份。";
-            var modeSkipsTargets = form.inputType == "charge-or-targets" && (selectedActionModeId == "charge" || selectedActionModeId == "none");
-            if (NeedsTargets(form) && !modeSkipsTargets && selectedActionTargetIds.Count < form.minTargetCount) return $"还需选择至少 {form.minTargetCount} 个目标。";
-            if (NeedsRole(form) && string.IsNullOrWhiteSpace(selectedActionRoleId)) return "还需选择身份。";
-            if (NeedsMode(form) && string.IsNullOrWhiteSpace(selectedActionModeId) && (form.modes?.Length ?? 0) > 0) return "可选择一个模式，未选则由 JS Core 使用默认模式。";
-            return "可以确认发送；规则仍由 JS Core 结算。";
-        }
-
-        private void SendActiveActionFormAuto()
-        {
-            var form = ActiveActionForm();
-            if (form == null || string.IsNullOrWhiteSpace(form.id)) return;
-            SendUnityAction(form.id);
-            dialogueTitle.text = $"{form.title}已发送";
-            dialogueBody.text = "已发送给 JS Core：自动使用当前合法默认选择。";
-        }
-
-        private void ToggleActionFormTarget(string targetId)
-        {
-            var form = ActiveActionForm();
-            if (form == null) return;
-            if (selectedActionTargetIds.Contains(targetId))
-            {
-                selectedActionTargetIds.Remove(targetId);
-            }
-            else
-            {
-                if (form.maxTargetCount > 0 && selectedActionTargetIds.Count >= form.maxTargetCount) selectedActionTargetIds.RemoveAt(0);
-                selectedActionTargetIds.Add(targetId);
-            }
-            RenderActionFormPanel();
-        }
-
-        private void ClearActionFormTargets()
-        {
-            selectedActionTargetIds.Clear();
-            RenderActionFormPanel();
-        }
-
-        private void SelectActionFormRole(string roleId)
-        {
-            selectedActionRoleId = selectedActionRoleId == roleId ? "" : roleId;
-            RenderActionFormPanel();
-        }
-
-        private void SelectActionFormMode(string modeId)
-        {
-            selectedActionModeId = selectedActionModeId == modeId ? "" : modeId;
-            RenderActionFormPanel();
-        }
-
-        private void SendActionFormComposed()
-        {
-            var form = ActiveActionForm();
-            if (form == null) return;
-            if (form.inputType == "guesses")
-            {
-                if (selectedActionTargetIds.Count == 0 || string.IsNullOrWhiteSpace(selectedActionRoleId))
-                {
-                    dialogueTitle.text = $"{form.title}未发送";
-                    dialogueBody.text = "猜测类行动需要先选择玩家和身份。";
-                    return;
-                }
-                SendUnityAction(form.id, targetIds: selectedActionTargetIds.Take(1), roleId: selectedActionRoleId, guessPlayerId: selectedActionTargetIds[0], guessRoleId: selectedActionRoleId);
-            }
-            else if (NeedsQuestion(form))
-            {
-                var question = actionQuestionInput == null ? "" : actionQuestionInput.text.Trim();
-                SendUnityAction(form.id, text: string.IsNullOrWhiteSpace(question) ? "Is there a demon in play?" : question);
-            }
-            else
-            {
-                var modeSkipsTargets = form.inputType == "charge-or-targets" && (selectedActionModeId == "charge" || selectedActionModeId == "none");
-                if (NeedsTargets(form) && !modeSkipsTargets && selectedActionTargetIds.Count < form.minTargetCount)
-                {
-                    dialogueTitle.text = $"{form.title}未发送";
-                    dialogueBody.text = $"还需要选择至少 {form.minTargetCount} 项。";
-                    return;
-                }
-                if (NeedsRole(form) && string.IsNullOrWhiteSpace(selectedActionRoleId))
-                {
-                    dialogueTitle.text = $"{form.title}未发送";
-                    dialogueBody.text = "还需要选择身份。";
-                    return;
-                }
-                SendUnityAction(form.id, roleId: selectedActionRoleId, mode: selectedActionModeId, targetIds: selectedActionTargetIds);
-            }
-            dialogueTitle.text = $"{form.title}已发送";
-            dialogueBody.text = $"已发送给 JS Core：{ActionFormSelectionText(form)}。";
-        }
-
-        private void SendActionFormSelectedTargets()
-        {
-            var form = ActiveActionForm();
-            if (form == null) return;
-            if (selectedActionTargetIds.Count < form.minTargetCount)
-            {
-                dialogueTitle.text = $"{form.title}未发送";
-                dialogueBody.text = $"还需要选择至少 {form.minTargetCount} 项。";
-                return;
-            }
-            SendUnityAction(form.id, targetIds: selectedActionTargetIds);
-            dialogueTitle.text = $"{form.title}已发送";
-            dialogueBody.text = $"已发送给 JS Core：{string.Join(" / ", selectedActionTargetIds.Select(NameForPlayerId))}。";
-        }
-
-        private void SendActionFormRole(string roleId)
-        {
-            var form = ActiveActionForm();
-            if (form == null) return;
-            SendUnityAction(form.id, roleId: roleId);
-            dialogueTitle.text = $"{form.title}已发送";
-            dialogueBody.text = $"已发送给 JS Core：选择身份 {RoleNameForId(roleId)}。";
-        }
-
-        private void SendActionFormMode(string mode)
-        {
-            var form = ActiveActionForm();
-            if (form == null) return;
-            SendUnityAction(form.id, mode: mode);
-            dialogueTitle.text = $"{form.title}已发送";
-            dialogueBody.text = $"已发送给 JS Core：选择模式 {mode}。";
-        }
-
-        private static string TimelineModeLabel(string mode)
-        {
-            if (mode == "public") return "公聊";
-            if (mode == "whisper-in") return "私聊传入";
-            if (mode == "whisper-out") return "私聊传出";
-            if (mode == "private") return "私聊";
-            if (mode == "nomination") return "提名";
-            if (mode == "vote") return "投票";
-            return "事件";
+            return (privateChatPanel != null && privateChatPanel.gameObject.activeSelf)
+                || (actionFormPanel != null && actionFormPanel.gameObject.activeSelf)
+                || (storytellerPanel != null && storytellerPanel.gameObject.activeSelf)
+                || (handbookPanel != null && handbookPanel.gameObject.activeSelf)
+                || (votePanel != null && votePanel.gameObject.activeSelf)
+                || (rolePickerPanel != null && rolePickerPanel.gameObject.activeSelf)
+                || (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf)
+                || (settingsPanel != null && settingsPanel.gameObject.activeSelf)
+                || (mainMenuRoot != null && mainMenuRoot.gameObject.activeSelf);
         }
 
-        private static string ReminderShort(string reminder)
+        private ProactiveWhisperViewModel[] PendingProactiveOffers()
         {
-            if (string.IsNullOrWhiteSpace(reminder)) return "?";
-            var lower = reminder.ToLowerInvariant();
-            if (lower.Contains("poison") || reminder.Contains("毒")) return "P";
-            if (lower.Contains("drunk") || reminder.Contains("醉")) return "D";
-            if (lower.Contains("ghost") || reminder.Contains("鬼")) return "G";
-            if (lower.Contains("guard") || reminder.Contains("守")) return "S";
-            return reminder.Length <= 2 ? reminder : reminder.Substring(0, Mathf.Min(2, reminder.Length));
+            return vm?.pendingProactiveWhispers ?? Array.Empty<ProactiveWhisperViewModel>();
         }
 
-        private PrototypeViewModel LoadViewModel()
+        private ProactiveWhisperViewModel ActiveProactiveOffer()
         {
-            try
-            {
-                ConfigureBridgePaths();
-                var samplePath = Path.Combine(Application.streamingAssetsPath, "sample_viewmodel.json");
-                var path = File.Exists(viewModelPath) ? viewModelPath : samplePath;
-                if (File.Exists(path))
-                {
-                    var json = File.ReadAllText(path);
-                    var loaded = JsonUtility.FromJson<PrototypeViewModel>(json);
-                    if (loaded != null && loaded.players != null && loaded.players.Length > 0) return loaded;
-                }
-            }
-            catch (Exception ex)
+            var offers = PendingProactiveOffers();
+            if (offers.Length == 0) return null;
+            var key = string.Join("|", offers.Select((offer) => offer?.id ?? ""));
+            if (key != lastProactiveOfferQueueKey)
             {
-                Debug.LogWarning($"Failed to load Unity viewmodel: {ex.Message}");
+                lastProactiveOfferQueueKey = key;
+                if (!offers.Any((offer) => offer != null && offer.id == snoozedProactiveOfferId)) snoozedProactiveOfferId = "";
             }
-            return PrototypeViewModel.CreateFallback();
+            return offers.FirstOrDefault((offer) => offer != null && offer.id != snoozedProactiveOfferId)
+                ?? offers.FirstOrDefault((offer) => offer != null && string.IsNullOrWhiteSpace(snoozedProactiveOfferId));
         }
 
-        private void RememberViewModelTimestamp()
+        private void MaybeRequestProactiveWhispers()
         {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(viewModelPath)) ConfigureBridgePaths();
-                viewModelLastWriteUtc = File.Exists(viewModelPath) ? File.GetLastWriteTimeUtc(viewModelPath) : DateTime.MinValue;
-            }
-            catch
-            {
-                viewModelLastWriteUtc = DateTime.MinValue;
-            }
+            if (!gameplayEntered || HasPendingAction() || vm == null || vm.gameOver) return;
+            if (vm.phase != "day" || vm.dayStage != "private") return;
+            if (PendingProactiveOffers().Length > 0) return;
+            var key = $"{vm.gameId}:{vm.day}:private";
+            if (lastProactiveWhisperRequestKey == key) return;
+            lastProactiveWhisperRequestKey = key;
+            SendUnityAction("ai-proactive-whispers", trackPending: false);
         }
 
-        private void PollViewModelChanges()
+        private void RenderProactiveWhisperPanel()
         {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(viewModelPath)) ConfigureBridgePaths();
-                if (!File.Exists(viewModelPath)) return;
-                var modified = File.GetLastWriteTimeUtc(viewModelPath);
-                var pendingPollDue = HasPendingAction() && Time.realtimeSinceStartup >= nextPendingViewModelPollAt;
-                if (modified <= viewModelLastWriteUtc && !pendingPollDue) return;
-                if (pendingPollDue) nextPendingViewModelPollAt = Time.realtimeSinceStartup + PendingViewModelPollSeconds;
-                if (modified > viewModelLastWriteUtc) viewModelLastWriteUtc = modified;
-                var json = File.ReadAllText(viewModelPath);
-                var loaded = JsonUtility.FromJson<PrototypeViewModel>(json);
-                if (loaded == null || loaded.players == null || loaded.players.Length == 0) return;
-                vm = loaded;
-                selectedPlayerId = vm.action != null ? vm.action.selectedPlayerId ?? selectedPlayerId : selectedPlayerId;
-                ResolvePendingActionFromViewModel();
-                RenderAllAndMood();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"Failed to refresh Unity viewmodel: {ex.Message}");
-            }
-        }
+            MaybeRequestProactiveWhispers();
+            if (proactiveWhisperPanel == null) return;
+            var offer = ActiveProactiveOffer();
+            var visible = gameplayEntered
+                && offer != null
+                && vm?.phase == "day"
+                && vm?.dayStage == "private"
+                && !GameplayOverlayOpen();
+            proactiveWhisperPanel.gameObject.SetActive(visible);
+            if (!visible || offer == null) return;
 
-        private void SendUnityAction(string type, string playerId = "", string stage = "", string text = "", string intent = "", string reminder = "", string roleId = "", string claimRoleId = "", string nightInfo = "", bool askSecret = false, string mode = "", IEnumerable<string> targetIds = null, string guessPlayerId = "", string guessRoleId = "", bool trackPending = true)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(actionPath)) ConfigureBridgePaths();
-                var directory = Path.GetDirectoryName(actionPath);
-                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-                var id = $"unity-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{UnityEngine.Random.Range(1000, 9999)}";
-                var payload = new List<string>();
-                if (!string.IsNullOrWhiteSpace(playerId))
-                {
-                    payload.Add($"\"playerId\":\"{JsonEscape(playerId)}\"");
-                    payload.Add($"\"targetId\":\"{JsonEscape(playerId)}\"");
-                    payload.Add($"\"nomineeId\":\"{JsonEscape(playerId)}\"");
-                }
-                if (!string.IsNullOrWhiteSpace(stage)) payload.Add($"\"stage\":\"{JsonEscape(stage)}\"");
-                if (!string.IsNullOrWhiteSpace(text)) payload.Add($"\"text\":\"{JsonEscape(text)}\"");
-                if (!string.IsNullOrWhiteSpace(intent)) payload.Add($"\"intent\":\"{JsonEscape(intent)}\"");
-                if (!string.IsNullOrWhiteSpace(reminder)) payload.Add($"\"reminder\":\"{JsonEscape(reminder)}\"");
-                if (!string.IsNullOrWhiteSpace(roleId)) payload.Add($"\"roleId\":\"{JsonEscape(roleId)}\"");
-                if (!string.IsNullOrWhiteSpace(claimRoleId)) payload.Add($"\"claimRoleId\":\"{JsonEscape(claimRoleId)}\"");
-                if (!string.IsNullOrWhiteSpace(nightInfo)) payload.Add($"\"nightInfo\":\"{JsonEscape(nightInfo)}\"");
-                if (askSecret) payload.Add("\"askSecret\":true");
-                if (!string.IsNullOrWhiteSpace(mode)) payload.Add($"\"mode\":\"{JsonEscape(mode)}\"");
-                var targetIdList = (targetIds ?? Array.Empty<string>()).Where((entry) => !string.IsNullOrWhiteSpace(entry)).Distinct().ToArray();
-                if (targetIdList.Length > 0)
-                {
-                    payload.Add($"\"targetIds\":[{string.Join(",", targetIdList.Select((entry) => $"\"{JsonEscape(entry)}\""))}]");
-                }
-                if (!string.IsNullOrWhiteSpace(guessPlayerId) && !string.IsNullOrWhiteSpace(guessRoleId))
-                {
-                    payload.Add($"\"guesses\":[{{\"playerId\":\"{JsonEscape(guessPlayerId)}\",\"roleId\":\"{JsonEscape(guessRoleId)}\"}}]");
-                }
-                var json = "{\n"
-                    + $"  \"id\": \"{id}\",\n"
-                    + $"  \"type\": \"{JsonEscape(type)}\",\n"
-                    + $"  \"createdAt\": \"{DateTime.UtcNow:O}\",\n"
-                    + "  \"payload\": { " + string.Join(", ", payload) + " }\n"
-                    + "}\n";
-                File.WriteAllText(actionPath, json);
-                if (trackPending)
-                {
-                    TrackPendingAction(id, type, playerId);
-                }
-                else
-                {
-                    UpdateSyncStatusText();
-                }
-            }
-            catch (Exception ex)
+            proactiveWhisperPanel.SetAsLastSibling();
+            if (proactiveWhisperTokenImage != null)
             {
-                pendingActionId = "";
-                pendingActionType = "";
-                pendingActionPlayerId = "";
-                pendingActionStartedAt = -1f;
-                nextPendingViewModelPollAt = -1f;
-                privateChatStatus = $"写入 Unity action 失败：{ex.Message}";
-                UpdatePrivateChatPanelText();
-                UpdateSyncStatusText();
-                Debug.LogWarning($"Failed to write Unity action: {ex.Message}");
+                proactiveWhisperTokenImage.sprite = SpriteFromResource("Botc/ui/vote1") ?? GetCircleFillSprite();
+                proactiveWhisperTokenImage.preserveAspect = true;
             }
-        }
-
-        private void TrackPendingAction(string id, string type, string playerId)
-        {
-            pendingActionId = id;
-            pendingActionType = type;
-            pendingActionPlayerId = playerId ?? "";
-            pendingActionStartedAt = Time.realtimeSinceStartup;
-            nextPendingViewModelPollAt = Time.realtimeSinceStartup + 0.2f;
-            UpdateSyncStatusText();
-        }
-
-        private void ResolvePendingActionFromViewModel()
-        {
-            if (!HasPendingAction() || vm?.action == null || vm.action.lastActionId != pendingActionId) return;
-            var completedType = pendingActionType;
-            var ok = !string.Equals(vm.action.status, "error", StringComparison.OrdinalIgnoreCase);
-            var message = string.IsNullOrWhiteSpace(vm.action.message) ? "JS Core 已刷新 viewmodel。" : vm.action.message;
-            pendingActionId = "";
-            pendingActionType = "";
-            pendingActionPlayerId = "";
-            pendingActionStartedAt = -1f;
-            nextPendingViewModelPollAt = -1f;
-
-            if (completedType == "private-chat" || completedType == "private-preset")
+            var playerName = string.IsNullOrWhiteSpace(offer.playerName) ? NameForPlayerId(offer.playerId) : offer.playerName;
+            if (proactiveWhisperTitleText != null) proactiveWhisperTitleText.text = $"AI 来访 · {playerName}";
+            if (proactiveWhisperBodyText != null)
             {
-                privateChatStatus = ok ? "JS Core 已刷新；AI 回复已写入最近私聊和时间线。" : $"JS Core 返回错误：{message}";
-                UpdatePrivateChatPanelText();
+                var reason = string.IsNullOrWhiteSpace(offer.reason) ? "对方想和你私下交换一条信息。" : offer.reason;
+                proactiveWhisperBodyText.text = ClampTextBlock(reason, 2, 34);
             }
-        }
-
-        private static string JsonEscape(string value)
-        {
-            if (string.IsNullOrEmpty(value)) return "";
-            return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
-        }
-
-        private Image AddImage(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            go.transform.SetParent(parent, false);
-            SetRect(go.GetComponent<RectTransform>(), anchorMin, anchorMax, offsetMin, offsetMax);
-            var image = go.GetComponent<Image>();
-            image.color = color;
-            return image;
-        }
-
-        private Image AddCircleImage(string name, Transform parent, float radius, Color color, bool ring)
-        {
-            var image = AddImage(name, parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-radius, -radius), new Vector2(radius, radius), color);
-            image.sprite = ring ? GetCircleRingSprite() : GetCircleFillSprite();
-            image.preserveAspect = true;
-            image.raycastTarget = false;
-            return image;
-        }
-
-        private GameObject AddPanel(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
-        {
-            return AddImage(name, parent, anchorMin, anchorMax, offsetMin, offsetMax, color).gameObject;
-        }
-
-        private Text AddText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, string text, int size, TextAnchor anchor, FontStyle style)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
-            go.transform.SetParent(parent, false);
-            SetRect(go.GetComponent<RectTransform>(), anchorMin, anchorMax, offsetMin, offsetMax);
-            var label = go.GetComponent<Text>();
-            label.font = GetUiFont(text, size, style);
-            label.text = text;
-            label.fontSize = size;
-            label.alignment = anchor;
-            label.fontStyle = style;
-            label.color = new Color(0.98f, 0.91f, 0.78f, 1f);
-            label.horizontalOverflow = HorizontalWrapMode.Wrap;
-            label.verticalOverflow = VerticalWrapMode.Truncate;
-            if (size >= 22 || style != FontStyle.Normal)
+            if (proactiveWhisperMetaText != null)
             {
-                var shadow = go.AddComponent<Shadow>();
-                shadow.effectColor = new Color(0f, 0f, 0f, 0.72f);
-                shadow.effectDistance = new Vector2(2f, -2f);
+                var seat = offer.playerSeat > 0 ? $"{offer.playerSeat}号" : NameForPlayerId(offer.playerId);
+                var persona = string.IsNullOrWhiteSpace(offer.personaLabel) ? "普通风格" : offer.personaLabel;
+                proactiveWhisperMetaText.text = $"{seat} · {persona}";
             }
-            return label;
-        }
-
-        private InputField AddInputField(string name, Transform parent, Vector2 offsetMin, Vector2 offsetMax, string placeholderText)
-        {
-            var panel = AddPanel(name, parent, Vector2.zero, Vector2.zero, offsetMin, offsetMax, new Color(0.020f, 0.026f, 0.032f, 0.92f));
-            AddFrame(panel.transform, $"{name} Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.34f));
-            var input = panel.AddComponent<InputField>();
-            var text = AddText("Text", panel.transform, Vector2.zero, Vector2.one, new Vector2(10f, 2f), new Vector2(-10f, -2f), "", 14, TextAnchor.MiddleLeft, FontStyle.Normal);
-            text.color = new Color(0.98f, 0.93f, 0.82f, 1f);
-            text.supportRichText = false;
-            var placeholder = AddText("Placeholder", panel.transform, Vector2.zero, Vector2.one, new Vector2(10f, 2f), new Vector2(-10f, -2f), placeholderText, 13, TextAnchor.MiddleLeft, FontStyle.Italic);
-            placeholder.color = new Color(0.76f, 0.70f, 0.62f, 0.72f);
-            input.textComponent = text;
-            input.placeholder = placeholder;
-            input.lineType = InputField.LineType.SingleLine;
-            input.characterLimit = 120;
-            input.caretColor = new Color(1f, 0.82f, 0.48f, 1f);
-            input.selectionColor = new Color(0.8f, 0.55f, 0.25f, 0.36f);
-            return input;
-        }
-
-        private Toggle AddToggle(string name, Transform parent, Vector2 anchoredPosition, string label)
-        {
-            var root = new GameObject(name, typeof(RectTransform), typeof(Toggle));
-            root.transform.SetParent(parent, false);
-            SetRect(root.GetComponent<RectTransform>(), Vector2.zero, Vector2.zero, anchoredPosition, anchoredPosition + new Vector2(320f, 32f));
-            var box = AddImage("Box", root.transform, Vector2.zero, Vector2.zero, new Vector2(0f, 4f), new Vector2(20f, 24f), new Color(0.020f, 0.026f, 0.032f, 0.95f));
-            AddFrame(box.transform, "Box Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.45f));
-            var check = AddImage("Checkmark", box.transform, Vector2.zero, Vector2.one, new Vector2(4f, 4f), new Vector2(-4f, -4f), new Color(1f, 0.76f, 0.32f, 0.95f));
-            AddText("Label", root.transform, Vector2.zero, Vector2.one, new Vector2(36f, 0f), Vector2.zero, label, 14, TextAnchor.MiddleLeft, FontStyle.Normal);
-            var toggle = root.GetComponent<Toggle>();
-            toggle.targetGraphic = box;
-            toggle.graphic = check;
-            toggle.isOn = false;
-            return toggle;
-        }
-
-        private void AddFrame(Transform parent, string name, float thickness, Color color)
-        {
-            AddImage($"{name} Top", parent, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -thickness), new Vector2(0f, 0f), color);
-            AddImage($"{name} Bottom", parent, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(0f, thickness), color);
-            AddImage($"{name} Left", parent, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(thickness, 0f), color);
-            AddImage($"{name} Right", parent, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-thickness, 0f), new Vector2(0f, 0f), color);
-        }
-
-        private static void ClearChildren(Transform parent)
-        {
-            if (parent == null) return;
-            for (var i = parent.childCount - 1; i >= 0; i--) Destroy(parent.GetChild(i).gameObject);
-        }
-
-        private Button AddButton(string label, Transform parent, Vector2 anchoredPosition, Vector2 size, UnityEngine.Events.UnityAction onClick)
-        {
-            var half = size * 0.5f;
-            var panel = AddPanel($"Button {label}", parent, Vector2.zero, Vector2.zero, anchoredPosition - half, anchoredPosition + half, new Color(0.18f, 0.095f, 0.036f, 0.82f));
-            AddImage("Button Glow", panel.transform, new Vector2(0f, 0.55f), new Vector2(1f, 1f), new Vector2(3f, -3f), new Vector2(-3f, -3f), new Color(1f, 0.76f, 0.36f, 0.075f));
-            AddImage("Button Left Accent", panel.transform, Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(3f, 0f), new Color(0.96f, 0.65f, 0.26f, 0.38f));
-            AddFrame(panel.transform, "Button Frame", 0.9f, new Color(0.94f, 0.68f, 0.34f, 0.44f));
-            var button = panel.AddComponent<Button>();
-            button.onClick.AddListener(onClick);
-            ApplyButtonStyle(button);
-            var fontSize = size.y <= 28f ? 13 : label.Length > 8 ? 15 : 17;
-            AddText("Label", panel.transform, Vector2.zero, Vector2.one, new Vector2(3f, 0f), new Vector2(-3f, 0f), label, fontSize, TextAnchor.MiddleCenter, FontStyle.Bold);
-            return button;
-        }
-
-        private Button AddRoleTokenButton(Transform parent, string roleId, string roleName, string category, string team, Vector2 center, float tokenSize, bool selected, UnityEngine.Events.UnityAction onClick)
-        {
-            var width = tokenSize + 22f;
-            var height = tokenSize + 36f;
-            var root = AddPanel($"Role Token {roleId}", parent, Vector2.zero, Vector2.zero, center - new Vector2(width, height) * 0.5f, center + new Vector2(width, height) * 0.5f, new Color(0f, 0f, 0f, 0f));
-            var rootImage = root.GetComponent<Image>();
-            rootImage.raycastTarget = true;
-
-            var button = root.AddComponent<Button>();
-            button.targetGraphic = rootImage;
-            ApplyButtonStyle(button);
-            button.onClick.AddListener(onClick);
-
-            var tokenBottom = 28f;
-            var halo = AddImage("Role Halo", root.transform, Vector2.zero, Vector2.zero, new Vector2(5f, tokenBottom - 7f), new Vector2(width - 5f, tokenBottom + tokenSize + 7f), RoleHaloColor(category, team, selected));
-            halo.sprite = GetCircleRingSprite();
-            halo.preserveAspect = true;
-            halo.raycastTarget = false;
-
-            var token = AddImage("Role Parchment", root.transform, Vector2.zero, Vector2.zero, new Vector2(11f, tokenBottom), new Vector2(width - 11f, tokenBottom + tokenSize), Color.white);
-            token.sprite = SpriteFromResource("Botc/ui/token1") ?? GetCircleFillSprite();
-            token.preserveAspect = true;
-            token.raycastTarget = false;
-
-            var icon = AddImage("Role Icon", root.transform, Vector2.zero, Vector2.zero, new Vector2(18f, tokenBottom + 10f), new Vector2(width - 18f, tokenBottom + tokenSize - 14f), Color.white);
-            icon.sprite = string.IsNullOrWhiteSpace(roleId) ? null : SpriteFromResource($"Botc/roles/{roleId}");
-            icon.preserveAspect = true;
-            icon.raycastTarget = false;
-            if (icon.sprite == null)
+            if (proactiveWhisperQueueText != null)
             {
-                icon.color = new Color(1f, 1f, 1f, 0f);
-                AddText("Role Fallback", root.transform, Vector2.zero, Vector2.zero, new Vector2(18f, tokenBottom + 10f), new Vector2(width - 18f, tokenBottom + tokenSize - 14f), RoleFallbackLabel(roleId, roleName), Mathf.RoundToInt(tokenSize * 0.30f), TextAnchor.MiddleCenter, FontStyle.Bold);
+                var offers = PendingProactiveOffers();
+                proactiveWhisperQueueText.text = offers.Length <= 1 ? "1 条邀请" : $"队列 {Array.IndexOf(offers, offer) + 1}/{offers.Length}";
             }
-
-            var label = AddText("Role Label", root.transform, Vector2.zero, Vector2.zero, new Vector2(0f, 0f), new Vector2(width, 30f), Ellipsize(string.IsNullOrWhiteSpace(roleName) ? roleId : roleName, tokenSize < 58f ? 4 : 7), tokenSize < 58f ? 11 : 13, TextAnchor.MiddleCenter, FontStyle.Bold);
-            label.color = selected ? new Color(1f, 0.84f, 0.42f, 1f) : new Color(0.95f, 0.89f, 0.76f, 0.98f);
-            return button;
-        }
-
-        private Button AddBlankRoleTokenButton(Transform parent, string label, Vector2 center, float tokenSize, bool selected, UnityEngine.Events.UnityAction onClick)
-        {
-            var button = AddRoleTokenButton(parent, "", label, "", "", center, tokenSize, selected, onClick);
-            return button;
         }
 
-        private Button AddNavButton(string label, Transform parent, Vector2 anchoredPosition, Vector2 size, UnityEngine.Events.UnityAction onClick)
+        private void AcceptProactiveWhisperOffer()
         {
-            var half = size * 0.5f;
-            var panel = AddPanel($"Nav Button {label}", parent, Vector2.zero, Vector2.zero, anchoredPosition - half, anchoredPosition + half, new Color(0.060f, 0.036f, 0.018f, 0.56f));
-            AddImage("Nav Button Wash", panel.transform, new Vector2(0f, 0.52f), new Vector2(1f, 1f), new Vector2(2f, -2f), new Vector2(-2f, -2f), new Color(0.85f, 0.54f, 0.20f, 0.065f));
-            AddImage("Nav Button Accent", panel.transform, Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(3f, 0f), new Color(0.95f, 0.64f, 0.26f, 0.36f));
-            AddFrame(panel.transform, "Nav Button Frame", 0.8f, new Color(0.88f, 0.60f, 0.28f, 0.26f));
-            var button = panel.AddComponent<Button>();
-            button.onClick.AddListener(onClick);
-            ApplyButtonStyle(button);
-            AddText("Label", panel.transform, Vector2.zero, Vector2.one, new Vector2(4f, 0f), new Vector2(-4f, 0f), label, label.Length > 5 ? 15 : 17, TextAnchor.MiddleCenter, FontStyle.Bold);
-            return button;
+            var offer = ActiveProactiveOffer();
+            if (offer == null) return;
+            snoozedProactiveOfferId = "";
+            selectedPlayerId = offer.playerId ?? "";
+            privateChatStatus = $"已接受 {NameForPlayerId(selectedPlayerId)} 的主动私聊；完整内容会写入私聊时间线。";
+            SendUnityAction("accept-proactive-whisper", playerId: selectedPlayerId, trackPending: true, offerId: offer.id ?? "");
+            OpenPrivateChatPanel();
         }
 
-        private void AddMenuButton(string label, Transform parent, Vector2 anchoredPosition, UnityEngine.Events.UnityAction onClick)
+        private void SnoozeProactiveWhisperOffer()
         {
-            AddButton(label, parent, anchoredPosition, new Vector2(350f, 46f), onClick);
+            var offer = ActiveProactiveOffer();
+            if (offer == null) return;
+            snoozedProactiveOfferId = offer.id ?? "";
+            if (proactiveWhisperPanel != null) proactiveWhisperPanel.gameObject.SetActive(false);
         }
 
-        private static void ApplyButtonStyle(Button button)
+        private void DeclineProactiveWhisperOffer()
         {
-            var colors = button.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(1f, 0.94f, 0.70f, 1f);
-            colors.pressedColor = new Color(0.82f, 0.56f, 0.30f, 1f);
-            colors.selectedColor = colors.highlightedColor;
-            colors.disabledColor = new Color(0.25f, 0.23f, 0.22f, 0.55f);
-            colors.fadeDuration = 0.12f;
-            button.colors = colors;
+            var offer = ActiveProactiveOffer();
+            if (offer == null) return;
+            snoozedProactiveOfferId = offer.id ?? "";
+            SendUnityAction("decline-proactive-whisper", playerId: offer.playerId ?? "", trackPending: true, offerId: offer.id ?? "");
+            if (proactiveWhisperPanel != null) proactiveWhisperPanel.gameObject.SetActive(false);
         }
 
         private Text AddBadge(Transform parent, Vector2 position, string label, string count, Color color)
@@ -3764,44 +1715,6 @@ namespace BotcSolo.UnityPrototype
             return result;
         }
 
-        private void ToggleEventPanel()
-        {
-            if (eventPanelOpen && infoDrawerTab == "events")
-            {
-                eventPanelOpen = false;
-            }
-            else
-            {
-                ShowInfoDrawer("events");
-            }
-        }
-
-        private void ToggleTimelinePanel()
-        {
-            if (eventPanelOpen && infoDrawerTab == "timeline")
-            {
-                eventPanelOpen = false;
-                ApplyAuxPanelVisibility();
-            }
-            else
-            {
-                ShowInfoDrawer("timeline");
-            }
-        }
-
-        private void ShowInfoDrawer(string tab)
-        {
-            CloseMoreActionsPanel();
-            infoDrawerTab = string.IsNullOrWhiteSpace(tab) ? "events" : tab;
-            eventPanelOpen = true;
-            timelinePanelOpen = false;
-            if (infoDrawerTitle != null) infoDrawerTitle.text = InfoDrawerTitle();
-            if (eventBody != null) eventBody.text = BuildInfoDrawerMainText();
-            if (queueBody != null) queueBody.text = BuildInfoDrawerSubText();
-            UpdateInfoDrawerTabs();
-            ApplyAuxPanelVisibility();
-        }
-
         private void ToggleBottomDock()
         {
             bottomDockOpen = !bottomDockOpen;
@@ -3830,9 +1743,19 @@ namespace BotcSolo.UnityPrototype
 
         private void HandleEscape()
         {
+            if (settingsPanel != null && settingsPanel.gameObject.activeSelf)
+            {
+                CloseSettingsPanel();
+                return;
+            }
             if (rolePickerPanel != null && rolePickerPanel.gameObject.activeSelf)
             {
                 CloseRolePicker();
+                return;
+            }
+            if (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf)
+            {
+                CloseReminderPicker();
                 return;
             }
             if (endgamePanel != null && endgamePanel.gameObject.activeSelf)
@@ -3847,27 +1770,32 @@ namespace BotcSolo.UnityPrototype
             }
             if (privateChatPanel != null && privateChatPanel.gameObject.activeSelf)
             {
-                privateChatPanel.gameObject.SetActive(false);
+                ClosePrivateChatPanel();
                 return;
             }
             if (actionFormPanel != null && actionFormPanel.gameObject.activeSelf)
             {
-                actionFormPanel.gameObject.SetActive(false);
+                CloseActionFormPanel();
+                return;
+            }
+            if (actionTargetBar != null && actionTargetBar.gameObject.activeSelf)
+            {
+                CloseActionFormPanel();
                 return;
             }
             if (storytellerPanel != null && storytellerPanel.gameObject.activeSelf)
             {
-                storytellerPanel.gameObject.SetActive(false);
+                CloseStorytellerPanel();
                 return;
             }
             if (handbookPanel != null && handbookPanel.gameObject.activeSelf)
             {
-                handbookPanel.gameObject.SetActive(false);
+                CloseHandbookPanel();
                 return;
             }
             if (votePanel != null && votePanel.gameObject.activeSelf)
             {
-                votePanel.gameObject.SetActive(false);
+                CloseVotePanel();
                 return;
             }
             if (tokenInspectorPanel != null && tokenInspectorPanel.gameObject.activeSelf)
@@ -3887,9 +1815,19 @@ namespace BotcSolo.UnityPrototype
 
         private void CloseActiveModal()
         {
+            if (settingsPanel != null && settingsPanel.gameObject.activeSelf)
+            {
+                CloseSettingsPanel();
+                return;
+            }
             if (rolePickerPanel != null && rolePickerPanel.gameObject.activeSelf)
             {
                 CloseRolePicker();
+                return;
+            }
+            if (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf)
+            {
+                CloseReminderPicker();
                 return;
             }
             if (endgamePanel != null && endgamePanel.gameObject.activeSelf)
@@ -3899,32 +1837,27 @@ namespace BotcSolo.UnityPrototype
             }
             if (privateChatPanel != null && privateChatPanel.gameObject.activeSelf)
             {
-                privateChatPanel.gameObject.SetActive(false);
-                ApplyModalBackdropVisibility();
+                ClosePrivateChatPanel();
                 return;
             }
             if (actionFormPanel != null && actionFormPanel.gameObject.activeSelf)
             {
-                actionFormPanel.gameObject.SetActive(false);
-                ApplyModalBackdropVisibility();
+                CloseActionFormPanel();
                 return;
             }
             if (storytellerPanel != null && storytellerPanel.gameObject.activeSelf)
             {
-                storytellerPanel.gameObject.SetActive(false);
-                ApplyModalBackdropVisibility();
+                CloseStorytellerPanel();
                 return;
             }
             if (handbookPanel != null && handbookPanel.gameObject.activeSelf)
             {
-                handbookPanel.gameObject.SetActive(false);
-                ApplyModalBackdropVisibility();
+                CloseHandbookPanel();
                 return;
             }
             if (votePanel != null && votePanel.gameObject.activeSelf)
             {
-                votePanel.gameObject.SetActive(false);
-                ApplyModalBackdropVisibility();
+                CloseVotePanel();
             }
         }
 
@@ -3934,11 +1867,12 @@ namespace BotcSolo.UnityPrototype
             var visible =
                 (privateChatPanel != null && privateChatPanel.gameObject.activeSelf)
                 || (rolePickerPanel != null && rolePickerPanel.gameObject.activeSelf)
+                || (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf)
                 || (endgamePanel != null && endgamePanel.gameObject.activeSelf)
                 || (actionFormPanel != null && actionFormPanel.gameObject.activeSelf)
                 || (storytellerPanel != null && storytellerPanel.gameObject.activeSelf)
                 || (handbookPanel != null && handbookPanel.gameObject.activeSelf)
-                || (votePanel != null && votePanel.gameObject.activeSelf);
+                || (settingsPanel != null && settingsPanel.gameObject.activeSelf && (mainMenuRoot == null || !mainMenuRoot.gameObject.activeSelf));
             modalBackdrop.gameObject.SetActive(visible);
         }
 
@@ -3955,118 +1889,47 @@ namespace BotcSolo.UnityPrototype
             if (moreActionsPanel != null) moreActionsPanel.gameObject.SetActive(bottomDockOpen && moreActionsOpen);
         }
 
-        private void CloseTokenInspector()
-        {
-            tokenInspectorOpen = false;
-            ApplyTokenInspectorVisibility();
-        }
-
-        private void ApplyTokenInspectorVisibility()
-        {
-            var hasSelection = SelectedPlayer() != null;
-            if (tokenInspectorPanel != null) tokenInspectorPanel.gameObject.SetActive(tokenInspectorOpen && hasSelection);
-        }
-
         private void ApplyAuxPanelVisibility()
         {
-            if (eventPanel != null) eventPanel.gameObject.SetActive(eventPanelOpen);
+            if (eventPanel != null)
+            {
+                if (!eventPanelOpen && panelMotionRoutines.TryGetValue(eventPanel, out var existing) && existing != null)
+                {
+                    StopCoroutine(existing);
+                    panelMotionRoutines.Remove(eventPanel);
+                }
+                eventPanel.offsetMin = eventPanelTargetOffsetMin;
+                eventPanel.offsetMax = eventPanelTargetOffsetMax;
+                eventPanel.gameObject.SetActive(eventPanelOpen);
+                var group = eventPanel.GetComponent<CanvasGroup>();
+                if (group != null) group.alpha = 1f;
+            }
             if (timelinePanel != null) timelinePanel.gameObject.SetActive(false);
         }
 
-        private void ToggleMainMenu(bool visible)
-        {
-            if (mainMenuRoot != null) mainMenuRoot.gameObject.SetActive(visible);
-        }
+    }
 
-        private void ShowMenuMessage(string message)
-        {
-            if (menuHint != null) menuHint.text = message;
-        }
+    [Serializable]
+    public sealed class MenuSetupCatalog
+    {
+        public MenuScriptOption[] scripts;
+    }
 
-        private static void SetRect(RectTransform rt, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
-        {
-            rt.anchorMin = anchorMin;
-            rt.anchorMax = anchorMax;
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.offsetMin = offsetMin;
-            rt.offsetMax = offsetMax;
-        }
+    [Serializable]
+    public sealed class MenuScriptOption
+    {
+        public string id;
+        public string name;
+        public MenuRoleOption[] roles;
+    }
 
-        private Sprite SpriteFromResource(string path)
-        {
-            var texture = Resources.Load<Texture2D>(path);
-            if (texture == null) return null;
-            return Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
-        }
-
-        private Sprite GetCircleFillSprite()
-        {
-            if (circleFillSprite == null) circleFillSprite = CreateCircleSprite(false);
-            return circleFillSprite;
-        }
-
-        private Sprite GetCircleRingSprite()
-        {
-            if (circleRingSprite == null) circleRingSprite = CreateCircleSprite(true);
-            return circleRingSprite;
-        }
-
-        private static Sprite CreateCircleSprite(bool ring)
-        {
-            const int size = 512;
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            var pixels = new Color32[size * size];
-            var center = (size - 1) * 0.5f;
-            for (var y = 0; y < size; y++)
-            {
-                for (var x = 0; x < size; x++)
-                {
-                    var dx = (x - center) / center;
-                    var dy = (y - center) / center;
-                    var distance = Mathf.Sqrt(dx * dx + dy * dy);
-                    var alpha = ring
-                        ? Mathf.Clamp01((1f - SmoothStep(0.965f, 1.01f, distance)) * SmoothStep(0.925f, 0.965f, distance))
-                        : 1f - SmoothStep(0.46f, 1.0f, distance);
-                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
-                }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply(false, true);
-            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
-        }
-
-        private static float SmoothStep(float edge0, float edge1, float value)
-        {
-            var t = Mathf.Clamp01((value - edge0) / (edge1 - edge0));
-            return t * t * (3f - 2f * t);
-        }
-
-        private Font GetUiFont(string text, int size, FontStyle style)
-        {
-            if (asciiFont == null) asciiFont = Resources.Load<Font>("Botc/fonts/piratesbay");
-            if (size >= 34 && !ContainsCjk(text) && asciiFont != null) return asciiFont;
-            if (size >= 22 || style != FontStyle.Normal)
-            {
-                if (titleFont == null) titleFont = Font.CreateDynamicFontFromOSFont(new[] { "KaiTi", "FZYaoti", "FZShuTi", "Microsoft YaHei", "SimHei", "Arial" }, 20);
-                if (titleFont != null) return titleFont;
-            }
-            if (bodyFont == null) bodyFont = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "KaiTi", "Arial" }, 18);
-            return bodyFont != null ? bodyFont : Resources.GetBuiltinResource<Font>("Arial.ttf");
-        }
-
-        private static bool ContainsCjk(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return false;
-            foreach (var ch in text) if (ch >= 0x4E00 && ch <= 0x9FFF) return true;
-            return false;
-        }
-
-        private static Color SuspicionColor(int suspicion)
-        {
-            if (suspicion >= 65) return new Color(0.78f, 0.14f, 0.11f, 0.68f);
-            if (suspicion >= 42) return new Color(0.86f, 0.55f, 0.18f, 0.62f);
-            return new Color(0.50f, 0.62f, 0.78f, 0.44f);
-        }
+    [Serializable]
+    public sealed class MenuRoleOption
+    {
+        public string id;
+        public string name;
+        public string team;
+        public string category;
     }
 
     [Serializable]
@@ -4101,6 +1964,12 @@ namespace BotcSolo.UnityPrototype
         public string storytellerActionText;
         public string nominationText;
         public string privateDeceptionText;
+        public ProactiveWhisperViewModel[] pendingProactiveWhispers;
+        public string[] aiSocialClues;
+        public LlmRendererViewModel llmRenderer;
+        public PublicConversationViewModel publicConversation;
+        public NominationClockViewModel nominationClock;
+        public NominationDebateViewModel nominationDebate;
         public string[] aiRecap;
         public AiRecapViewModel[] aiRecapDetails;
         public VoteCeremonyViewModel voteCeremony;
@@ -4159,6 +2028,12 @@ namespace BotcSolo.UnityPrototype
                 storytellerActionText = "Storyteller：等待 JS Core 同步。",
                 nominationText = "提名与投票：等待 JS Core 同步。",
                 privateDeceptionText = "私聊骗人接口：等待 JS Core 同步。",
+                pendingProactiveWhispers = Array.Empty<ProactiveWhisperViewModel>(),
+                aiSocialClues = Array.Empty<string>(),
+                llmRenderer = new LlmRendererViewModel(),
+                publicConversation = new PublicConversationViewModel(),
+                nominationClock = new NominationClockViewModel(),
+                nominationDebate = null,
                 aiRecap = Array.Empty<string>(),
                 aiRecapDetails = Array.Empty<AiRecapViewModel>(),
                 actionForms = Array.Empty<ActionFormViewModel>(),
@@ -4174,6 +2049,11 @@ namespace BotcSolo.UnityPrototype
     }
 
     [Serializable] public sealed class PhaseAdvanceViewModel { public bool blocked; public bool canAdvance; public bool requiresConfirm; public string targetStage; public string label; public string reason; public string hint; public string[] blockers; public string[] warnings; public string confirmText; }
+    [Serializable] public sealed class ProactiveWhisperViewModel { public string id; public string playerId; public string playerName; public int playerSeat; public string personaLabel; public string reason; public string prompt; public string intent; public string focusId; public long createdAt; }
+    [Serializable] public sealed class PublicConversationViewModel { public bool active; public string clock; public string label; public int step; public float pressure; public string speakerId; public string speakerName; public string focusId; public string focusName; public bool canContinue; public string[] suggestedActions; }
+    [Serializable] public sealed class NominationClockViewModel { public bool active; public string status; public int ticksRemaining; public int totalTicks; public float progress; public string lastActorId; public string lastIntent; }
+    [Serializable] public sealed class NominationDebateViewModel { public bool active; public string nominationId; public int day; public string nominatorId; public string nominatorName; public string nomineeId; public string nomineeName; public string reason; public string nextAction; public bool canHumanRespond; public string humanSpeakerRole; public string responsePrompt; public NominationDebateLineViewModel[] lines; }
+    [Serializable] public sealed class NominationDebateLineViewModel { public string speakerId; public string speakerName; public string role; public string text; public bool pending; }
     [Serializable] public sealed class GameOutcomeViewModel { public bool gameOver; public string winner; public string winnerLabel; public string title; public string reason; public string summary; public int alive; public int dead; public string[] finalEvents; }
     [Serializable] public sealed class RoleActionViewModel { public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public bool allowSelf; public bool allowDead; public ActionModeViewModel[] modes; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public string[] selectedTargetIds; }
     [Serializable] public sealed class ActionFormViewModel { public string id; public string title; public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public ActionModeViewModel[] modes; public string[] selectedTargetIds; }
@@ -4187,8 +2067,11 @@ namespace BotcSolo.UnityPrototype
     [Serializable] public sealed class AiRecapTargetViewModel { public string id; public string name; public string score; public float scoreValue; public string reason; public AiTrailViewModel[] trail; }
     [Serializable] public sealed class AiTrailViewModel { public string reasonKey; public string evidenceKind; public float before; public float after; public float appliedDelta; public string reason; }
     [Serializable] public sealed class ScriptHandbookViewModel { public bool open; public string activeTab; public string scriptId; public string scriptName; public ScriptRoleViewModel[] roles; public string[] firstNightOrder; public string[] otherNightOrder; }
-    [Serializable] public sealed class ScriptRoleViewModel { public string id; public string name; public string category; public string team; public string ability; public string icon; }
-    [Serializable] public sealed class ActionStatusViewModel { public int revision; public string lastActionId; public string lastActionType; public string status; public string message; public string updatedAt; public string selectedPlayerId; public string selectedPlayerName; }
-    [Serializable] public sealed class TimelineEntryViewModel { public string id; public string mode; public string speakerId; public string targetId; public string text; public int day; public int night; }
+    [Serializable] public sealed class ScriptRoleViewModel { public string id; public string name; public string category; public string team; public string ability; public string icon; public string firstNightReminder; public string otherNightReminder; public string[] reminders; public string[] remindersGlobal; public int firstNight; public int otherNight; }
+    [Serializable] public sealed class LlmRendererViewModel { public bool enabled; public string provider; public string source; public string model; public int touched; public int fallback; public string reason; public string updatedAt; }
+    [Serializable] public sealed class LlmRenderViewModel { public string source; public bool fallbackUsed; public string reason; }
+    [Serializable] public sealed class ActionStatusViewModel { public int revision; public string lastActionId; public string lastActionType; public string status; public string message; public string updatedAt; public string selectedPlayerId; public string selectedPlayerName; public LlmRendererViewModel llmRenderer; }
+    [Serializable] public sealed class TimelineEntryViewModel { public string id; public string mode; public string speakerId; public string targetId; public string focusId; public string intent; public string evidenceSummary; public string evidenceKind; public string questionToAsk; public string[] followUpPrompts; public string text; public LlmRenderViewModel llmRender; public int day; public int night; }
     [Serializable] public sealed class PlayerViewModel { public string id; public int seat; public string name; public string roleId; public string roleName; public string actualRoleId; public string perceivedRoleId; public string markedRoleId; public string markedRoleName; public bool revealed; public bool alive; public bool human; public bool ghostVoteAvailable; public int suspicion; public string[] reminders; }
+    [Serializable] public sealed class UnitySaveMeta { public string savedAt; public string scriptName; public string phase; public int day; public int night; public int alive; public int dead; }
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { getAllRoles } from "../scripts/data.js";
+import { getAllRoles, getRoleById, SCRIPT_MAP } from "../scripts/data.js";
 
 const root = process.cwd();
 const roleScripts = ["tb", "bmr", "snv"];
@@ -12,6 +12,8 @@ const sourceUiRoot = path.join(root, "assets", "ui");
 const unityUiRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "ui");
 const sourceAudioRoot = path.join(root, "assets", "audio");
 const unityAudioRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "audio");
+const menuSetupSourcePath = path.join(root, "assets", "data", "unity_menu_setup.json");
+const menuSetupUnityPath = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "data", "menu_setup.json");
 
 function fileExists(filePath) {
   return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
@@ -60,8 +62,27 @@ function testUnityHasEveryAudioAsset() {
   }
 }
 
+function testUnityMenuSetupUsesCoreRoleIds() {
+  for (const filePath of [menuSetupSourcePath, menuSetupUnityPath]) {
+    assert.ok(fileExists(filePath), `Unity menu setup should exist: ${path.relative(root, filePath)}`);
+    const catalog = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    assert.ok(Array.isArray(catalog.scripts) && catalog.scripts.length > 0, "menu setup should list scripts");
+    for (const script of catalog.scripts) {
+      assert.ok(SCRIPT_MAP[script.id], `menu setup script id should be known by JS Core: ${script.id}`);
+      assert.ok(Array.isArray(script.roles) && script.roles.length > 0, `menu setup should list roles for ${script.id}`);
+      for (const role of script.roles) {
+        assert.ok(
+          getRoleById(script.id, role.id),
+          `menu setup role id should be a JS Core role id: ${script.id}/${role.id}`
+        );
+      }
+    }
+  }
+}
+
 testUnityHasEveryScriptRoleIcon();
 testUnityHasEveryUiAsset();
 testUnityHasEveryAudioAsset();
+testUnityMenuSetupUsesCoreRoleIds();
 
 console.log("unity asset contracts ok");

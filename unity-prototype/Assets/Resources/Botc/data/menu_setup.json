@@ -1,0 +1,454 @@
+{
+  "scripts": [
+    {
+      "id": "tb",
+      "name": "暗流涌动 (Trouble Brewing)",
+      "roles": [
+        {
+          "id": "washerwoman",
+          "name": "洗衣妇",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "librarian",
+          "name": "图书管理员",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "investigator",
+          "name": "调查员",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "chef",
+          "name": "厨师",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "empath",
+          "name": "共情者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "fortune-teller",
+          "name": "占卜师",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "undertaker",
+          "name": "送葬者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "monk",
+          "name": "僧侣",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "ravenkeeper",
+          "name": "守鸦人",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "virgin",
+          "name": "贞洁者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "slayer",
+          "name": "猎手",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "soldier",
+          "name": "士兵",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "mayor",
+          "name": "镇长",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "butler",
+          "name": "管家",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "drunk",
+          "name": "酒鬼",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "recluse",
+          "name": "陌客",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "saint",
+          "name": "圣徒",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "poisoner",
+          "name": "投毒者",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "spy",
+          "name": "间谍",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "scarlet-woman",
+          "name": "红唇女郎",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "baron",
+          "name": "男爵",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "imp",
+          "name": "小恶魔",
+          "team": "evil",
+          "category": "demon"
+        }
+      ]
+    },
+    {
+      "id": "bmr",
+      "name": "黯月初升 (Bad Moon Rising)",
+      "roles": [
+        {
+          "id": "grandmother",
+          "name": "祖母",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "sailor",
+          "name": "水手",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "chambermaid",
+          "name": "侍女",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "exorcist",
+          "name": "驱魔人",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "innkeeper",
+          "name": "旅店老板",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "gambler",
+          "name": "赌徒",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "gossip",
+          "name": "造谣者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "courtier",
+          "name": "侍臣",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "professor",
+          "name": "教授",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "minstrel",
+          "name": "吟游诗人",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "tea-lady",
+          "name": "茶艺师",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "pacifist",
+          "name": "和平主义者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "fool",
+          "name": "弄臣",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "tinker",
+          "name": "修补匠",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "moonchild",
+          "name": "月之子",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "goon",
+          "name": "莽夫",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "lunatic",
+          "name": "疯子",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "godfather",
+          "name": "教父",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "devil-s-advocate",
+          "name": "魔鬼代言人",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "assassin",
+          "name": "刺客",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "mastermind",
+          "name": "主谋",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "zombuul",
+          "name": "僵怖",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "pukka",
+          "name": "普卡",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "shabaloth",
+          "name": "沙巴洛斯",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "po",
+          "name": "珀",
+          "team": "evil",
+          "category": "demon"
+        }
+      ]
+    },
+    {
+      "id": "snv",
+      "name": "梦殒春宵 (Sects & Violets)",
+      "roles": [
+        {
+          "id": "clockmaker",
+          "name": "钟表匠",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "dreamer",
+          "name": "筑梦师",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "snake-charmer",
+          "name": "舞蛇人",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "mathematician",
+          "name": "数学家",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "flowergirl",
+          "name": "卖花女孩",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "town-crier",
+          "name": "城镇公告员",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "oracle",
+          "name": "神谕者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "savant",
+          "name": "博学者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "seamstress",
+          "name": "女裁缝",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "philosopher",
+          "name": "哲学家",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "artist",
+          "name": "艺术家",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "juggler",
+          "name": "杂耍艺人",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "sage",
+          "name": "贤者",
+          "team": "good",
+          "category": "townsfolk"
+        },
+        {
+          "id": "mutant",
+          "name": "畸形秀演员",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "sweetheart",
+          "name": "心上人",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "barber",
+          "name": "理发师",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "klutz",
+          "name": "呆瓜",
+          "team": "good",
+          "category": "outsider"
+        },
+        {
+          "id": "evil-twin",
+          "name": "镜像双子",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "witch",
+          "name": "女巫",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "cerenovus",
+          "name": "洗脑师",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "pit-hag",
+          "name": "麻脸巫婆",
+          "team": "evil",
+          "category": "minion"
+        },
+        {
+          "id": "fang-gu",
+          "name": "方古",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "vigormortis",
+          "name": "亡骨魔",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "no-dashii",
+          "name": "诺-达鲺",
+          "team": "evil",
+          "category": "demon"
+        },
+        {
+          "id": "vortox",
+          "name": "涡流",
+          "team": "evil",
+          "category": "demon"
+        }
+      ]
+    }
+  ]
+}

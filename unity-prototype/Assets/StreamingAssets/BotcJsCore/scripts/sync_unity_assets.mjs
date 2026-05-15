@@ -8,8 +8,10 @@ const ROLE_SCRIPTS = ["tb", "bmr", "snv"];
 const root = process.cwd();
 const sourceRoleRoot = path.join(root, "assets", "roles");
 const sourceUiRoot = path.join(root, "assets", "ui");
+const sourceAudioRoot = path.join(root, "assets", "audio");
 const unityRoleRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "roles");
 const unityUiRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "ui");
+const unityAudioRoot = path.join(root, "unity-prototype", "Assets", "Resources", "Botc", "audio");
 const checkOnly = process.argv.includes("--check");
 
 function sha256(filePath) {
@@ -17,10 +19,18 @@ function sha256(filePath) {
 }
 
 function listPngFiles(dir) {
+  return listFilesByExtension(dir, ".png");
+}
+
+function listMp3Files(dir) {
+  return listFilesByExtension(dir, ".mp3");
+}
+
+function listFilesByExtension(dir, extension) {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png"))
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(extension))
     .map((entry) => entry.name)
     .sort();
 }
@@ -71,6 +81,12 @@ function syncUiAssets(changes, failures) {
   }
 }
 
+function syncAudioAssets(changes, failures) {
+  for (const fileName of listMp3Files(sourceAudioRoot)) {
+    copyOrCheck(path.join(sourceAudioRoot, fileName), path.join(unityAudioRoot, fileName), changes, failures);
+  }
+}
+
 function assertNoMissingRoleFiles(failures) {
   for (const roleId of expectedRoleIconIds()) {
     const targetPath = path.join(unityRoleRoot, `${roleId}.png`);
@@ -83,6 +99,7 @@ const failures = [];
 
 syncRoleIcons(changes, failures);
 syncUiAssets(changes, failures);
+syncAudioAssets(changes, failures);
 if (!checkOnly) assertNoMissingRoleFiles(failures);
 
 if (failures.length > 0) {

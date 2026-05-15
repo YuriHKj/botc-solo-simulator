@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   advanceDayStage,
+  beginNightPhase,
   createNewGame,
   getHumanDayActionState,
   getHumanNightActionState,
@@ -64,6 +65,7 @@ function startGame(scriptId, roleId, playerCount = 9) {
 function testGamblerPlayerRole() {
   const state = startGame("bmr", "gambler");
   runNight(state, fixedRng());
+  beginNightPhase(state);
   const target = firstOther(state, (entry) => entry.alive);
   const action = getHumanNightActionState(state);
   assert.equal(action.inputType, "player-role");
@@ -80,6 +82,7 @@ function testGamblerPlayerRole() {
 function testCourtierChoosesRoleNotPlayer() {
   const state = startGame("bmr", "courtier");
   runNight(state, fixedRng());
+  beginNightPhase(state);
   state.players
     .filter((entry) => ["sailor", "innkeeper"].includes(entry.roleId) || (!entry.isHuman && entry.roleId === "courtier"))
     .forEach((entry) => {
@@ -105,6 +108,7 @@ function testGodfatherBonusKillUsesHumanTarget() {
   const state = startGame("bmr", "godfather");
   runNight(state, fixedRng());
   state.bmr.lastDayOutsiderExecuted = true;
+  beginNightPhase(state);
 
   const action = getHumanNightActionState(state);
   assert.equal(action.available, true, action.reason);
@@ -146,6 +150,7 @@ function testGossipDayStatementAction() {
 function testPoChargeAndMultiKill() {
   const state = startGame("bmr", "po");
   runNight(state, fixedRng());
+  beginNightPhase(state);
   let action = getHumanNightActionState(state);
   assert.equal(action.inputType, "charge-or-targets");
   let result = setHumanNightActionPlan(state, { mode: "charge" });
@@ -153,6 +158,7 @@ function testPoChargeAndMultiKill() {
   runNight(state, fixedRng());
   assert.equal(state.bmr.poCharged, true, "Po charge should persist after the night");
 
+  beginNightPhase(state);
   action = getHumanNightActionState(state);
   assert.equal(action.inputType, "charge-or-targets");
   assert.equal(action.maxTargetCount, 3);
@@ -170,6 +176,7 @@ function testLunaticUsesPerceivedDemonActionWithoutKilling() {
   assert.notEqual(getPerceivedRoleId(human(state)), "lunatic", "human Lunatic should perceive a demon role");
 
   runNight(state, fixedRng());
+  beginNightPhase(state);
   const action = getHumanNightActionState(state);
   assert.equal(action.available, true, action.reason);
   assert.equal(action.roleId, getPerceivedRoleId(human(state)), "Lunatic UI should use perceived demon action");
@@ -203,6 +210,7 @@ function testLunaticUsesPerceivedDemonActionWithoutKilling() {
 
 function testPhilosopherRoleChoice() {
   const state = startGame("snv", "philosopher");
+  beginNightPhase(state);
   const action = getHumanNightActionState(state);
   assert.equal(action.inputType, "role");
   const result = setHumanNightActionPlan(state, { roleId: "dreamer" });
@@ -213,6 +221,7 @@ function testPhilosopherRoleChoice() {
 
 function testArtistQuestion() {
   const state = startGame("snv", "artist");
+  beginNightPhase(state);
   const action = getHumanNightActionState(state);
   assert.equal(action.inputType, "question");
   const result = setHumanNightActionPlan(state, { question: "场上是否有恶魔？" });
@@ -226,6 +235,7 @@ function testArtistQuestion() {
 
 function testCerenovusPlayerRole() {
   const state = startGame("snv", "cerenovus");
+  beginNightPhase(state);
   const target = firstOther(state, (entry) => entry.alive);
   const action = getHumanNightActionState(state);
   assert.equal(action.inputType, "player-role");
@@ -238,6 +248,7 @@ function testCerenovusPlayerRole() {
 function testPitHagPlayerRole() {
   const state = startGame("snv", "pit-hag");
   runNight(state, fixedRng());
+  beginNightPhase(state);
   const target = firstOther(state, (entry) => entry.alive);
   const action = getHumanNightActionState(state);
   assert.equal(action.inputType, "player-role");
@@ -267,6 +278,7 @@ function testJugglerGuesses() {
 function testProfessorInteractionMetadata() {
   const state = startGame("bmr", "professor");
   runNight(state, fixedRng());
+  beginNightPhase(state);
   const deadTownsfolk = firstOther(state, (entry) => entry.category === "townsfolk");
   deadTownsfolk.alive = false;
 
@@ -279,6 +291,7 @@ function testProfessorInteractionMetadata() {
 
 function testSnakeCharmerHitGivesPrivateInfo() {
   const state = startGame("snv", "snake-charmer");
+  beginNightPhase(state);
   const demon = state.players.find((entry) => entry.category === "demon");
   assert.ok(demon, "expected a demon target");
 

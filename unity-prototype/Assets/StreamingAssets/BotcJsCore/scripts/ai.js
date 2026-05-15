@@ -1,31 +1,92 @@
-import { clamp, getAllRoles, getRoleById, REASON_SNIPPETS, sample } from "./data.js";
-import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPerceivedRoleId, getPlayerById } from "./engine.js";
+import { clamp, REASON_SNIPPETS, sample } from "./data.js";
+import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
-import AI_SPEECH_CORPUS from "./ai_speech_corpus.json" with { type: "json" };
+import { createAIPrivateSocial } from "./ai_private_social.js";
+import { createAIPublicDiscussion } from "./ai_public_discussion.js";
+import {
+  choosePublicClaimRole,
+  chooseScriptAwareBluffRoleId,
+  claimDisclosurePlanner,
+  claimRangeForRole,
+  claimRoleForContext,
+  getClaimDisclosureState,
+  isEarlyInfoRole,
+  isLikelyEarlyInfoRole,
+  maybePrivateClaim,
+  maybePublicDisclosureLine,
+  perceivedRoleForPlayer,
+  pickClaimRole,
+  publicClaimDisclosureLine,
+  rememberClaimDisclosure,
+  roleForPlayer,
+  roleNameById,
+  shouldDeadPublicClaim,
+} from "./ai_claim_policy.js";
+import {
+  applyHumanSpeechCadence,
+  applySpeechBudget,
+  corpusLines,
+  corpusTemplateEntry,
+  differentiateRepeatedSpeech,
+  joinSpeechFragments,
+  personaCorpusKey,
+  pickLayeredSpeech,
+  pickCorpusTemplate,
+  pickPersonaTemplate,
+  polishConversationalText,
+  renderDialogueActs as renderDialogueActsFromRenderer,
+  shortReasonText,
+} from "./ai_speech_renderer.js";
+import {
+  applyPrivateDialogueTurnTaking,
+  applyPrivateStatementContinuity,
+  applyPublicStatementContinuity as applyPublicStatementContinuityFromMemory,
+  currentPublicStatementMemory,
+  dayStanceLabel,
+  publicStatementMemoryMatches,
+  publicStatementMemoryPressure,
+  publicStatementNominationReason,
+  publicStatementVoteThresholdShift,
+  rememberStatementMemory,
+  stanceFromScore,
+  statementTargetLabel,
+  voteStanceFromText,
+} from "./ai_statement_memory.js";
+import {
+  buildAIThoughtFrameCore,
+  rememberAIThoughtFrame,
+  thoughtFrameDisclosureLine,
+} from "./ai_thought_frame.js";
 import {
   areKnownAllies,
   addAgentObservation,
+  buildAgentView,
   clearAgentBeliefTrail,
   countAgentEvidence,
   ensureAIAgents,
   getAIAgent,
   getAgentObservations,
   getAgentEvidence,
+  getAgentKnowledgeGraph,
   getEvidenceForTarget,
   getKnownAllyIds,
   getKnownBluffRoleIds,
   getSuspicionTrailForTarget,
   getVisibleClaims,
   getVisibleSpeeches,
+  recordPrivateChannelForAgents,
   recordPrivateWhisperForAgents,
   recordPrivateClaimForAgent,
   recordPrivateInfoClaimForAgent,
-  recordPublicClaimForAgents,
   recordPublicSpeechForAgents,
   recordSuspicionChangeFromEvidence,
   summarizeEvidenceForDialogue,
+  updateAgentSourceTrustForPlayer,
 } from "./ai_agents.js";
+
+export { applyHumanSpeechCadence, applySpeechBudget } from "./ai_speech_renderer.js";
+export { claimDisclosurePlanner, getClaimDisclosureState, getAIScriptPressureProfile } from "./ai_claim_policy.js";
 
 const QUESTION_INTENT = {
   SUSPECT: "suspect",
@@ -45,7 +106,25 @@ const INTENT_KEYWORDS = {
   [QUESTION_INTENT.TRUST]: ["信任", "相信", "你可信吗", "我像好人", "你怎么看我", "trust", "safe"],
   [QUESTION_INTENT.CLAIM]: ["身份", "报身份", "你是啥", "你什么角色", "你是什么", "claim", "role", "identity"],
   [QUESTION_INTENT.VOTE]: ["投票", "赞成", "反对", "提名", "会投", "要不要票", "vote", "nominate"],
-  [QUESTION_INTENT.NIGHT]: ["昨晚", "昨夜", "夜里", "夜间", "夜晚", "夜死", "night", "last night"],
+  [QUESTION_INTENT.NIGHT]: [
+    "昨晚",
+    "昨夜",
+    "夜里",
+    "夜间",
+    "夜晚",
+    "夜死",
+    "对得上",
+    "能对上",
+    "可验证",
+    "能验证",
+    "硬信息",
+    "查谁",
+    "看谁",
+    "目标",
+    "结果",
+    "night",
+    "last night",
+  ],
   [QUESTION_INTENT.COMPARE]: ["比较", "对比", "谁更", "哪个更", "相比", "vs", "compare"],
   [QUESTION_INTENT.PLAN]: ["建议", "下一步", "怎么做", "策略", "计划", "节奏", "plan", "next step"],
 };
@@ -90,6 +169,13 @@ function ensureDialogueState(state) {
   state.aiDialogue.lastPublicTemplateBySpeaker = state.aiDialogue.lastPublicTemplateBySpeaker ?? {};
   state.aiDialogue.proactivePrivateByDay = state.aiDialogue.proactivePrivateByDay ?? {};
   state.aiDialogue.aiPrivateByDay = state.aiDialogue.aiPrivateByDay ?? {};
+  state.aiDialogue.pendingProactiveWhispers = Array.isArray(state.aiDialogue.pendingProactiveWhispers)
+    ? state.aiDialogue.pendingProactiveWhispers
+    : [];
+  state.aiDialogue.statementMemory = state.aiDialogue.statementMemory ?? {};
+  state.aiDialogue.statementMemory.publicBySpeakerId = state.aiDialogue.statementMemory.publicBySpeakerId ?? {};
+  state.aiDialogue.statementMemory.privateByPairKey = state.aiDialogue.statementMemory.privateByPairKey ?? {};
+  state.aiDialogue.thoughtFramesByAgentId = state.aiDialogue.thoughtFramesByAgentId ?? {};
   return state.aiDialogue;
 }
 
@@ -118,22 +204,6 @@ function stanceMemoryBucket(state) {
   const dayKey = `${state.day ?? 0}`;
   dialogue.dayStanceMemory[dayKey] = dialogue.dayStanceMemory[dayKey] ?? {};
   return dialogue.dayStanceMemory[dayKey];
-}
-
-function stanceFromScore(score) {
-  if (!Number.isFinite(score)) {
-    return "unknown";
-  }
-  if (score >= 0.68) {
-    return "press";
-  }
-  if (score >= 0.56) {
-    return "suspect";
-  }
-  if (score <= 0.34) {
-    return "trust";
-  }
-  return "watch";
 }
 
 function rememberDayStance(state, aiPlayer, targetId, score, source = "dialogue") {
@@ -170,16 +240,6 @@ function rememberDayStance(state, aiPlayer, targetId, score, source = "dialogue"
   existing.sources = [...new Set([...(existing.sources ?? []), source])];
   existing.turns = (existing.turns ?? 0) + 1;
   return existing;
-}
-
-function dayStanceLabel(stance) {
-  return {
-    press: "强压",
-    suspect: "怀疑",
-    watch: "观察",
-    trust: "偏信",
-    unknown: "未知",
-  }[stance] ?? "观察";
 }
 
 function getDailyFocusLock(state, aiPlayer) {
@@ -283,6 +343,405 @@ function personaThresholdShift(persona) {
   return 0;
 }
 
+function personaStrategyProfile(persona) {
+  if (persona === PERSONA_TYPES.PRESSURE) {
+    return {
+      nominationShift: -0.05,
+      voteShift: -0.03,
+      evidenceBonus: 0.025,
+      weakEvidencePenalty: 0,
+      voteAbnormalWeight: 1.1,
+      graphPressureWeight: 1.1,
+      label: "aggressive-pressure",
+    };
+  }
+  if (persona === PERSONA_TYPES.SHADOW) {
+    return {
+      nominationShift: 0.02,
+      voteShift: 0.02,
+      evidenceBonus: 0.04,
+      weakEvidencePenalty: 0.025,
+      voteAbnormalWeight: 1.35,
+      graphPressureWeight: 1.25,
+      label: "pattern-shadow",
+    };
+  }
+  return {
+    nominationShift: 0.015,
+    voteShift: 0.02,
+    evidenceBonus: 0.035,
+    weakEvidencePenalty: 0.035,
+    voteAbnormalWeight: 1,
+    graphPressureWeight: 0.85,
+    label: "evidence-steady",
+  };
+}
+
+function graphRoleId(edge, direction = "to") {
+  const value = direction === "from" ? edge?.from : edge?.to;
+  const match = `${value ?? ""}`.match(/^role:(.+)$/);
+  return match?.[1] ?? "";
+}
+
+function graphPlayerId(edge, direction = "to") {
+  const value = direction === "from" ? edge?.from : edge?.to;
+  const match = `${value ?? ""}`.match(/^player:(.+)$/);
+  return match?.[1] ?? "";
+}
+
+function graphEdgeWeight(edge) {
+  const trust = Number.isFinite(edge?.trust) ? edge.trust : 0.5;
+  const risk = Number.isFinite(edge?.contaminationRisk) ? edge.contaminationRisk : 0.12;
+  return clamp((0.45 + trust * 0.55) * (1 - risk * 0.75), 0.08, 1);
+}
+
+function graphPlayerLabel(state, playerId) {
+  const player = getPlayerById(state, playerId);
+  return player ? `${player.seatIndex + 1}号` : `${playerId ?? "未知玩家"}`;
+}
+
+function graphRoleLabel(state, roleId) {
+  return roleNameById(state, roleId) || roleId || "未知身份";
+}
+
+function edgeTrustScore(edge) {
+  return Number.isFinite(edge?.trust) ? edge.trust : 0.5;
+}
+
+function edgeRiskScore(edge) {
+  return Number.isFinite(edge?.contaminationRisk) ? edge.contaminationRisk : 0.12;
+}
+
+function graphReasonText(reasonKey, targetName) {
+  const name = targetName || "该玩家";
+  return {
+    falseClaim: `${name} 的身份声称和后续公开验证对不上`,
+    verifiedClaim: `${name} 的身份声称被公开验证过`,
+    abnormalVote: `${name} 的投票和当前公开票型压力相反`,
+    validatedVote: `${name} 的投票和通过的处决方向一致`,
+    nominationPressure: `${name} 曾被放进公开提名压力链`,
+    nightInfo: `有夜间信息链条指向 ${name}，但需要看污染风险`,
+    roleConflict: `${name} 的身份声称和别人撞车了`,
+    defendedHotTarget: `${name} 在公聊里维护了当前高压目标`,
+    accusedColdTarget: `${name} 在公聊里推动过低证据目标`,
+    alignedPublicPressure: `${name} 的公开站队和当前压力方向一致`,
+    lowSourceTrust: `${name} 作为信息来源的可信度正在下降`,
+    highSourceTrust: `${name} 作为信息来源的可信度正在上升`,
+  }[reasonKey] ?? `${name} 的关系图谱出现异常信号`;
+}
+
+function computeGraphPressureForTarget(stateOrView, aiPlayer, targetPlayer, options = {}) {
+  if (!targetPlayer) {
+    return { scoreDelta: 0, reasons: [], riskFlags: [] };
+  }
+  const agentView = stateOrView?.kind === "agent-view" ? stateOrView : null;
+  const state = agentView?.state ?? stateOrView;
+  const graph = agentView?.graphForTarget
+    ? agentView.graphForTarget(targetPlayer.id)
+    : getAgentKnowledgeGraph(state, aiPlayer, { targetId: targetPlayer.id });
+  const fullGraph = state ? getAgentKnowledgeGraph(state, aiPlayer) : graph;
+  const publicOnly = !!options.publicOnly;
+  const edges = (graph.edges ?? []).filter((edge) => (publicOnly ? edge.visibility !== "private" : true));
+  const fullEdges = (fullGraph.edges ?? []).filter((edge) => (publicOnly ? edge.visibility !== "private" : true));
+  const claimed = edges.filter((edge) => edge.type === "claimed_role" && graphPlayerId(edge, "from") === targetPlayer.id);
+  const revealed = edges.filter((edge) => edge.type === "revealed_as" && graphPlayerId(edge, "from") === targetPlayer.id);
+  let scoreDelta = 0;
+  const reasons = [];
+  const riskFlags = [];
+  const addReason = (key, delta, edge = null) => {
+    scoreDelta += delta;
+    const text = graphReasonText(key, targetPlayer.name);
+    if (!reasons.includes(text)) {
+      reasons.push(text);
+    }
+    if (edge?.contaminationRisk >= 0.45 && !riskFlags.includes("contaminated-edge")) {
+      riskFlags.push("contaminated-edge");
+    }
+  };
+
+  if (claimed.length > 0 && revealed.length > 0) {
+    const revealedRoles = new Set(revealed.map((edge) => graphRoleId(edge)).filter(Boolean));
+    claimed.forEach((edge) => {
+      const roleId = graphRoleId(edge);
+      if (!roleId || revealedRoles.size === 0) {
+        return;
+      }
+      if (revealedRoles.has(roleId)) {
+        addReason("verifiedClaim", -0.07 * graphEdgeWeight(edge), edge);
+      } else {
+        addReason("falseClaim", 0.13 * graphEdgeWeight(edge), edge);
+      }
+    });
+  }
+
+  edges
+    .filter((edge) => (edge.type === "voted_no_on" || edge.type === "voted_yes_on") && graphPlayerId(edge) === targetPlayer.id)
+    .forEach((edge) => {
+      if (edge.type === "voted_no_on" && edge.metadata?.passed) {
+        addReason("abnormalVote", 0.045 * graphEdgeWeight(edge), edge);
+      } else if (edge.type === "voted_yes_on" && edge.metadata?.passed) {
+        addReason("validatedVote", -0.025 * graphEdgeWeight(edge), edge);
+      } else if (edge.type === "voted_yes_on" && !edge.metadata?.passed) {
+        addReason("abnormalVote", 0.025 * graphEdgeWeight(edge), edge);
+      }
+    });
+
+  edges
+    .filter((edge) => edge.type === "nominated" && graphPlayerId(edge) === targetPlayer.id)
+    .forEach((edge) => addReason("nominationPressure", 0.02 * graphEdgeWeight(edge), edge));
+
+  claimed.forEach((edge) => {
+    const roleId = graphRoleId(edge);
+    if (!roleId) {
+      return;
+    }
+    const conflictingClaimants = [
+      ...new Set(
+        fullEdges
+          .filter((candidate) => candidate.type === "claimed_role" && graphRoleId(candidate) === roleId)
+          .map((candidate) => graphPlayerId(candidate, "from"))
+          .filter((playerId) => playerId && playerId !== targetPlayer.id)
+      ),
+    ];
+    if (conflictingClaimants.length > 0) {
+      addReason("roleConflict", Math.min(0.06, 0.035 + conflictingClaimants.length * 0.01) * graphEdgeWeight(edge), edge);
+    }
+  });
+
+  edges
+    .filter((edge) => edge.type === "public_defended" && graphPlayerId(edge, "from") === targetPlayer.id)
+    .forEach((edge) => {
+      const defendedId = graphPlayerId(edge);
+      const defendedPressure = Number.isFinite(aiPlayer?.suspicion?.[defendedId]) ? aiPlayer.suspicion[defendedId] : 0.5;
+      if (defendedPressure >= 0.62) {
+        addReason("defendedHotTarget", 0.04 * graphEdgeWeight(edge), edge);
+      } else if (defendedPressure <= 0.35) {
+        addReason("alignedPublicPressure", -0.015 * graphEdgeWeight(edge), edge);
+      }
+    });
+
+  edges
+    .filter((edge) => edge.type === "public_accused" && graphPlayerId(edge, "from") === targetPlayer.id)
+    .forEach((edge) => {
+      const accusedId = graphPlayerId(edge);
+      const accusedPressure = Number.isFinite(aiPlayer?.suspicion?.[accusedId]) ? aiPlayer.suspicion[accusedId] : 0.5;
+      if (accusedPressure <= 0.35) {
+        addReason("accusedColdTarget", 0.03 * graphEdgeWeight(edge), edge);
+      } else if (accusedPressure >= 0.62) {
+        addReason("alignedPublicPressure", -0.015 * graphEdgeWeight(edge), edge);
+      }
+    });
+
+  const sourceEdges = edges.filter((edge) => edge.type === "source_of" && graphPlayerId(edge, "from") === targetPlayer.id);
+  if (sourceEdges.length > 0) {
+    const trusts = sourceEdges.map((edge) => edge.trust).filter(Number.isFinite);
+    if (trusts.length > 0) {
+      const averageTrust = trusts.reduce((sum, value) => sum + value, 0) / trusts.length;
+      if (averageTrust < 0.42) {
+        addReason("lowSourceTrust", 0.035 * (1 - averageTrust), sourceEdges[sourceEdges.length - 1]);
+      } else if (averageTrust > 0.68) {
+        addReason("highSourceTrust", -0.025 * averageTrust, sourceEdges[sourceEdges.length - 1]);
+      }
+    }
+  }
+
+  edges
+    .filter((edge) => edge.type === "night_info_about" && graphPlayerId(edge) === targetPlayer.id)
+    .forEach((edge) => {
+      const weight = graphEdgeWeight(edge);
+      const direction = edge.contaminationRisk >= 0.45 ? 0.015 : 0.04;
+      addReason("nightInfo", direction * weight, edge);
+      if (edge.contaminationRisk >= 0.35 && !riskFlags.includes("night-info-risk")) {
+        riskFlags.push("night-info-risk");
+      }
+    });
+
+  return {
+    scoreDelta: clamp(scoreDelta, -0.14, 0.16),
+    reasons: reasons.slice(0, 2),
+    riskFlags,
+  };
+}
+
+function extractGraphReasonChains(stateOrView, aiPlayer, targetPlayer, options = {}) {
+  if (!targetPlayer) {
+    return [];
+  }
+  const agentView = stateOrView?.kind === "agent-view" ? stateOrView : null;
+  const state = agentView?.state ?? stateOrView;
+  const targetId = targetPlayer.id;
+  const graph = agentView?.graphForTarget
+    ? agentView.graphForTarget(targetId)
+    : getAgentKnowledgeGraph(state, aiPlayer, { targetId });
+  const fullGraph = state ? getAgentKnowledgeGraph(state, aiPlayer) : graph;
+  const publicOnly = !!options.publicOnly;
+  const edges = (graph.edges ?? []).filter((edge) => (publicOnly ? edge.visibility !== "private" : true));
+  const fullEdges = (fullGraph.edges ?? []).filter((edge) => (publicOnly ? edge.visibility !== "private" : true));
+  const chains = [];
+  const pushChain = (type, text, score, edgeList = [], riskFlags = []) => {
+    const value = `${text ?? ""}`.trim();
+    if (!value) {
+      return;
+    }
+    chains.push({
+      type,
+      text: value,
+      score: Number.isFinite(score) ? score : 0,
+      edgeIds: edgeList.map((edge) => edge?.id).filter(Boolean),
+      riskFlags,
+    });
+  };
+
+  const claimed = edges.filter((edge) => edge.type === "claimed_role" && graphPlayerId(edge, "from") === targetId);
+  const revealed = edges.filter((edge) => edge.type === "revealed_as" && graphPlayerId(edge, "from") === targetId);
+  if (claimed.length > 0 && revealed.length > 0) {
+    const reveal = revealed[revealed.length - 1];
+    const revealedRoleId = graphRoleId(reveal);
+    claimed.forEach((claim) => {
+      const claimRoleId = graphRoleId(claim);
+      if (!claimRoleId || !revealedRoleId) {
+        return;
+      }
+      const mismatch = claimRoleId !== revealedRoleId;
+      pushChain(
+        mismatch ? "false-claim-chain" : "verified-claim-chain",
+        mismatch
+          ? `${targetPlayer.name} 声称 ${graphRoleLabel(state, claimRoleId)}，后续公开验证成 ${graphRoleLabel(state, revealedRoleId)}`
+          : `${targetPlayer.name} 的 ${graphRoleLabel(state, claimRoleId)} 声称被公开验证过`,
+        (mismatch ? 0.9 : 0.55) * graphEdgeWeight(claim),
+        [claim, reveal]
+      );
+    });
+  }
+
+  claimed.forEach((claim) => {
+    const roleId = graphRoleId(claim);
+    if (!roleId) {
+      return;
+    }
+    const others = [
+      ...new Set(
+        fullEdges
+          .filter((edge) => edge.type === "claimed_role" && graphRoleId(edge) === roleId)
+          .map((edge) => graphPlayerId(edge, "from"))
+          .filter((playerId) => playerId && playerId !== targetId)
+      ),
+    ];
+    if (others.length > 0) {
+      pushChain(
+        "role-conflict-chain",
+        `${targetPlayer.name} 和 ${others.map((id) => graphPlayerLabel(state, id)).slice(0, 2).join("、")} 撞了 ${graphRoleLabel(state, roleId)} 声称`,
+        0.62 + Math.min(0.18, others.length * 0.04),
+        [claim]
+      );
+    }
+  });
+
+  edges
+    .filter((edge) => edge.type === "public_defended" && graphPlayerId(edge, "from") === targetId)
+    .forEach((edge) => {
+      const defendedId = graphPlayerId(edge);
+      const pressure = Number.isFinite(aiPlayer?.suspicion?.[defendedId]) ? aiPlayer.suspicion[defendedId] : 0.5;
+      if (pressure >= 0.62) {
+        pushChain(
+          "public-defense-chain",
+          `${targetPlayer.name} 在公聊里维护了当前高压位 ${graphPlayerLabel(state, defendedId)}`,
+          0.58 + Math.min(0.24, pressure * 0.24),
+          [edge]
+        );
+      }
+    });
+
+  edges
+    .filter((edge) => edge.type === "public_accused" && graphPlayerId(edge, "from") === targetId)
+    .forEach((edge) => {
+      const accusedId = graphPlayerId(edge);
+      const pressure = Number.isFinite(aiPlayer?.suspicion?.[accusedId]) ? aiPlayer.suspicion[accusedId] : 0.5;
+      if (pressure <= 0.35) {
+        pushChain(
+          "public-accuse-chain",
+          `${targetPlayer.name} 在公聊里推动过低证据位 ${graphPlayerLabel(state, accusedId)}`,
+          0.5 + Math.min(0.2, (0.35 - pressure) * 0.5),
+          [edge]
+        );
+      }
+    });
+
+  edges
+    .filter((edge) => edge.type === "night_info_about" && graphPlayerId(edge) === targetId)
+    .forEach((edge) => {
+      const risk = edgeRiskScore(edge);
+      pushChain(
+        "night-info-chain",
+        risk >= 0.45
+          ? `有夜间信息指向 ${targetPlayer.name}，但这条链污染风险偏高`
+          : `有夜间信息链条指向 ${targetPlayer.name}`,
+        risk >= 0.45 ? 0.28 : 0.48,
+        [edge],
+        risk >= 0.35 ? ["night-info-risk"] : []
+      );
+    });
+
+  edges
+    .filter((edge) => edge.type === "source_of" && graphPlayerId(edge, "from") === targetId)
+    .forEach((edge) => {
+      const trust = edgeTrustScore(edge);
+      if (trust < 0.42) {
+        pushChain(
+          "low-source-trust-chain",
+          `${targetPlayer.name} 作为信息来源的可信度偏低，相关口径需要复核`,
+          0.42 + (0.42 - trust),
+          [edge]
+        );
+      }
+    });
+
+  return chains
+    .sort((a, b) => b.score - a.score)
+    .filter((entry, index, arr) => arr.findIndex((candidate) => candidate.text === entry.text) === index)
+    .slice(0, options.limit ?? 3);
+}
+
+function personaAdjustedTargetScore(aiPlayer, state, target, baseScore) {
+  const profile = personaStrategyProfile(aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY);
+  const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), target.id);
+  const flags = aiPlayer.reasonFlags?.[target.id] ?? [];
+  const graphPressure = computeGraphPressureForTarget(state, aiPlayer, target);
+  const graphChains = extractGraphReasonChains(state, aiPlayer, target, {
+    publicOnly: aiPlayer.team === "evil",
+    limit: 2,
+  });
+  const memoryPressure = publicStatementMemoryMatches(currentPublicStatementMemory(state, aiPlayer.id), target.id)
+    ? publicStatementMemoryPressure(currentPublicStatementMemory(state, aiPlayer.id))
+    : 0;
+  let adjusted = baseScore;
+  adjusted += graphPressure.scoreDelta * profile.graphPressureWeight;
+  if (aiPlayer.team === "evil" && !areKnownAllies(state, aiPlayer, target)) {
+    const framingBonus = graphChains.length > 0 ? Math.min(0.055, graphChains[0].score * 0.055) : 0;
+    adjusted += framingBonus;
+  }
+  if (evidenceCount > 0) {
+    adjusted += Math.min(0.06, profile.evidenceBonus + evidenceCount * 0.006);
+  } else if (memoryPressure <= 0) {
+    adjusted -= profile.weakEvidencePenalty;
+  }
+  if (memoryPressure > 0) {
+    adjusted += Math.min(0.08, memoryPressure);
+  }
+  if ((aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY) === PERSONA_TYPES.PRESSURE) {
+    if (flags.some((flag) => ["humanAccuse", "duplicateClaim", "suspiciousNomination"].includes(flag))) {
+      adjusted += 0.035;
+    }
+  } else if ((aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY) === PERSONA_TYPES.SHADOW) {
+    if (flags.some((flag) => ["antiGoodVote", "claimFlip", "bluffHit"].includes(flag))) {
+      adjusted += 0.045;
+    }
+  } else if (evidenceCount >= 2) {
+    adjusted += 0.02;
+  }
+  return clamp(adjusted, 0.01, 0.99);
+}
+
 function personaPrefixPool(aiPlayer, intent) {
   const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
   if (persona === PERSONA_TYPES.PRESSURE) {
@@ -366,6 +825,98 @@ function evidenceWeight(evidence, base = 1) {
   return clamp(base * (0.62 * reliability + 0.38 * sourceTrust) * (1 - contaminationRisk * 0.72), 0.12, 1.05);
 }
 
+function revealedRoleByPlayerId(state) {
+  const map = {};
+  (state.events?.nightDeaths ?? []).forEach((entry) => {
+    const playerId = entry.playerId ?? entry.victimId;
+    if (playerId && entry.roleId) {
+      map[playerId] = { roleId: entry.roleId, day: entry.day, night: entry.night, phase: "night" };
+    }
+  });
+  (state.events?.executions ?? []).forEach((entry) => {
+    const playerId = entry.playerId ?? entry.nomineeId;
+    if (playerId && entry.roleId) {
+      map[playerId] = { roleId: entry.roleId, day: entry.day, night: entry.night, phase: "day" };
+    }
+  });
+  return map;
+}
+
+function applyClaimTrustSignals(state, aiPlayer) {
+  const revealed = revealedRoleByPlayerId(state);
+  getVisibleClaims(state, aiPlayer).forEach((claim) => {
+    const actual = revealed[claim.playerId];
+    if (!actual?.roleId || !claim.roleId) {
+      return;
+    }
+    const verified = claim.roleId === actual.roleId;
+    updateAgentSourceTrustForPlayer(state, aiPlayer, claim.playerId, {
+      delta: verified ? 0.08 : -0.16,
+      reason: verified ? "verified-claim" : "false-claim",
+      source: claim.private ? "private-chat" : "public-chat",
+      eventKey: `claim-trust:${aiPlayer.id}:${claim.playerId}:${claim.roleId}:${actual.roleId}:${actual.phase}:${actual.day ?? ""}:${actual.night ?? ""}`,
+      metadata: {
+        claimedRoleId: claim.roleId,
+        actualRoleId: actual.roleId,
+        private: !!claim.private,
+      },
+    });
+  });
+}
+
+function applyVoteTrustSignals(state, aiPlayer) {
+  const profile = personaStrategyProfile(aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY);
+  getAgentEvidence(state, aiPlayer, { kind: "vote" }).forEach((event) => {
+    const payload = event.payload ?? {};
+    if (!payload.nomineeId || !Array.isArray(payload.votes)) {
+      return;
+    }
+    const nomineeHeat = aiPlayer.suspicion?.[payload.nomineeId] ?? 0.5;
+    payload.votes.forEach((detail) => {
+      if (!detail?.voterId || detail.voterId === aiPlayer.id || detail.abstain) {
+        return;
+      }
+      let delta = 0;
+      let reason = "";
+      if (payload.passed && detail.vote) {
+        delta = 0.025;
+        reason = "validated-vote";
+      } else if (payload.passed && !detail.vote) {
+        delta = -0.04;
+        reason = "abnormal-vote";
+      } else if (!payload.passed && detail.vote && nomineeHeat <= 0.4) {
+        delta = -0.035;
+        reason = "abnormal-vote";
+      } else if (!payload.passed && !detail.vote && nomineeHeat >= 0.62) {
+        delta = -0.03;
+        reason = "abnormal-vote";
+      }
+      if (!delta) {
+        return;
+      }
+      updateAgentSourceTrustForPlayer(state, aiPlayer, detail.voterId, {
+        delta: delta * profile.voteAbnormalWeight,
+        reason,
+        source: "public-procedure",
+        evidenceId: event.id,
+        eventKey: `vote-trust:${aiPlayer.id}:${event.id}:${detail.voterId}:${reason}`,
+        metadata: {
+          nomineeId: payload.nomineeId,
+          passed: !!payload.passed,
+          vote: !!detail.vote,
+          nomineeHeat,
+          persona: profile.label,
+        },
+      });
+    });
+  });
+}
+
+function applyDynamicTrustSignals(state, aiPlayer) {
+  applyClaimTrustSignals(state, aiPlayer);
+  applyVoteTrustSignals(state, aiPlayer);
+}
+
 function bumpFromEvidence(state, aiPlayer, targetId, delta, reasonKey, evidence, base = 1) {
   const before = aiPlayer.suspicion?.[targetId] ?? null;
   const weight = evidenceWeight(evidence, base);
@@ -395,83 +946,6 @@ function normalizeSuspicion(aiPlayer) {
     aiPlayer.suspicion[targetId] = clamp(score, 0.08, 0.88);
   });
   aiPlayer.suspicion[aiPlayer.id] = 0.01;
-}
-
-function roleNameById(state, roleId) {
-  const role = getAllRoles(state.scriptId).find((entry) => entry.id === roleId);
-  return role?.name ?? roleId;
-}
-
-function roleForPlayer(state, player) {
-  return getRoleById(state.scriptId, getEffectiveRoleId(player) ?? player?.roleId) ?? null;
-}
-
-function perceivedRoleForPlayer(state, player) {
-  return getRoleById(state.scriptId, getPerceivedRoleId(player) ?? getEffectiveRoleId(player) ?? player?.roleId) ?? null;
-}
-
-function isEarlyInfoRole(role) {
-  return !!role?.tags?.includes("info") && (role.tags.includes("firstNight") || role.tags.includes("recurring"));
-}
-
-function isPowerRole(role) {
-  return !!role?.tags?.some((tag) => ["protect", "revive", "burst", "control", "transform", "demonBackup"].includes(tag));
-}
-
-function isSafeLowInfoRole(role) {
-  return !!role && role.team === "good" && (role.category === "outsider" || role.tags.includes("social") || role.tags.includes("defense"));
-}
-
-export function getAIScriptPressureProfile(state) {
-  const roleIds = new Set(getAllRoles(state.scriptId).map((role) => role.id));
-  return {
-    hasGodfather: roleIds.has("godfather"),
-    hasFangGu: roleIds.has("fang-gu"),
-    hasBaron: roleIds.has("baron"),
-    hasDrunk: roleIds.has("drunk"),
-    hasRecluse: roleIds.has("recluse"),
-    outsiderClaimsRisky: roleIds.has("godfather") || roleIds.has("fang-gu"),
-    outsiderClaimsPlausible: roleIds.has("baron") || roleIds.has("drunk") || roleIds.has("fang-gu"),
-    outsiderBluffsValuable: roleIds.has("godfather") || roleIds.has("fang-gu") || roleIds.has("baron"),
-    cognitiveCoverPlausible: roleIds.has("drunk") || roleIds.has("lunatic"),
-    misregistrationPlausible: roleIds.has("recluse") || roleIds.has("spy"),
-  };
-}
-
-function bluffRoleScore(state, role) {
-  if (!role) {
-    return 0;
-  }
-  const profile = getAIScriptPressureProfile(state);
-  let score = 0;
-  if (role.category === "outsider") {
-    score += profile.outsiderBluffsValuable ? 0.42 : 0.08;
-    if (profile.hasGodfather && role.tags.includes("risk")) {
-      score += 0.08;
-    }
-    if (profile.hasFangGu) {
-      score += 0.12;
-    }
-  }
-  if (role.tags.includes("info") && !role.tags.includes("recurring")) {
-    score += profile.cognitiveCoverPlausible ? 0.18 : 0.08;
-  }
-  if (role.tags.includes("social") || role.tags.includes("defense")) {
-    score += 0.12;
-  }
-  if (role.tags.includes("lateGame") || role.tags.includes("protect") || role.tags.includes("revive")) {
-    score -= 0.12;
-  }
-  return score;
-}
-
-function chooseScriptAwareBluffRoleId(state, bluffPool, rng = Math.random) {
-  const candidates = (bluffPool ?? [])
-    .map((roleId) => getRoleById(state.scriptId, roleId))
-    .filter(Boolean)
-    .map((role) => ({ role, score: bluffRoleScore(state, role) + rng() * 0.08 }))
-    .sort((a, b) => b.score - a.score);
-  return candidates[0]?.role?.id ?? sample(bluffPool, 1, rng)[0] ?? null;
 }
 
 function applyClaimSignals(state, aiPlayer) {
@@ -647,7 +1121,14 @@ function enforceEvilCoordination(state, aiPlayer) {
 function rankTargets(aiPlayer, state, limit = 3) {
   return state.players
     .filter((entry) => entry.alive && entry.id !== aiPlayer.id)
-    .map((entry) => ({ player: entry, score: aiPlayer.suspicion?.[entry.id] ?? 0.5 }))
+    .map((entry) => {
+      const baseScore = aiPlayer.suspicion?.[entry.id] ?? 0.5;
+      return {
+        player: entry,
+        score: personaAdjustedTargetScore(aiPlayer, state, entry, baseScore),
+        rawScore: baseScore,
+      };
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
@@ -656,6 +1137,13 @@ function getTopTarget(aiPlayer, state) {
   return rankTargets(aiPlayer, state, 1)[0] ?? null;
 }
 
+export function buildAIThoughtFrame(state, aiPlayer, options = {}) {
+  return buildAIThoughtFrameCore(state, aiPlayer, options, {
+    rankTargets,
+    expectedSupportFor,
+    pickClaimRole,
+  });
+}
 function reasonSnippet(key) {
   return LOCAL_REASON_SNIPPETS[key] ?? REASON_SNIPPETS[key] ?? key;
 }
@@ -663,7 +1151,7 @@ function reasonSnippet(key) {
 function summarizeReason(aiPlayer, targetId) {
   const flags = aiPlayer.reasonFlags?.[targetId] ?? [];
   if (flags.length === 0) {
-    return "该玩家的行为与我掌握的信息不一致";
+    return "这条行为和我手里的信息对不上";
   }
   return flags.slice(0, 2).map((key) => reasonSnippet(key)).join("；");
 }
@@ -849,23 +1337,6 @@ function inferAttitude(questionText) {
   return "neutral";
 }
 
-function voteStanceFromText(text) {
-  const modelSignals = predictDialogueSignals(text);
-  const predicted = voteLabelToInGameStance(modelSignals.voteLabel);
-  if (predicted && modelSignals.voteConfidence >= 0.38) {
-    return predicted;
-  }
-
-  const normalized = normalizeText(text);
-  if (/(反对|不投|弃票|反处决|oppose)/.test(normalized)) {
-    return "oppose";
-  }
-  if (/(赞成|会投|支持|提名|推进|support)/.test(normalized)) {
-    return "support";
-  }
-  return "";
-}
-
 function inferPublicSpeechActs(composed) {
   const text = normalizeText(composed?.line ?? "");
   const acts = [];
@@ -928,7 +1399,7 @@ function suspicionTone(score) {
 
 function formatFocus(player, score, withPercent = true) {
   if (!withPercent) {
-    return `${player.name}（${suspicionTone(score)}）`;
+    return `${player.name}`;
   }
   return `${player.name}（${suspicionTone(score)}，约 ${Math.round(score * 100)}%）`;
 }
@@ -994,7 +1465,8 @@ function composeEvilAllianceResponse(state, aiPlayer, human, analysis, rng = Mat
 
   if (goodFocus) {
     const evidence = collectEvidence(state, aiPlayer, goodFocus.player);
-    lines.push(`今天可以先把火力推到 ${goodFocus.player.name} 身上。`);
+    const goodFocusName = statementTargetLabel(state, goodFocus.player.id);
+    lines.push(`今天可以先把火力推到 ${goodFocusName} 身上。`);
     if (evidence.length > 0) {
       lines.push(`能拿来当话术的理由：${evidence.join("；")}。`);
     }
@@ -1024,12 +1496,20 @@ function buildNightSummary(state) {
   return `昨夜死亡为 ${victims.join("、")}，这是高波动夜晚，建议结合恶魔技能做逆推。`;
 }
 
-function collectEvidence(state, aiPlayer, focusPlayer, options = {}) {
-  const safeEvidence = summarizeEvidenceForDialogue(state, aiPlayer, focusPlayer.id, {
-    limit: 2,
-    publicOnly: !!options.publicOnly,
-    includePrivate: !options.publicOnly,
-  });
+function collectEvidence(stateOrView, aiPlayer, focusPlayer, options = {}) {
+  const agentView = stateOrView?.kind === "agent-view" ? stateOrView : null;
+  const state = agentView?.state ?? stateOrView;
+  const safeEvidence = agentView
+    ? agentView.summariesForTarget(focusPlayer.id, {
+        limit: 2,
+        publicOnly: !!options.publicOnly,
+        includePrivate: !options.publicOnly,
+      })
+    : summarizeEvidenceForDialogue(state, aiPlayer, focusPlayer.id, {
+        limit: 2,
+        publicOnly: !!options.publicOnly,
+        includePrivate: !options.publicOnly,
+      });
   if (safeEvidence.length > 0) {
     return safeEvidence;
   }
@@ -1044,12 +1524,14 @@ function collectEvidence(state, aiPlayer, focusPlayer, options = {}) {
     snippets.push(reason);
   }
 
-  const latestClaim = getVisibleClaims(state, aiPlayer).filter((entry) => entry.playerId === focusPlayer.id).slice(-1)[0];
+  const visibleClaims = agentView?.visibleClaims ?? getVisibleClaims(state, aiPlayer);
+  const latestClaim = visibleClaims.filter((entry) => entry.playerId === focusPlayer.id).slice(-1)[0];
   if (latestClaim) {
     snippets.push(`该玩家最近报过身份：${roleNameById(state, latestClaim.roleId)}`);
   }
 
-  const latestSpeech = getVisibleSpeeches(state, aiPlayer)
+  const visibleSpeeches = agentView?.visibleSpeeches ?? getVisibleSpeeches(state, aiPlayer);
+  const latestSpeech = visibleSpeeches
     .filter((entry) => entry.playerId === focusPlayer.id)
     .slice(-1)[0];
   if (latestSpeech?.line) {
@@ -1057,8 +1539,15 @@ function collectEvidence(state, aiPlayer, focusPlayer, options = {}) {
     snippets.push(`该玩家最近公聊重点：${concise}`);
   }
 
-  const targetEvidence = getEvidenceForTarget(state, aiPlayer, focusPlayer.id);
-  const agentEvidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), focusPlayer.id);
+  const targetEvidence = agentView
+    ? agentView.evidenceForTarget(focusPlayer.id, {
+        includePrivate: !options.publicOnly,
+        publicOnly: !!options.publicOnly,
+      })
+    : getEvidenceForTarget(state, aiPlayer, focusPlayer.id);
+  const agentEvidenceCount = agentView
+    ? agentView.evidenceCountForTarget(focusPlayer.id)
+    : countAgentEvidence(getAIAgent(state, aiPlayer), focusPlayer.id);
   if (agentEvidenceCount > 0) {
     const risky = targetEvidence.filter((entry) => entry.canBeFalse || entry.contaminationRisk >= 0.15).length;
     snippets.push(risky > 0 ? `个人证据 ${agentEvidenceCount} 条，其中 ${risky} 条可能被污染` : `个人证据 ${agentEvidenceCount} 条`);
@@ -1067,230 +1556,689 @@ function collectEvidence(state, aiPlayer, focusPlayer, options = {}) {
   return [...new Set(snippets)].slice(0, 2);
 }
 
-function pickClaimRole(state, aiPlayer, rng = Math.random, options = {}) {
-  if (aiPlayer.publicClaimRoleId) {
-    return null;
-  }
-  const force = !!options.force;
-  if (!force && state.day > 1 && rng() > 0.35) {
-    return null;
-  }
-
-  const agent = getAIAgent(state, aiPlayer);
-  const believesEvil = aiPlayer.team === "evil" || agent?.knownSelfTeam === "evil";
-  if (believesEvil) {
-    let bluffPool = getKnownBluffRoleIds(state, aiPlayer);
-    if (bluffPool.length === 0) {
-      bluffPool = getAllRoles(state.scriptId)
-        .filter((role) => role.team === "good")
-        .map((role) => role.id);
-    }
-    if (bluffPool.length > 0) {
-      const unused = bluffPool.filter((roleId) => !state.players.some((entry) => entry.publicClaimRoleId === roleId));
-      const pool = unused.length > 0 ? unused : bluffPool;
-      return chooseScriptAwareBluffRoleId(state, pool, rng);
-    }
-  }
-
-  const perceived = getPerceivedRoleId(aiPlayer) ?? getEffectiveRoleId(aiPlayer) ?? aiPlayer.roleId;
-  return perceived ?? null;
-}
-
-function claimRoleForContext(state, aiPlayer, human = null, rng = Math.random, options = {}) {
-  const roleId = options.roleId ?? pickClaimRole(state, aiPlayer, rng, options);
-  if (!roleId) {
-    return null;
-  }
-
-  aiPlayer.publicClaimRoleId = roleId;
-  const claim = {
-    day: state.day,
-    playerId: aiPlayer.id,
-    roleId,
-    private: !!options.private,
-    viewerId: options.private ? human?.id ?? null : undefined,
+function buildDialogueEvidenceContract(stateOrView, aiPlayer, focusPlayer, options = {}) {
+  const graphPressure = computeGraphPressureForTarget(stateOrView, aiPlayer, focusPlayer, {
+    publicOnly: !!options.publicOnly,
+  });
+  const graphChains = extractGraphReasonChains(stateOrView, aiPlayer, focusPlayer, {
+    publicOnly: !!options.publicOnly,
+    limit: options.chainLimit ?? 2,
+  });
+  const summaries = [
+    ...graphChains.map((entry) => entry.text),
+    ...graphPressure.reasons,
+    ...collectEvidence(stateOrView, aiPlayer, focusPlayer, {
+    publicOnly: !!options.publicOnly,
+    }),
+  ]
+    .map((entry) => `${entry ?? ""}`.trim())
+    .filter(Boolean)
+    .filter((entry, index, arr) => arr.indexOf(entry) === index)
+    .slice(0, options.limit ?? 2);
+  const hasEvidence = summaries.length > 0;
+  const fallback =
+    options.fallback ??
+    (options.publicOnly
+      ? "低证据判断：目前只有公开发言节奏和场上位置，没有可公开引用的硬证据"
+      : "低证据判断：目前主要是发言姿态和场上位置，还没有硬证据");
+  const text = hasEvidence ? summaries.join("；") : fallback;
+  const spokenText = hasEvidence ? playerStyleEvidenceSummary(summaries, { fallback }) : "公开信息还不够，先听回应和票型";
+  return {
+    summaries,
+    text,
+    spokenText,
+    hasEvidence,
+    lowEvidence: !hasEvidence,
+    publicOnly: !!options.publicOnly,
+    graphPressure,
+    graphChains,
   };
-  state.events.claims = state.events.claims ?? [];
-  state.events.claims.push(claim);
-
-  if (!options.private) {
-    recordPublicClaimForAgents(state, claim);
-  }
-
-  addLog(
-    state,
-    "claim",
-    options.private
-      ? `${aiPlayer.name} 在私聊中报身份为 ${roleNameById(state, roleId)}。`
-      : `${aiPlayer.name} 声称自己是 ${roleNameById(state, roleId)}。`,
-    {
-      playerId: aiPlayer.id,
-      viewerId: options.private ? human?.id ?? null : undefined,
-      roleId,
-      private: !!options.private,
-    }
-  );
-
-  return roleId;
 }
 
-function choosePublicClaimRole(state, aiPlayer, roundInDay, rng = Math.random) {
-  if (aiPlayer.publicClaimRoleId) {
-    return null;
-  }
-
-  const actualRole = roleForPlayer(state, aiPlayer);
-  const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? actualRole;
-  const profile = getAIScriptPressureProfile(state);
-  const suspicion = aiPlayer.suspicion?.[aiPlayer.id] ?? evilPrior(state, aiPlayer);
-  const day = state.day ?? 1;
-  const pressure = suspicion >= 0.62;
-  const forcedLate = day >= 2 && (roundInDay >= 2 || suspicion >= 0.52);
-
-  let chance = 0.08;
-  if (perceivedRole?.category === "outsider") {
-    chance += day === 1 ? 0.28 : 0.18;
-    if (profile.outsiderClaimsRisky) {
-      chance -= day === 1 ? 0.13 : 0.06;
+function playerStyleEvidenceSummary(summaries = [], options = {}) {
+  const compact = [];
+  const add = (value) => {
+    const text = `${value ?? ""}`.trim();
+    if (text && !compact.includes(text)) {
+      compact.push(text);
     }
-    if (profile.outsiderClaimsPlausible) {
-      chance += 0.06;
-    }
-  }
-  if (isEarlyInfoRole(perceivedRole)) {
-    chance += day === 1 ? 0.12 : 0.2;
-    if (profile.hasDrunk && day === 1) {
-      chance -= 0.04;
-    }
-  }
-  if (isPowerRole(perceivedRole)) {
-    chance -= day === 1 ? 0.22 : 0.1;
-  }
-  if (pressure) {
-    chance += 0.32;
-  }
-  if (forcedLate) {
-    chance += 0.18;
-  }
-  if (!aiPlayer.alive) {
-    chance += day === 1 ? 0.32 : 0.42;
-  }
-  const agent = getAIAgent(state, aiPlayer);
-  const believesEvil = aiPlayer.team === "evil" || agent?.knownSelfTeam === "evil";
-  if (believesEvil) {
-    const bluffRoles = getKnownBluffRoleIds(state, aiPlayer)
-      .map((roleId) => getRoleById(state.scriptId, roleId))
-      .filter(Boolean);
-    if (bluffRoles.some(isSafeLowInfoRole)) {
-      chance += 0.08;
+  };
+  (summaries ?? []).forEach((summary) => {
+    const text = `${summary ?? ""}`;
+    if (/撞车|撞了|多人.*声称|同一角色/.test(text)) {
+      add("身份撞车");
+    } else if (/对不上|验证成|声称.*验证/.test(text)) {
+      add("身份对不上");
+    } else if (/被公开验证|验证过/.test(text)) {
+      add("身份被验过");
+    } else if (/维护.*高压|高压目标|帮.*卸压/.test(text)) {
+      add("在保高压位");
+    } else if (/推动.*低证据|低证据位/.test(text)) {
+      add("在推低证据位");
+    } else if (/投票.*相反|票型.*反|反票/.test(text)) {
+      add("票型反着走");
+    } else if (/夜间信息|夜信|污染/.test(text)) {
+      add(/污染|风险|可能/.test(text) ? "夜信可能脏" : "夜信牵到这里");
+    } else if (/可信度.*下降|可信度偏低|来源.*复核/.test(text)) {
+      add("来源不稳");
+    } else if (/公开身份口径|私聊身份口径|报过身份/.test(text)) {
+      add("身份要对");
+    } else if (/提名记录|提名压力/.test(text)) {
+      add("被推上台面");
+    } else if (/公聊|发言/.test(text)) {
+      add("发言要回看");
+    } else if (/个人证据/.test(text)) {
+      add("手里有线索");
     } else {
-      chance -= 0.1;
+      add(shortReasonText(text, 12));
     }
+  });
+  if (compact.length === 0) {
+    return shortReasonText(options.fallback ?? "低证据，先问反应", 18);
   }
-
-  chance = clamp(chance, 0.02, day === 1 ? 0.48 : 0.72);
-  if (rng() > chance) {
-    return null;
-  }
-
-  return pickClaimRole(state, aiPlayer, rng);
+  return compact.slice(0, 2).join("、");
 }
 
-function shouldDeadPublicClaim(state, aiPlayer, roundInDay, rng = Math.random) {
-  if (aiPlayer.alive || aiPlayer.publicClaimRoleId) {
-    return false;
+function ensureEvidenceContractInText(text, evidenceContract, options = {}) {
+  const value = `${text ?? ""}`.trim();
+  if (!evidenceContract?.text) {
+    return value;
   }
-  const day = state.day ?? 1;
-  let chance = day <= 1 ? 0.72 : 0.9;
-  if (roundInDay >= 2) {
-    chance += 0.08;
+  const quoted = evidenceContract.summaries.length > 0 ? evidenceContract.summaries : [evidenceContract.text];
+  const spoken = evidenceContract.spokenText ?? "";
+  if (quoted.some((entry) => entry && value.includes(entry)) || (spoken && value.includes(spoken))) {
+    return value;
   }
-  if (!state.players.find((entry) => entry.isHuman)?.alive) {
-    chance += 0.04;
-  }
-  return rng() < clamp(chance, 0.05, 0.98);
+  const label = options.label ?? (evidenceContract.lowEvidence ? "这条还弱" : "我现在抓的点");
+  const evidenceText = options.useFullText ? evidenceContract.text : spoken || evidenceContract.text;
+  return `${value} ${label}：${evidenceText}。`;
 }
 
-function maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng = Math.random) {
-  if (aiPlayer.publicClaimRoleId || roundInDay > 2) {
-    return "";
+function buildGraphFollowUpPrompts(state, aiPlayer, focusPlayer, evidenceContract, options = {}) {
+  if (!focusPlayer) {
+    return [];
   }
-  const role = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
-  const profile = getAIScriptPressureProfile(state);
-  if (roundInDay > 1 && rng() > 0.42) {
-    return "";
+  const chains = evidenceContract?.graphChains ?? [];
+  const prompts = [];
+  chains.forEach((chain) => {
+    if (chain.type === "false-claim-chain" || chain.type === "verified-claim-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：为什么身份口径和后续验证链能对上/对不上？`);
+    } else if (chain.type === "role-conflict-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：撞身份时谁先报、谁补口径、谁愿意接受验证？`);
+    } else if (chain.type === "public-defense-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：为什么要维护那条高压位，依据来自哪条公开信息？`);
+    } else if (chain.type === "public-accuse-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：为什么要推动低证据位，是信息判断还是转移焦点？`);
+    } else if (chain.type === "night-info-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：这条夜间信息链能不能和公开身份口径互相验证？`);
+    } else if (chain.type === "low-source-trust-chain") {
+      prompts.push(`追问 ${focusPlayer.name}：之前哪条口径可以被其他人复核？`);
+    }
+  });
+
+  if (prompts.length === 0 && evidenceContract?.lowEvidence) {
+    prompts.push(`追问 ${focusPlayer.name}：先给身份范围，再给一条能被别人复核的信息。`);
   }
-  if (role?.category === "outsider") {
-    const lines = profile.outsiderClaimsRisky
-      ? [
-          "我这边偏外来者/低信息量，但有教父或方古这类收益点时，我先不给具体身份。",
-          "我可以承认自己偏外来者范围，不过今天不建议把外来者当成免费处决位。",
-          "外来者信息在这个剧本里会被邪恶方利用，我先给范围，具体身份等需要时再补。",
-        ]
-      : [
-      "我这边偏低信息量位置，今天可以给范围，但不急着把具体风险说死。",
-      "我是偏外来者/低信息位的口径，今天不建议逼所有功能位全跳。",
-      "我这边不是强信息位，如果今天要处决我可以再补更具体身份。",
-      ];
-    return sample(lines, 1, rng)[0] ?? "";
+
+  const limit = options.limit ?? 2;
+  return [...new Set(prompts)].slice(0, limit);
+}
+
+function directAnswerForPrivateQuestion(state, aiPlayer, human, analysis, context = {}) {
+  const focus = context.focus;
+  const focusPlayer = focus?.player ?? null;
+  const focusText = context.focusText ?? (focusPlayer ? formatFocus(focusPlayer, focus.score, false) : "这条线");
+  const shortReason = context.shortReason ?? "证据还不硬";
+  const trustLine = context.trustLine ?? "";
+  const followUp = context.followUpText ?? "把身份和信息说完整";
+  const numericMode = !!context.numericMode;
+
+  switch (analysis?.intent) {
+    case QUESTION_INTENT.REASON:
+      return `先给结论：我现在更盯 ${focusText}，主要因为 ${shortReason}。`;
+    case QUESTION_INTENT.TRUST:
+      return `先说你这边：${trustLine || "你在我这里还没定性"} 我不会只凭一句话定你。`;
+    case QUESTION_INTENT.CLAIM:
+      return "身份可以聊，但现在先不一次说满。";
+    case QUESTION_INTENT.VOTE:
+      return focusPlayer
+        ? `如果提 ${focusPlayer.name}，我会认真考虑跟票，但先听回应。`
+        : "现在还没到闭眼投票，我会先看提名对象的回应。";
+    case QUESTION_INTENT.NIGHT:
+      return focusPlayer
+        ? `夜里信息不能单独盘，我会和白天的 ${focusPlayer.name} 这条线合起来看。`
+        : "夜里信息只能当线索，不能直接当结论。";
+    case QUESTION_INTENT.COMPARE: {
+      const compared = (analysis.mentionedPlayers ?? [])
+        .filter((entry) => entry.id !== human?.id && entry.id !== aiPlayer?.id)
+        .slice(0, 2);
+      if (compared.length >= 2) {
+        const a = compared[0];
+        const b = compared[1];
+        const aScore = aiPlayer?.suspicion?.[a.id] ?? 0.5;
+        const bScore = aiPlayer?.suspicion?.[b.id] ?? 0.5;
+        const high = aScore >= bScore ? a : b;
+        const low = aScore >= bScore ? b : a;
+        return numericMode
+          ? `两者里我先追 ${high.name}，风险大概 ${Math.round(Math.max(aScore, bScore) * 100)}%，${low.name} 放第二。`
+          : `两者里我先追 ${high.name}，${low.name} 暂时放第二。`;
+      }
+      return `我现在第一关注还是 ${focusText}。`;
+    }
+    case QUESTION_INTENT.PLAN:
+      return focusPlayer
+        ? `下一步先问 ${focusPlayer.name}，重点问 ${followUp}。`
+        : "下一步先逼明确口径，再看要不要进提名。";
+    case QUESTION_INTENT.SUSPECT:
+    case QUESTION_INTENT.GENERIC:
+    default:
+      return `我当前第一关注是 ${focusText}，但这还不是铁证。`;
   }
-  if (isEarlyInfoRole(role)) {
-    const lines = [
-      "我有一点早期信息，但第一天先不完整报身份。",
-      "我手里有可交叉验证的信息，先看大家口径再决定是否摊开。",
-      "我不是空白位，但现在全跳身份会让夜里太好刀。",
-    ];
-    return sample(lines, 1, rng)[0] ?? "";
+}
+
+function privateAnswerAlignmentPattern(intent) {
+  switch (intent) {
+    case QUESTION_INTENT.REASON:
+      return /因为|理由|主要|证据|对不上|提到|卡点|这条|站队|信息|公开/;
+    case QUESTION_INTENT.TRUST:
+      return /你在我这里|信任|相信|放下|风险|偏好|中间位|不信/;
+    case QUESTION_INTENT.CLAIM:
+      return /身份|我是|口径|范围|私下报|真实身份|台面上|不把身份/;
+    case QUESTION_INTENT.VOTE:
+      return /如果提|跟票|赞成|反对|回应补不上/;
+    case QUESTION_INTENT.NIGHT:
+      return /昨晚|昨夜|夜里|夜间|夜晚|信息|没有能.*信息|能安全说/;
+    case QUESTION_INTENT.COMPARE:
+      return /更|比|先追|放第二|两者里|相比/;
+    case QUESTION_INTENT.PLAN:
+      return /下一步|建议|计划|先问|先把|今天|公聊|提名/;
+    case QUESTION_INTENT.SUSPECT:
+      return /怀疑|可疑|最想追|第一关注|先看|先盯|盯/;
+    default:
+      return null;
   }
-  if (isPowerRole(role)) {
-    const lines = [
-      "我不建议今天逼强功能位交全身份，先用信息和票型压人。",
-      "我暂时不摊身份，今天先看谁在逼信息位裸跳。",
-      "我会保留身份细节，必要时到提名前再补。",
-    ];
-    return sample(lines, 1, rng)[0] ?? "";
+}
+
+function privateAnswerAlignmentContext(state, aiPlayer, human, analysis, composed) {
+  const focusPlayer = composed?.focusId ? getPlayerById(state, composed.focusId) : null;
+  const focusScore = Number.isFinite(composed?.focusScore) ? composed.focusScore : aiPlayer?.suspicion?.[focusPlayer?.id] ?? 0.5;
+  const focus = focusPlayer ? { player: focusPlayer, score: focusScore } : null;
+  const trustScore = aiPlayer?.suspicion?.[human?.id] ?? 0.5;
+  const trustLine =
+    trustScore >= 0.62
+      ? "你在我这里还不能完全放下。"
+      : trustScore <= 0.35
+      ? "你在我这里暂时偏好。"
+      : "你在我这里是中间位。";
+  return {
+    focus,
+    focusText: focusPlayer ? formatFocus(focusPlayer, focusScore, false) : "这条线",
+    shortReason: shortReasonText(composed?.evidenceContract?.spokenText || composed?.evidenceContract?.text || ""),
+    trustLine,
+    followUpText: composed?.followUpPrompts?.[0]?.replace(/^追问\s+[^：]+：/, "") || "把身份和信息说完整",
+    numericMode: false,
+  };
+}
+
+function ensurePrivateAnswerAlignment(state, aiPlayer, human, analysis, composed) {
+  const response = `${composed?.response ?? ""}`.trim();
+  if (!response) {
+    return composed;
+  }
+  const intent = analysis?.intent ?? QUESTION_INTENT.GENERIC;
+  const pattern = privateAnswerAlignmentPattern(intent);
+  if (!pattern || pattern.test(response)) {
+    return composed;
+  }
+  const direct = directAnswerForPrivateQuestion(
+    state,
+    aiPlayer,
+    human,
+    analysis,
+    privateAnswerAlignmentContext(state, aiPlayer, human, analysis, composed)
+  );
+  if (!direct || response.includes(direct)) {
+    return composed;
+  }
+  const sameEvilTeam = areKnownAllies(state, aiPlayer, human);
+  return {
+    ...composed,
+    response: applySpeechBudget(joinSpeechFragments([direct, response]), {
+      audience: "private",
+      maxSentences: sameEvilTeam ? 5 : [QUESTION_INTENT.CLAIM, QUESTION_INTENT.VOTE, QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN].includes(intent) ? 4 : 3,
+      maxChars: sameEvilTeam ? 320 : [QUESTION_INTENT.CLAIM, QUESTION_INTENT.VOTE, QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN].includes(intent) ? 240 : 200,
+    }),
+  };
+}
+
+function followUpQuestionForPrivateAnswer(analysis, context = {}) {
+  const targetName = context.focus?.player?.name ?? "这个位置";
+  const followUp = context.followUpText ?? "把身份和信息说完整";
+  if ([QUESTION_INTENT.REASON, QUESTION_INTENT.SUSPECT, QUESTION_INTENT.GENERIC].includes(analysis?.intent)) {
+    return `我会反问一句：${targetName}，你能把 ${followUp} 讲清楚吗？`;
+  }
+  if (analysis?.intent === QUESTION_INTENT.PLAN) {
+    return `我下一问会很具体：${targetName}，${followUp}。`;
+  }
+  if (analysis?.intent === QUESTION_INTENT.VOTE) {
+    return `票前我会问：${targetName} 的回应有没有补上这个缺口？`;
   }
   return "";
 }
 
-function maybePrivateClaim(state, aiPlayer, human, rng = Math.random) {
-  if (aiPlayer.publicClaimRoleId || rng() >= 0.35) {
-    return "";
+function normalizeSurfaceEvidence(text, targetName = "这个位置") {
+  let value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
+  if (!value) {
+    return "这条还只是追问入口";
   }
-
-  const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true });
-  if (!roleId) {
-    return "";
-  }
-
-  return `补充一句：我先报身份，${roleNameById(state, roleId)}。`;
+  value = value
+    .replace(/该玩家/g, targetName)
+    .replace(/我自己的夜间信息牵到\s*([0-9]+)\s*号/g, "夜里那条信息让我先看 $1号")
+    .replace(/我自己的夜间信息指向\s*([0-9]+)\s*号/g, "夜里那条信息让我先看 $1号")
+    .replace(/让他把身份和信息讲完整/g, "身份和信息能不能连起来")
+    .replace(/可信度有限，需要复核/g, "先复核")
+    .replace(/可信度较低，可能被醉酒\/中毒或私聊口径污染/g, "先打折听")
+    .replace(/\s+。/g, "。")
+    .trim();
+  return value;
 }
 
-function isLikelyEarlyInfoRole(role) {
-  const tags = role?.tags ?? [];
-  const id = `${role?.id ?? ""}`;
-  return (
-    tags.includes("firstNightInfo") ||
-    tags.includes("ongoingInfo") ||
-    ["washerwoman", "librarian", "investigator", "empath", "fortuneteller", "undertaker", "dreamer", "savant", "clockmaker", "pixie"].includes(id)
+function surfaceFollowUpForAct(act) {
+  const targetName = act.targetName ?? "这个位置";
+  if (act.evidenceKind === "night-info") {
+    return `我会让 ${targetName} 把身份和信息连起来说。`;
+  }
+  if (act.evidenceKind === "private-rumor") {
+    return `先让 ${targetName} 把自己的口径补完整。`;
+  }
+  if (act.intent === QUESTION_INTENT.VOTE) {
+    return `${targetName} 回应补不上，我才会认真考虑跟票。`;
+  }
+  return `你可以先让 ${targetName} 把身份范围和信息来源说清楚。`;
+}
+
+function evidenceKindForSurface(evidenceContract) {
+  const text = `${evidenceContract?.text ?? ""} ${evidenceContract?.spokenText ?? ""}`;
+  if (/夜间信息|夜信|夜里那条信息|夜里/.test(text)) {
+    return "night-info";
+  }
+  if (/私下|私聊|有人私下/.test(text)) {
+    return "private-rumor";
+  }
+  if (/公聊|发言/.test(text)) {
+    return "public-talk";
+  }
+  if (/身份|口径/.test(text)) {
+    return "claim";
+  }
+  return "generic";
+}
+
+function buildPrivateSurfaceAct(state, aiPlayer, analysis, context = {}) {
+  const focus = context.focus;
+  if (!focus?.player) {
+    return null;
+  }
+  const evidenceContract = context.evidenceContract ?? null;
+  const publicName = `${focus.player.name ?? ""}`.trim();
+  const targetName =
+    focus.player.isHuman || publicName === "你" ? `${focus.player.seatIndex + 1}号` : publicName || "这个位置";
+  const evidenceText = normalizeSurfaceEvidence(
+    evidenceContract?.summaries?.[0] || evidenceContract?.spokenText || evidenceContract?.text || context.evidenceText,
+    targetName
   );
+  const previousFocusName = context.memory?.lastFocusId
+    ? statementTargetLabel(state, context.memory.lastFocusId)
+    : "";
+  const sameFocus = !!context.memory?.lastFocusId && context.memory.lastFocusId === focus.player.id;
+  const explicitSwitch = !!context.explicitMention && !!previousFocusName && previousFocusName !== targetName;
+  return {
+    audience: "private",
+    actKind: privateSurfaceActKind(analysis?.intent ?? QUESTION_INTENT.GENERIC),
+    intent: analysis?.intent ?? QUESTION_INTENT.GENERIC,
+    persona: aiPlayer?.aiPersona ?? PERSONA_TYPES.STEADY,
+    targetName,
+    secondName: context.second?.player ? statementTargetLabel(state, context.second.player.id) : "",
+    previousFocusName,
+    sameFocus,
+    explicitSwitch,
+    evidenceText,
+    evidenceKind: evidenceKindForSurface(evidenceContract),
+    questionToAsk: context.thoughtFrame?.questionToAsk ?? "",
+    followUpText: context.followUpText ?? "",
+    trustLine: context.trustLine ?? "",
+    lowEvidence: !!evidenceContract?.lowEvidence,
+    focusScore: focus.score ?? 0.5,
+    claimAsked: analysis?.intent === QUESTION_INTENT.CLAIM,
+  };
 }
 
-function claimRangeForRole(role) {
-  if (!role) {
-    return "我先给范围：不是完全没信息的位置，但现在不适合裸跳。";
+function privateSurfaceActKind(intent) {
+  if (intent === QUESTION_INTENT.TRUST) {
+    return "trust-check";
   }
-  const category = `${role.category ?? ""}`;
-  if (category === "outsider") {
-    return "我可以先说范围：我偏外来者口径，不是核心信息位。";
+  if (intent === QUESTION_INTENT.VOTE) {
+    return "vote-stance";
   }
-  if (category === "townsfolk" && isLikelyEarlyInfoRole(role)) {
-    return "我先给范围：我是有信息压力的好人位，信息可以聊，但身份不急着裸。";
+  if (intent === QUESTION_INTENT.PLAN) {
+    return "action-plan";
   }
-  if (category === "townsfolk") {
-    return "我先给范围：我是好人功能位，今天先别逼我把技能细节全交出来。";
+  if (intent === QUESTION_INTENT.COMPARE) {
+    return "compare-targets";
   }
-  return "我先给范围：我的口径今天先保守处理，等压力真的到我身上再展开。";
+  if (intent === QUESTION_INTENT.REASON || intent === QUESTION_INTENT.SUSPECT) {
+    return "explain-pressure";
+  }
+  return "table-read";
+}
+
+function surfaceSentence(text) {
+  const value = `${text ?? ""}`.trim();
+  if (!value) {
+    return "";
+  }
+  return /[。！？]$/.test(value) ? value : `${value}。`;
+}
+
+function renderPrivateSurfaceAct(act, rng = Math.random) {
+  if (!act || act.claimAsked || act.intent === QUESTION_INTENT.NIGHT) {
+    return "";
+  }
+  const targetName = act.targetName;
+  const evidence = act.evidenceText;
+  const followUp = surfaceFollowUpForAct(act);
+  const thoughtFollowUp = act.questionToAsk ? `下一句我会问${compactThoughtQuestionText(act.questionToAsk)}。` : "";
+  const followUpLine = surfaceSentence(thoughtFollowUp || act.followUpText || followUp);
+  const opener = act.explicitSwitch
+    ? `${act.previousFocusName} 那条暂放一边，你问到 ${targetName}，我就单看 ${targetName}。`
+    : act.sameFocus
+    ? `我暂时不换目标，还是先看 ${targetName}。`
+    : act.persona === PERSONA_TYPES.PRESSURE
+    ? `我先直接压 ${targetName}。`
+    : act.persona === PERSONA_TYPES.SHADOW
+    ? `${targetName} 我先暗记一笔。`
+    : `我先不把话说死，先看 ${targetName}。`;
+
+  if (act.actKind === "trust-check") {
+    const trust = act.trustLine || "你这边我先放中间。";
+    return `${trust} 但桌上更该先问 ${targetName}：${evidence}。${followUpLine}`;
+  }
+  if (act.intent === QUESTION_INTENT.VOTE) {
+    return `如果提 ${targetName}，我会先看回应。${evidence}。${followUpLine}`;
+  }
+  if (act.intent === QUESTION_INTENT.PLAN) {
+    return `下一步先问 ${targetName}。${evidence}。${followUpLine}`;
+  }
+  if (act.intent === QUESTION_INTENT.COMPARE) {
+    const second = act.secondName ? `${act.secondName} 先排后面。` : "另一条线先排后面。";
+    return `${targetName} 先级更高。${evidence}。${second}`;
+  }
+  if (act.evidenceKind === "night-info") {
+    return `${opener}${evidence}，但这条不能单独定死。${followUpLine}`;
+  }
+  if (act.lowEvidence && rng() < 0.5) {
+    return `${opener}${evidence}，还不够拍死。${followUpLine}`;
+  }
+  return `${opener}${evidence}。${followUpLine}`;
+}
+
+function buildPublicSurfaceAct(state, aiPlayer, context = {}) {
+  const focus = context.focus;
+  if (!focus?.player) {
+    return null;
+  }
+  const evidenceContract = context.evidenceContract ?? null;
+  const publicName = `${focus.player.name ?? ""}`.trim();
+  const targetName =
+    focus.player.isHuman || publicName === "你" ? `${focus.player.seatIndex + 1}号` : publicName || "这个位置";
+  const evidenceText = normalizeSurfaceEvidence(
+    evidenceContract?.summaries?.[0] || evidenceContract?.spokenText || evidenceContract?.text || context.reasonText,
+    targetName
+  );
+  return {
+    audience: "public",
+    actKind: publicSurfaceActKind(context.debateBeat ?? "opening", context.thoughtFrame?.intendedAct ?? "", !!context.disclosureLine),
+    persona: aiPlayer?.aiPersona ?? PERSONA_TYPES.STEADY,
+    team: aiPlayer?.team ?? "",
+    targetName,
+    secondName: context.second?.player?.name ?? "",
+    debateBeat: context.debateBeat ?? "opening",
+    evidenceText,
+    evidenceKind: evidenceKindForSurface(evidenceContract),
+    questionToAsk: context.thoughtFrame?.questionToAsk ?? "",
+    lowEvidence: !!evidenceContract?.lowEvidence,
+    focusScore: focus.score ?? 0.5,
+    hardPress: !!context.hardPress,
+    disclosureLine: context.disclosureLine ?? "",
+    deadClaimLine: context.deadClaimLine ?? "",
+  };
+}
+
+function publicSurfaceActKind(debateBeat, intendedAct, hasDisclosure) {
+  if (hasDisclosure || intendedAct === "claim" || intendedAct === "claim_range") {
+    return "public-claim";
+  }
+  if (debateBeat === "defense") {
+    return "reply";
+  }
+  if (debateBeat === "nomination-pressure" || intendedAct === "nominate") {
+    return "nomination-pressure";
+  }
+  if (debateBeat === "vote-intent") {
+    return "vote-stance";
+  }
+  if (intendedAct === "pressure") {
+    return "pressure";
+  }
+  if (intendedAct === "probe") {
+    return "probe";
+  }
+  return "table-read";
+}
+
+function compactThoughtQuestionText(questionToAsk) {
+  const raw = `${questionToAsk ?? ""}`.replace(/\s+/g, " ").trim();
+  const match = raw.match(/^让\s+(.+?)\s*把身份和昨晚信息说清楚$/);
+  if (match) {
+    return `${match[1].trim()}：身份和昨晚信息`;
+  }
+  if (/^你\s*把身份和昨晚信息说清楚$/.test(raw)) {
+    return "你：身份和昨晚信息";
+  }
+  return raw.replace(/^问\s+/, "").trim();
+}
+
+function compactSentenceCount(text) {
+  return `${text ?? ""}`.match(/[^。！？；]+[。！？；]?/gu)?.filter((entry) => entry.trim()).length ?? 0;
+}
+
+function appendPublicThoughtQuestion(line, thoughtFrame, maxChars = 190) {
+  const compactQuestion = compactThoughtQuestionText(thoughtFrame?.questionToAsk);
+  if (!compactQuestion || `${line ?? ""}`.includes(compactQuestion) || `${line ?? ""}`.includes("接下来先问")) {
+    return `${line ?? ""}`.trim();
+  }
+  if (
+    !["pressure", "probe", "hold", "nominate"].includes(thoughtFrame?.intendedAct ?? "") ||
+    (compactSentenceCount(line) >= 2 && `${line ?? ""}`.length > 105)
+  ) {
+    return `${line ?? ""}`.trim();
+  }
+  const suffix = `接下来先问${compactQuestion}。`;
+  const value = `${line ?? ""}`.trim();
+  if (!value) {
+    return suffix.trim();
+  }
+  if (value.length + suffix.length <= maxChars) {
+    return /[。！？]$/.test(value)
+      ? value.replace(/[。！？]$/, `，${suffix}`)
+      : `${value}，${suffix}`;
+  }
+  const head = value.slice(0, Math.max(0, maxChars - suffix.length - 2)).replace(/[。！？；，、\s]+$/u, "").trim();
+  return `${head}，${suffix}`;
+}
+
+function renderPublicSurfaceAct(act, rng = Math.random) {
+  if (!act) {
+    return "";
+  }
+  const targetName = act.targetName;
+  const evidence = act.evidenceText;
+  const intro = act.deadClaimLine || act.disclosureLine || "";
+  let main = "";
+  if (act.debateBeat === "defense") {
+    main = `我先回应一下：不是要带节奏，我只是觉得 ${targetName} 这边还缺解释。${evidence}。`;
+  } else if (act.debateBeat === "nomination-pressure") {
+    main = `${targetName} 可以进提名池，但我先听一句回应。${evidence}。`;
+  } else if (act.debateBeat === "vote-intent") {
+    main = `如果今天提 ${targetName}，我会看他的解释质量，不是闭眼跟。${evidence}。`;
+  } else if (act.hardPress || act.persona === PERSONA_TYPES.PRESSURE) {
+    main = `我先压 ${targetName}。${evidence}，先听回应。`;
+  } else if (act.persona === PERSONA_TYPES.SHADOW) {
+    main = `${targetName} 我先记一笔。${evidence}，还没到拍死。`;
+  } else if (act.lowEvidence) {
+    main = `${targetName} 这条先当追问入口，不当定罪。${evidence}。`;
+  } else {
+    main = `我先看 ${targetName}。${evidence}。`;
+  }
+  const second = act.secondName && act.debateBeat !== "vote-intent" ? `${act.secondName} 先排第二。` : "";
+  return joinSpeechFragments([intro, main, second]);
+}
+
+function sanitizePublicSurfaceEvidence(text, targetName) {
+  return `${text ?? ""}`
+    .replace(/\.{3,}/g, "…")
+    .replace(/我接一下前面的发言：我先回应一下：不是要带节奏，我只是觉得\s*([0-9]+号|[^，。；！？\s]+)\s*这边还缺解释/g, "$1 这边还缺解释")
+    .replace(/我接一下前面的发言：如果今天提/g, "如果今天提")
+    .replace(/我接一下前面的发言：/g, "")
+    .replace(/接前面一句：/g, "")
+    .replace(/先回应前面的质疑/g, "先回应这点")
+    .replace(/我先回应一下：不是要带节奏，我只是觉得\s*/g, "")
+    .replace(/低证据判断：目前只有公开发言节奏和场上位置，没有可公开引用的硬证据/g, "公开信息还不够，先听回应和票型")
+    .replace(/低证据判断：目前主要是发言姿态和场上位置，还没有硬证据/g, "公开信息还不够，先听回应和票型")
+    .replace(/这条还弱：低证…（先复核）/g, "公开信息还不够，先听回应")
+    .replace(/这条还弱：低…（先复核）/g, "公开信息还不够，先听回应")
+    .replace(/\b你\s+(?=可以|这边|这条|我先|的解释)/g, `${targetName} `)
+    .replace(/围着\s+你\s+/g, `围着 ${targetName} `)
+    .replace(/看\s+你\s+的解释/g, `看 ${targetName} 的解释`)
+    .trim();
+}
+
+function renderPublicSurfaceActReadable(act) {
+  if (!act) {
+    return "";
+  }
+  const targetName = act.targetName;
+  const evidence = sanitizePublicSurfaceEvidence(act.evidenceText, targetName);
+  const intro = act.deadClaimLine || act.disclosureLine || "";
+  const compactQuestion = compactThoughtQuestionText(act.questionToAsk);
+  const thoughtQuestion = compactQuestion ? `我会问${compactQuestion}` : "";
+  let main = "";
+  if (intro && act.debateBeat === "nomination-pressure") {
+    main = `${targetName} 可以进提名池，卡在 ${evidence}。`;
+  } else if (intro && act.debateBeat === "vote-intent") {
+    main = `如果今天提 ${targetName}，我会看解释和票型，卡在 ${evidence}。`;
+  } else if (intro && act.actKind === "public-claim") {
+    main = act.lowEvidence
+      ? `${act.targetName} 这条先当观察位，公开信息还不够。`
+      : `${act.targetName} 这条先留桌面上，卡在 ${evidence}。`;
+  } else if (act.team === "evil" && act.debateBeat === "nomination-pressure") {
+    main = `台面上我先把 ${targetName} 放进提名前复核。${evidence}，先听回应。`;
+  } else if (act.team === "evil" && act.debateBeat === "vote-intent") {
+    main = `公开说，如果今天提 ${targetName}，我看解释和票型再跟。${evidence}。`;
+  } else if (act.team === "evil" && act.debateBeat !== "defense") {
+    main = `台面上我先看 ${targetName}。${evidence}，先别闭眼冲。`;
+  } else if (act.actKind === "reply") {
+    main = `${targetName} 这边还缺解释，先回应这点。${evidence}。`;
+  } else if (act.actKind === "nomination-pressure") {
+    main = `${targetName} 可以进提名池，但我先听一句回应。${evidence}。`;
+  } else if (act.actKind === "vote-stance") {
+    main = `如果今天提 ${targetName}，我会看他的解释质量，不是闭眼跟。${evidence}。`;
+  } else if (act.actKind === "pressure" || act.hardPress || act.persona === PERSONA_TYPES.PRESSURE) {
+    main = `我先压 ${targetName}。${evidence}，先听回应。`;
+  } else if (act.actKind === "probe" && act.persona === PERSONA_TYPES.SHADOW) {
+    main = `${targetName} 我先暗记一笔。${evidence}，还没到拍死。`;
+  } else if (act.lowEvidence) {
+    main = `${targetName} 这条先当追问入口，不当定罪。${evidence}。`;
+  } else {
+    main = `我先看 ${targetName}。${evidence}。`;
+  }
+  const shouldInlineQuestion =
+    thoughtQuestion &&
+    ["opening", "defense", "nomination-pressure", "vote-intent"].includes(act.debateBeat) &&
+    main.length < 130;
+  if (shouldInlineQuestion) {
+    main = /[。！？]$/.test(main)
+      ? main.replace(/[。！？]$/, `，${thoughtQuestion}。`)
+      : `${main}，${thoughtQuestion}。`;
+  }
+  const second =
+    !shouldInlineQuestion && act.secondName && act.debateBeat !== "vote-intent"
+      ? `${act.secondName} 先排第二。`
+      : "";
+  return joinSpeechFragments([intro, main, second]);
+}
+
+function pragmaticPressureContext(state, aiPlayer, options = {}) {
+  const focusScore = Number.isFinite(options.focusScore) ? options.focusScore : 0.5;
+  const selfHeat = Number.isFinite(aiPlayer?.suspicion?.[aiPlayer.id]) ? aiPlayer.suspicion[aiPlayer.id] : 0.01;
+  return {
+    audience: options.audience ?? "private",
+    intent: options.intent ?? "",
+    focusId: options.focusId ?? null,
+    focusScore,
+    selfHeat,
+    lowEvidence: !!options.lowEvidence,
+    dayStage: state?.dayStage ?? "",
+    day: Math.max(1, Number(state?.day) || 1),
+    alive: aiPlayer?.alive !== false,
+    selfNominated: !!aiPlayer?.beenNominatedToday,
+    hasNominated: !!aiPlayer?.nominatedToday,
+  };
+}
+
+function pragmaticLineForSpeech(state, aiPlayer, options = {}) {
+  const ctx = pragmaticPressureContext(state, aiPlayer, options);
+  if (!aiPlayer) {
+    return "";
+  }
+  if (!ctx.alive) {
+    return ctx.audience === "public"
+      ? "我已经死了，发言会短一点；别把这句当硬证，只当线索。"
+      : "我已经出局了，所以这句你当遗言线索听，别当铁证。";
+  }
+  if (ctx.selfNominated) {
+    return "我现在在台上，先不绕：我会把能验证的部分说清，票型你们自己看。";
+  }
+  if (ctx.selfHeat >= 0.62) {
+    return ctx.audience === "public"
+      ? "我知道我自己也有压力，所以先把逻辑摆出来，不靠情绪硬带。"
+      : "我知道你可能也在审我，所以我先给能被复核的说法。";
+  }
+  if (ctx.dayStage === "nomination") {
+    return "已经到提名段了，我会说可执行版本，不再铺太长。";
+  }
+  if (ctx.day >= 3 && ctx.audience === "public") {
+    return "到这个天数就别只留感觉了，我说结论，也留可验点。";
+  }
+  if (ctx.focusScore >= 0.72) {
+    return "这条我不是轻轻记一笔了，是需要马上听回应。";
+  }
+  if (ctx.lowEvidence) {
+    return "这条证据还弱，我先当追问入口，不当定罪。";
+  }
+  return "";
+}
+
+function applyInGamePragmatics(state, aiPlayer, text, options = {}) {
+  const value = `${text ?? ""}`.trim();
+  if (!value) {
+    return value;
+  }
+  const line = pragmaticLineForSpeech(state, aiPlayer, options);
+  if (!line || value.includes(line)) {
+    return value;
+  }
+  return `${line} ${value}`;
 }
 
 function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.random) {
@@ -1303,6 +2251,13 @@ function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.ra
   const humanRisk = aiPlayer.suspicion?.[human.id] ?? 0.5;
   const selfHeat = aiPlayer.suspicion?.[aiPlayer.id] ?? 0.5;
   const pressured = selfHeat >= 0.62 || askedCount >= 2 || day >= 3 || !aiPlayer.alive;
+  const disclosurePlan = claimDisclosurePlanner(state, aiPlayer, human, rng, {
+    private: true,
+    audience: "private",
+    intent: "claim",
+    askedCount,
+    trustScore: humanRisk,
+  });
 
   if (!aiPlayer.alive) {
     const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true });
@@ -1313,16 +2268,35 @@ function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.ra
   if (aiPlayer.team === "evil") {
     const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: pressured || day >= 2 });
     const roleName = roleNameById(state, roleId || aiPlayer.publicClaimRoleId || perceivedRole?.id);
-    if (pressured) {
-      return `你既然追到身份，我给完整口径：我是 ${roleName}。这条先别急着公开，让我看一圈反应。`;
-    }
-    return `身份我先不给死，只给你口径范围：我会往 ${roleName} 这类好人位上靠。先别替我公开。`;
+    return renderDialogueActs(
+      state,
+      aiPlayer,
+      pressured ? "claimCoverPressured" : "claimCover",
+      { roleName },
+      rng,
+      pressured
+        ? [`你既然追到身份，我给完整口径：我是 ${roleName}。这条先别急着公开，让我看一圈反应。`]
+        : [`身份我先不给死，只给你口径范围：我会往 ${roleName} 这类好人位上靠。先别替我公开。`],
+      { audience: "private", evilPerformance: true }
+    );
   }
 
   if (pressured) {
     const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true, roleId: perceivedRole?.id });
     const roleName = roleNameById(state, roleId || perceivedRole?.id || actualRole?.id);
     return `压力到这个份上我不躲了：我私下报 ${roleName}。如果你要带出去，最好连我的信息链一起带。`;
+  }
+
+  if (disclosurePlan.previousLevel === "range" || disclosurePlan.level === "range") {
+    rememberClaimDisclosure(state, aiPlayer, disclosurePlan, human, { private: true, audience: "private" });
+    const lead = disclosurePlan.previousLevel === "range" ? "刚才已经给过范围：" : "我先给范围：";
+    return `${lead}${disclosurePlan.rangeText} 具体身份先不摊死，除非今天真的推到这个位置。`;
+  }
+
+  if (disclosurePlan.previousLevel === "hard" || disclosurePlan.level === "hard") {
+    const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true, roleId: disclosurePlan.roleId || perceivedRole?.id });
+    const roleName = roleNameById(state, roleId || disclosurePlan.roleId || perceivedRole?.id || actualRole?.id);
+    return `这条我不改：我是 ${roleName}。你可以按这个身份继续问我的信息。`;
   }
 
   if (humanRisk >= 0.66 && day <= 2) {
@@ -1341,14 +2315,276 @@ function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.ra
 
   const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true, roleId: perceivedRole?.id });
   const roleName = roleNameById(state, roleId || perceivedRole?.id || actualRole?.id);
-  return `我可以私下报给你：我是 ${roleName}。但先别在公聊里替我摊开。`;
+  return `我可以私下跟你说，我是 ${roleName}。先别替我在公聊里摊开。`;
 }
 
-function composePrivateResponse(state, aiPlayer, human, analysis, questionText, memory, rng = Math.random) {
+function composePrivateClaimAnswer(state, aiPlayer, human, memory, rng = Math.random) {
+  memory.claimAskedCount = Number(memory.claimAskedCount ?? 0) + 1;
+  const continuity =
+    memory.turns > 0 && aiPlayer.publicClaimRoleId
+      ? `身份口径我不改，还是 ${roleNameById(state, aiPlayer.publicClaimRoleId)}。`
+      : "";
+  const claimSentence =
+    composePrivateClaimPolicy(state, aiPlayer, human, memory, rng) ||
+    maybePrivateClaim(state, aiPlayer, human, rng) ||
+    "身份我现在不想直接裸跳。你可以先记我不是空白位；如果今天真的要推我，我会补完整口径。";
+  const follow =
+    aiPlayer.publicClaimRoleId
+      ? `这局我目前的身份说法先按 ${roleNameById(state, aiPlayer.publicClaimRoleId)} 记，不会无理由改口。`
+      : "这条先当私下口径，别直接替我公开。";
+  return joinSpeechFragments([continuity, claimSentence, follow]);
+}
+
+function latestInfoPingForPlayer(state, aiPlayer) {
+  return (state.events?.infoPings ?? [])
+    .filter((entry) => entry.actorId === aiPlayer?.id)
+    .slice(-1)[0] ?? null;
+}
+
+function exactPrivateNightInfoLine(note) {
+  const text = humanizeSharedPrivateNote(note);
+  return text ? `我昨晚能说的是：${text}。` : "";
+}
+
+function compactNightInfoText(note) {
+  return humanizeSharedPrivateNote(note)
+    .replace(/^我(?=昨晚|夜里|查验|得知|看到|获得|临终)/, "")
+    .trim();
+}
+
+function privateQuestionAsksForInfoFormat(text) {
+  return /(对得上|能对上|可验证|能验证|硬信息|查谁|看谁|目标|结果|昨晚.*信息|夜里.*信息|夜间.*信息|拿到.*信息)/.test(
+    `${text ?? ""}`
+  );
+}
+
+function privateQuestionAsksIdentityOnly(text) {
+  return /(身份|角色|你是|报身份|跳身份|claim|role|identity)/i.test(`${text ?? ""}`) && !privateQuestionAsksForInfoFormat(text);
+}
+
+function shouldRoutePrivateQuestionToNightInfo(analysis, questionText) {
+  if (analysis?.intent === QUESTION_INTENT.NIGHT) {
+    return true;
+  }
+  if (privateQuestionAsksIdentityOnly(questionText)) {
+    return false;
+  }
+  return privateQuestionAsksForInfoFormat(questionText);
+}
+
+function shouldForceExactNightInfo(questionText, askedCount) {
+  return (
+    Number(askedCount ?? 0) >= 2 ||
+    /(具体|全报|摊开|查谁|看谁|目标|结果|直接说|别绕|不要绕)/.test(`${questionText ?? ""}`)
+  );
+}
+
+function nightInfoFormatHintForPlan(plan, role) {
+  const roleId = role?.id ?? plan?.roleId ?? "";
+  const family = plan?.family ?? "";
+  if (roleId === "fortune-teller" || family === "demon-check") {
+    return "每晚看两个人，得到一个“是/否”结果。";
+  }
+  if (["washerwoman", "librarian", "investigator"].includes(roleId) || family === "two-player-role") {
+    return "两个人里有一个对应某个身份或类型。";
+  }
+  if (roleId === "empath" || family === "adjacent-info") {
+    return "看左右两侧存活邻居里有几个邪恶。";
+  }
+  if (roleId === "chef" || family === "adjacent-pair-count") {
+    return "看场上有几对相邻邪恶玩家。";
+  }
+  if (roleId === "undertaker" || family === "execution-reveal") {
+    return "看当天被处决玩家的身份。";
+  }
+  if (roleId === "ravenkeeper" || family === "death-check") {
+    return "我死亡后可以查一个人的身份。";
+  }
+  if (roleId === "dreamer" || family === "two-role-check") {
+    return "每天看一个人，得到两个可能身份。";
+  }
+  if (roleId === "savant" || family === "statement-info") {
+    return "每天拿两条说法，一真一假。";
+  }
+  if (roleId === "clockmaker" || family === "distance-info") {
+    return "看恶魔和爪牙之间隔了几步。";
+  }
+  return "";
+}
+
+function formatOnlyNightInfoLine(state, aiPlayer, plan, ping) {
+  const role = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
+  const hint = nightInfoFormatHintForPlan(plan, role);
+  const polluted = ping?.polluted ? "这条可能有醉酒或中毒风险，先打折听。" : "这能给别人复核，但先别只凭这一条定死。";
+  if (!hint) {
+    return rangeNightInfoLine(plan, ping);
+  }
+  return joinSpeechFragments([
+    plan?.rangeText ?? claimRangeForRole(role),
+    `如果只说格式：${hint}`,
+    polluted,
+  ]);
+}
+
+function exactNightInfoFormatLine(state, aiPlayer, note, plan, ping) {
+  const role = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
+  const exact = compactNightInfoText(note);
+  const hint = nightInfoFormatHintForPlan(plan, role);
+  const polluted = ping?.polluted ? "但这条可能被醉酒或中毒影响，先打折听。" : "这条可以拿去和目标的身份、发言互相复核。";
+  if (exact) {
+    return joinSpeechFragments([
+      `你追到具体信息了，我按格式说：${exact}。`,
+      polluted,
+    ]);
+  }
+  if (hint) {
+    return joinSpeechFragments([
+      `我这类信息的格式是：${hint}`,
+      "但现在没有更完整的可复述结果。",
+    ]);
+  }
+  return "";
+}
+
+function rangeNightInfoLine(plan, ping) {
+  const polluted = ping?.polluted ? "这条可能有醉酒或中毒风险，先打折听。" : "这条先当方向，不要直接当铁证。";
+  if (plan.family === "adjacent-info") {
+    return `${plan.rangeText} 我先不直接报具体数字，因为那基本等于把身份交出来。${polluted}`;
+  }
+  if (plan.family === "adjacent-pair-count") {
+    return `${plan.rangeText} 我先给结论方向，不把完整格式直接摊完。${polluted}`;
+  }
+  if (plan.family === "two-player-role") {
+    return `${plan.rangeText} 我可以后面补具体两个人，但现在先别把我身份锁死。${polluted}`;
+  }
+  if (plan.family === "demon-check") {
+    return `${plan.rangeText} 我会看公聊反应再决定要不要把目标和结果全报。${polluted}`;
+  }
+  if (plan.family === "execution-reveal") {
+    return `${plan.rangeText} 这条信息适合和处决结果一起公开复核。${polluted}`;
+  }
+  return `${plan.rangeText} ${polluted}`;
+}
+
+function vagueNightInfoLine(plan, ping) {
+  const risk = ping?.polluted ? "而且这条可能被污染，" : "";
+  if (plan.level === "withhold") {
+    return `我有夜间信息，但现在能安全说的只有：我先不把格式交出来。${risk}等公聊反应出来再说。`;
+  }
+  return `我有一条夜间信息，但现在能安全说的只有：说清格式基本就等于暴露身份。${risk}先只记我不是空白位。`;
+}
+
+function composeNightInfoDisclosure(state, aiPlayer, audience, rng = Math.random, options = {}) {
+  const ping = latestInfoPingForPlayer(state, aiPlayer);
+  const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience });
+  const note = ping?.text ?? notes.at(-1) ?? "";
+  if (!ping && note) {
+    return {
+      text: exactPrivateNightInfoLine(note),
+      plan: null,
+    };
+  }
+  const plan = claimDisclosurePlanner(state, aiPlayer, audience, rng, {
+    private: true,
+    audience: "private",
+    intent: "night",
+    infoPing: ping,
+    askedCount: options.askedCount ?? 0,
+    trustScore: options.trustScore,
+  });
+  rememberClaimDisclosure(state, aiPlayer, plan, audience, { private: true, audience: "private" });
+  const forceExact = shouldForceExactNightInfo(options.questionText, options.askedCount);
+  const formatRequested = !!options.formatRequested || privateQuestionAsksForInfoFormat(options.questionText);
+
+  if (plan.shouldClaimRole) {
+    const roleId = claimRoleForContext(state, aiPlayer, audience, rng, {
+      private: true,
+      force: true,
+      roleId: plan.roleId,
+    });
+    const roleName = roleNameById(state, roleId || plan.roleId);
+    const exact = compactNightInfoText(note);
+    return {
+      text: joinSpeechFragments([
+        `身份直接摊：${roleName}。`,
+        exact ? `昨晚信息：${exact}。` : "昨晚信息现在可以摊开聊。",
+        ping?.polluted ? "但这条可能被醉酒或中毒影响，先别当铁证。" : "这条可以先拿来复核，但别只凭这一条定死。",
+      ]),
+      plan,
+    };
+  }
+
+  if (forceExact) {
+    const exactText = exactNightInfoFormatLine(state, aiPlayer, note, plan, ping);
+    if (exactText) {
+      return {
+        text: exactText,
+        plan,
+      };
+    }
+  }
+
+  if (formatRequested && plan.shouldUseRange) {
+    return {
+      text: formatOnlyNightInfoLine(state, aiPlayer, plan, ping),
+      plan,
+    };
+  }
+
+  if (plan.shouldUseRange) {
+    return {
+      text: rangeNightInfoLine(plan, ping),
+      plan,
+    };
+  }
+
+  return {
+    text: vagueNightInfoLine(plan, ping),
+    plan,
+  };
+}
+
+function composePrivateNightAnswer(state, aiPlayer, human, memory = {}, rng = Math.random, options = {}) {
+  const disclosure = composeNightInfoDisclosure(state, aiPlayer, human, rng, {
+    askedCount: memory.nightAskedCount ?? 0,
+    trustScore: aiPlayer.suspicion?.[human.id],
+    questionText: options.questionText,
+    formatRequested: options.formatRequested,
+  });
+  if (disclosure.text) {
+    return disclosure.text;
+  }
+  const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human }).map(humanizeSharedPrivateNote);
+  if (notes.length > 0) {
+    return `我昨晚能安全说的是：${notes.join("；")}。这条先当线索，别直接定死。`;
+  }
+  const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
+  if (isLikelyEarlyInfoRole(perceivedRole)) {
+    return "我昨晚没有能直接摊开的新信息；如果要聊，我只能先给可复核的结论，身份细节另说。";
+  }
+  return "我昨晚没有能分享的新信息。今天主要看白天口径、投票和谁在回避追问。";
+}
+
+function composePrivateResponse(state, aiPlayer, human, analysis, questionText, memory, rng = Math.random, options = {}) {
+  const agentView =
+    options.agentView ?? buildAgentView(state, aiPlayer, { audience: "private", targetId: human?.id ?? null });
+  const thoughtFrame =
+    options.thoughtFrame ?? buildAIThoughtFrame(state, aiPlayer, {
+      agentView,
+      audience: "private",
+      stage: "private",
+      excludeConcernIds: [human?.id].filter(Boolean),
+      rng,
+    });
   const ranked = rankTargets(aiPlayer, state, state.players.length)
     .filter((entry) => entry.player.id !== human.id)
     .slice(0, 3);
-  const top = ranked[0] ?? null;
+  const top =
+    (thoughtFrame.primaryConcernId
+      ? ranked.find((entry) => entry.player.id === thoughtFrame.primaryConcernId)
+      : null) ??
+    ranked[0] ??
+    null;
   const second = ranked[1] ?? null;
   const trustScore = aiPlayer.suspicion?.[human.id] ?? 0.5;
   const numericMode = /(%|百分比|概率|几成|几率|量化|数字|percent|chance)/i.test(`${questionText ?? ""}`);
@@ -1371,6 +2607,33 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
     "我不装谜语人，直接说。",
   ];
 
+  const routeToNightInfo = shouldRoutePrivateQuestionToNightInfo(analysis, questionText);
+  if (routeToNightInfo) {
+    memory.nightAskedCount = Number(memory.nightAskedCount ?? 0) + 1;
+    return {
+      response: composePrivateNightAnswer(state, aiPlayer, human, memory, rng, {
+        questionText,
+        formatRequested: privateQuestionAsksForInfoFormat(questionText),
+      }),
+      focusId: null,
+      focusScore: null,
+      evidenceContract: null,
+      followUpPrompts: [],
+      directIntent: QUESTION_INTENT.NIGHT,
+    };
+  }
+
+  if (analysis.intent === QUESTION_INTENT.CLAIM) {
+    return {
+      response: composePrivateClaimAnswer(state, aiPlayer, human, memory, rng),
+      focusId: null,
+      focusScore: null,
+      evidenceContract: null,
+      followUpPrompts: [],
+      directIntent: QUESTION_INTENT.CLAIM,
+    };
+  }
+
   if (!top) {
     lines.push(sample(openerPool, 1, rng)[0]);
     lines.push("我现在没有稳定外置目标，先听一轮公聊再定提名更稳。");
@@ -1390,16 +2653,91 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
     explicitMention: !!mentionFocus,
   });
   const focus = stabilized.focus;
-  const evidence = collectEvidence(state, aiPlayer, focus.player);
-  const evidenceText = evidence.length > 0 ? evidence.join("；") : "目前主要是发言姿态和场上位置不舒服";
+  const focusedThoughtFrame =
+    thoughtFrame.primaryConcernId === focus.player.id && thoughtFrame.questionToAsk
+      ? thoughtFrame
+      : rememberAIThoughtFrame(state, {
+          ...thoughtFrame,
+          primaryConcernId: focus.player.id,
+          primaryConcernName: focus.player.name,
+          questionToAsk: `让 ${focus.player.name} 把身份和昨晚信息说清楚`,
+        });
+  const evidenceContract = buildDialogueEvidenceContract(agentView ?? state, aiPlayer, focus.player);
+  const followUpPrompts = buildGraphFollowUpPrompts(state, aiPlayer, focus.player, evidenceContract);
+  if (focusedThoughtFrame.questionToAsk && !followUpPrompts.includes(focusedThoughtFrame.questionToAsk)) {
+    followUpPrompts.unshift(focusedThoughtFrame.questionToAsk);
+  }
+  const evidence = evidenceContract.summaries;
+  const evidenceText = evidenceContract.spokenText || evidenceContract.text;
   const focusText = formatFocus(focus.player, focus.score, numericMode);
   const stanceMemory = rememberDayStance(state, aiPlayer, focus.player.id, focus.score, "private");
+  const followUpText = followUpPrompts[0]?.replace(/^追问\s+[^：]+：/, "") || "让他把身份和信息讲完整";
+  const dialogueValues = {
+    targetName: focus.player.name,
+    focusText,
+    evidenceText,
+    shortReason: shortReasonText(evidenceText),
+    trustLine,
+    followUp: followUpText,
+  };
 
-  lines.push(sample(openerPool, 1, rng)[0]);
+  const surfaceAct = buildPrivateSurfaceAct(state, aiPlayer, analysis, {
+    focus,
+    second,
+    evidenceContract,
+    evidenceText,
+    memory,
+    explicitMention: !!mentionFocus,
+    thoughtFrame: focusedThoughtFrame,
+    followUpText,
+    trustLine,
+  });
+  const surfaceResponse = renderPrivateSurfaceAct(surfaceAct, rng);
+  if (surfaceResponse) {
+    const pragmaticText = applyInGamePragmatics(state, aiPlayer, surfaceResponse, {
+      audience: "private",
+      intent: analysis.intent,
+      focusId: focus.player.id,
+      focusScore: focus.score,
+      lowEvidence: evidenceContract.lowEvidence,
+    });
+    return {
+      response: ensureEvidenceContractInText(pragmaticText, evidenceContract),
+      focusId: focus.player.id,
+      focusScore: focus.score,
+      evidenceContract,
+      followUpPrompts,
+      thoughtFrame: focusedThoughtFrame,
+      surfaceRendered: true,
+    };
+  }
+
+  lines.push(
+    directAnswerForPrivateQuestion(state, aiPlayer, human, analysis, {
+      focus,
+      focusText,
+      shortReason: shortReasonText(evidenceText),
+      trustLine,
+      followUpText,
+      numericMode,
+    }) || sample(openerPool, 1, rng)[0]
+  );
+
+  if (!aiPlayer.alive && [QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN, QUESTION_INTENT.GENERIC, QUESTION_INTENT.SUSPECT].includes(analysis.intent)) {
+    lines.push(
+      renderDialogueActs(state, aiPlayer, "deadPrivate", dialogueValues, rng, [
+        `我已经死了，所以这段你可以当遗言看。${focus.player.name} 先问 ${followUpText}。`,
+      ])
+    );
+  }
 
   switch (analysis.intent) {
     case QUESTION_INTENT.REASON:
-      lines.push(`我现在主要想追 ${focusText}。理由不是单点爆炸，而是这几件事凑在一起很别扭：${evidenceText}。`);
+      lines.push(
+        renderDialogueActs(state, aiPlayer, "reason", dialogueValues, rng, [
+          `我现在主要想追 ${focusText}。理由不是单点爆炸，而是这几件事凑在一起很别扭：${evidenceText}。`,
+        ])
+      );
       break;
     case QUESTION_INTENT.TRUST:
       lines.push(`${trustLine} 但我不想把话说死。今天更值得逼反应的是 ${focus.player.name}，因为${evidenceText}。`);
@@ -1412,8 +2750,11 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
       break;
     }
     case QUESTION_INTENT.VOTE:
-      lines.push(`如果现在有人提 ${focus.player.name}，我大概率会跟票。`);
-      lines.push(`原因很简单：${evidenceText}。`);
+      lines.push(
+        renderDialogueActs(state, aiPlayer, "vote", dialogueValues, rng, [
+          `如果现在有人提 ${focus.player.name}，我大概率会跟票。原因很简单：${evidenceText}。`,
+        ])
+      );
       break;
     case QUESTION_INTENT.NIGHT:
       lines.push(buildNightSummary(state));
@@ -1437,14 +2778,20 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
       break;
     }
     case QUESTION_INTENT.PLAN:
-      lines.push(`${trustLine} 今天别空过，我建议先把压力给到 ${focus.player.name}。`);
-      lines.push(`先让他解释${evidence.length > 0 ? "这条线" : "自己的信息和投票态度"}；如果还在绕，再进提名。`);
+      lines.push(
+        renderDialogueActs(state, aiPlayer, "plan", dialogueValues, rng, [
+          `${trustLine} 今天别空过，我建议先把压力给到 ${focus.player.name}。先让他解释${evidence.length > 0 ? "这条线" : "自己的信息和投票态度"}；如果还在绕，再进提名。`,
+        ])
+      );
       break;
     case QUESTION_INTENT.SUSPECT:
     case QUESTION_INTENT.GENERIC:
     default:
-      lines.push(`我现在最想追的是 ${focusText}。`);
-      lines.push(`不是说他一定是恶，但${evidenceText}，这条线得有人回答。`);
+      lines.push(
+        renderDialogueActs(state, aiPlayer, "generic", dialogueValues, rng, [
+          `我现在最想追的是 ${focusText}。不是说他一定是恶，但${evidenceText}，这条线得有人回答。`,
+        ])
+      );
       if (second && second.player.id !== focus.player.id && rng() < 0.45) {
         lines.push(`第二关注位是 ${formatFocus(second.player, second.score, numericMode)}。`);
       }
@@ -1467,140 +2814,40 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
   if (stanceMemory?.turns > 1 && rng() < 0.5) {
     lines.push(`我今天对 ${focus.player.name} 的口径先保持“${dayStanceLabel(stanceMemory.stance)}”，除非有新硬信息再改。`);
   }
-
-  return {
-    response: lines.join(" "),
+  if (followUpPrompts.length > 0 && [QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN, QUESTION_INTENT.GENERIC, QUESTION_INTENT.SUSPECT].includes(analysis.intent)) {
+    lines.push(`下一句我会这样追：${followUpPrompts[0]}`);
+  }
+  const qaFollowUp = followUpQuestionForPrivateAnswer(analysis, { focus, followUpText });
+  if (qaFollowUp) {
+    lines.push(qaFollowUp);
+  }
+  const pragmaticText = applyInGamePragmatics(state, aiPlayer, lines.join(" "), {
+    audience: "private",
+    intent: analysis.intent,
     focusId: focus.player.id,
     focusScore: focus.score,
-  };
-}
+    lowEvidence: evidenceContract.lowEvidence,
+  });
 
-function pickCorpusLine(lines, rng = Math.random) {
-  if (!Array.isArray(lines) || lines.length === 0) {
-    return "";
-  }
-  return lines[Math.floor(rng() * lines.length)] ?? lines[0] ?? "";
-}
-
-function corpusLines(path, fallback = []) {
-  const value = `${path ?? ""}`
-    .split(".")
-    .filter(Boolean)
-    .reduce((node, key) => node?.[key], AI_SPEECH_CORPUS);
-  return Array.isArray(value) && value.length > 0 ? value : fallback;
-}
-
-function formatCorpusLine(template, values = {}) {
-  return `${template ?? ""}`.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => `${values[key] ?? ""}`);
-}
-
-function pickCorpusTemplate(path, values = {}, rng = Math.random, fallback = []) {
-  return formatCorpusLine(pickCorpusLine(corpusLines(path, fallback), rng), values);
-}
-
-function personaCorpusKey(persona) {
-  return [PERSONA_TYPES.STEADY, PERSONA_TYPES.PRESSURE, PERSONA_TYPES.SHADOW].includes(persona)
-    ? persona
-    : PERSONA_TYPES.STEADY;
-}
-
-function pickPersonaTemplate(persona, leaf, values = {}, rng = Math.random, fallback = []) {
-  return pickCorpusTemplate(`persona.${personaCorpusKey(persona)}.${leaf}`, values, rng, fallback);
-}
-
-function corpusTemplateEntry(path, id, values = {}, rng = Math.random, fallback = []) {
   return {
-    id,
-    text: pickCorpusTemplate(path, values, rng, fallback),
+    response: ensureEvidenceContractInText(pragmaticText, evidenceContract),
+    focusId: focus.player.id,
+    focusScore: focus.score,
+    evidenceContract,
+    followUpPrompts,
+    thoughtFrame: focusedThoughtFrame,
   };
 }
 
-function joinSpeechFragments(fragments) {
-  return (fragments ?? [])
-    .map((entry) => `${entry ?? ""}`.trim())
-    .filter(Boolean)
-    .join(" ");
+function renderDialogueActs(state, aiPlayer, act, values = {}, rng = Math.random, fallback = [], options = {}) {
+  const audience = options.audience ?? "private";
+  return renderDialogueActsFromRenderer(state, aiPlayer, act, values, rng, fallback, {
+    ...options,
+    evilPerformance:
+      options.evilPerformance ??
+      ((audience === "public" || audience === "private") && isEvilPerspective(state, aiPlayer)),
+  });
 }
-
-const HUMAN_CADENCE_MARKERS = ["我换个说法", "说白了", "我的意思是", "换句话说", "先说清楚"];
-
-function alreadyHasHumanCadence(text) {
-  const value = `${text ?? ""}`;
-  return HUMAN_CADENCE_MARKERS.some((marker) => value.includes(marker));
-}
-
-function stripDuplicateHumanOpeners(text) {
-  let value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
-  const stockOpeners = [
-    "我先说人话版。",
-    "简单讲，我现在是这么看。",
-    "别急，我给你一个能落地的判断。",
-    "我不把话说死，但目前倾向是这样。",
-    "先给结论，细节你可以继续追问。",
-    "我尽量不绕，先把我的判断摊开。",
-    "这事我有点想法，但先别当铁证听。",
-  ];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const opener of stockOpeners) {
-      const doubled = `${opener} ${opener}`;
-      if (value.startsWith(doubled)) {
-        value = `${opener} ${value.slice(doubled.length).trim()}`.trim();
-        changed = true;
-      }
-    }
-  }
-  return value;
-}
-
-function bridgePhraseForSpeech(aiPlayer, options = {}) {
-  const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
-  if (options.audience === "public") {
-    if (persona === PERSONA_TYPES.PRESSURE) return "先说清楚，";
-    if (persona === PERSONA_TYPES.SHADOW) return "换句话说，";
-    return "我的意思是，";
-  }
-  if ([QUESTION_INTENT.REASON, QUESTION_INTENT.SUSPECT, QUESTION_INTENT.COMPARE].includes(options.intent)) {
-    return persona === PERSONA_TYPES.PRESSURE ? "说白了，" : "我换个说法，";
-  }
-  if ([QUESTION_INTENT.VOTE, QUESTION_INTENT.PLAN].includes(options.intent)) {
-    return persona === PERSONA_TYPES.SHADOW ? "换句话说，" : "先说清楚，";
-  }
-  return "";
-}
-
-function insertCadenceBridge(text, bridge) {
-  const value = `${text ?? ""}`.trim();
-  if (!bridge || !value || value.includes(bridge.replace(/[，,]\s*$/, ""))) {
-    return value;
-  }
-  const match = value.match(/[。！？；]\s*/u);
-  if (!match || match.index === undefined) {
-    return `${bridge}${value}`;
-  }
-  const splitAt = match.index + match[0].length;
-  return `${value.slice(0, splitAt)}${bridge}${value.slice(splitAt).trim()}`;
-}
-
-function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random, options = {}) {
-  let value = stripDuplicateHumanOpeners(text);
-  if (!value || alreadyHasHumanCadence(value)) {
-    return value;
-  }
-
-  const shouldBridge =
-    options.force ||
-    (options.audience === "private" &&
-      [QUESTION_INTENT.REASON, QUESTION_INTENT.SUSPECT, QUESTION_INTENT.VOTE, QUESTION_INTENT.COMPARE, QUESTION_INTENT.PLAN].includes(options.intent)) ||
-    (options.audience === "public" && ((options.roundInDay ?? 1) >= 2 || (options.focusScore ?? 0) >= 0.62 || rng() < 0.35));
-
-  if (!shouldBridge) {
-    return value;
-  }
-  return insertCadenceBridge(value, bridgePhraseForSpeech(aiPlayer, options));
-}
-
 function evidenceReasonText(evidence, fallback = "发言节奏和场上位置还没有对齐") {
   const clean = (evidence ?? [])
     .map((entry) => `${entry ?? ""}`.trim())
@@ -1650,6 +2897,35 @@ function buildPrivateDeceptionLines(state, human, deception = {}) {
     lines.push("这段先别公开，至少今天先只当我们之间的信息。");
   }
   return lines;
+}
+
+function humanizeSharedPrivateNote(note) {
+  const value = `${note ?? ""}`.replace(/\s+/g, " ").trim();
+  const evilPairs = value.match(/邪恶相邻对数为\s*([0-9]+)/);
+  if (evilPairs) {
+    return `我夜里拿到的相邻邪恶数是 ${evilPairs[1]}`;
+  }
+  return value
+    .replace(/^\[第[0-9]+夜\]\s*/, "")
+    .replace(/^你得知：/, "")
+    .replace(/^你(?=查验|临终查验|作为|获得|知道|看到|选择|今晚|昨晚|的)/, "我")
+    .replace(/[。；]\s*$/, "")
+    .trim();
+}
+
+function sanitizePrivateDialogueText(text, fallbackTargetName = "") {
+  const targetName = fallbackTargetName || "这个位置";
+  const value = `${text ?? ""}`
+    .replace(/我的信息链是：/g, "我这边拿到的是：")
+    .replace(/信息链是：/g, "我这边拿到的是：")
+    .replace(/白天话术可以围着\s+你\s+打一圈，压力给到就行。/g, `白天先问 ${targetName}，别急着冲票，先看回应。`)
+    .replace(/我会先围绕\s+你\s+追问/g, `我会先问 ${targetName}`)
+    .replace(/我会先围绕\s+([0-9]+号)\s+追问/g, "我会先问 $1")
+    .replace(/你\s+这边先放进观察位/g, `${targetName} 先放进观察位`)
+    .replace(/([0-9]+号)\s+这边先放进观察位/g, "$1 先放进观察位")
+    .replace(/\bta\b/g, "他")
+    .trim();
+  return polishConversationalText(value);
 }
 
 function deceptionSpeechActs(deception = {}) {
@@ -1743,7 +3019,7 @@ function composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, 
         "private.evilAlliance.minionTeamInfo",
         {
           demonSeat: demon ? `${demon.seatIndex + 1}号` : "未知",
-          otherMinions: humanSeatList(otherMinions, "我这边没看到别的"),
+          otherMinions: humanSeatList(otherMinions, "暂无"),
         },
         rng,
         ["我知道的恶魔是 {demonSeat}；其他爪牙 {otherMinions}。"]
@@ -1779,10 +3055,11 @@ function composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, 
 
   if (focusPlayer) {
     const reasonText = evidenceToHumanLine(evidence);
+    const focusName = statementTargetLabel(state, focusPlayer.id);
     lines.push(
       pickCorpusTemplate(
         "private.evilAlliance.targetPressure",
-        { targetName: focusPlayer.name },
+        { targetName: focusName },
         rng,
         ["今天我们可以先把 {targetName} 放到讨论中心，不一定马上出，但要让 ta 多说。"]
       )
@@ -1816,7 +3093,10 @@ function composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, 
 
   return {
     ...original,
-    response: lines.filter(Boolean).join(" "),
+    response: applySpeechBudget(
+      sanitizePrivateDialogueText(lines.filter(Boolean).join(" "), focusPlayer ? statementTargetLabel(state, focusPlayer.id) : ""),
+      { audience: "private", maxSentences: 4, maxChars: 270 }
+    ),
   };
 }
 
@@ -1851,6 +3131,30 @@ function lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, origin
 }
 
 function humanizePrivateComposedResponse(state, aiPlayer, human, analysis, original, rng = Math.random, options = {}) {
+  if ([QUESTION_INTENT.CLAIM, QUESTION_INTENT.NIGHT].includes(original?.directIntent)) {
+    return {
+      ...original,
+      response: applyHumanSpeechCadence(state, aiPlayer, original.response, rng, {
+        audience: "private",
+        intent: analysis.intent,
+        focusId: original.focusId,
+        focusScore: original.focusScore,
+        maxSentences: 4,
+        maxChars: 240,
+      }),
+    };
+  }
+  if (original?.surfaceRendered) {
+    const polished = polishConversationalText(original.response);
+    return {
+      ...original,
+      response: applySpeechBudget(differentiateRepeatedSpeech(polished, aiPlayer, rng, { audience: "private" }), {
+        audience: "private",
+        maxSentences: 3,
+        maxChars: 190,
+      }),
+    };
+  }
   const composed = options.sameEvilTeam
     ? composeHumanizedEvilAllianceResponse(state, aiPlayer, human, analysis, original, rng)
     : lightlyHumanizePrivateResponse(state, aiPlayer, human, analysis, original, rng);
@@ -1862,15 +3166,10 @@ function humanizePrivateComposedResponse(state, aiPlayer, human, analysis, origi
       focusId: composed.focusId,
       focusScore: composed.focusScore,
       force: options.sameEvilTeam ? false : undefined,
+      maxSentences: options.sameEvilTeam ? 4 : undefined,
+      maxChars: options.sameEvilTeam ? 270 : undefined,
     }),
   };
-}
-
-function nextPublicRound(state) {
-  const dialogue = ensureDialogueState(state);
-  const dayKey = `${state.day}`;
-  dialogue.publicRoundByDay[dayKey] = (dialogue.publicRoundByDay[dayKey] ?? 0) + 1;
-  return dialogue.publicRoundByDay[dayKey];
 }
 
 function isSensitivePrivateNote(note) {
@@ -1910,193 +3209,6 @@ function summarizeShareablePrivateNotes(aiPlayer, limit = 2, options = {}) {
 
 const DEBATE_BEATS = ["opening", "challenge", "defense", "nomination-pressure", "vote-intent"];
 
-function debateBeatForOrder(orderIndex, totalSpeakers, roundInDay) {
-  if (roundInDay >= 2) {
-    return orderIndex % 2 === 0 ? "challenge" : "vote-intent";
-  }
-  const bucket = Math.floor((orderIndex / Math.max(1, totalSpeakers)) * DEBATE_BEATS.length);
-  return DEBATE_BEATS[Math.max(0, Math.min(DEBATE_BEATS.length - 1, bucket))] ?? "opening";
-}
-
-function debateBeatLabel(beat) {
-  return {
-    opening: "开场发言",
-    challenge: "质询",
-    defense: "回应/辩护",
-    "nomination-pressure": "提名压力",
-    "vote-intent": "投票意向",
-  }[beat] ?? "公聊";
-}
-
-function applyDebateBeatTone(line, beat, focusName, rng = Math.random) {
-  const safeFocus = focusName || "这个位置";
-  const prefix = pickCorpusTemplate(
-    `public.debateBeat.${beat}`,
-    { focusName: safeFocus },
-    rng,
-    [""]
-  );
-  return prefix ? `${prefix}${line}` : line;
-}
-
-function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, options = {}) {
-  const ranked = rankTargets(aiPlayer, state, 3);
-  const topCandidate = ranked[0] ?? null;
-  if (!topCandidate) {
-    if (!aiPlayer.alive && aiPlayer.publicClaimRoleId) {
-      const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state });
-      const infoText = notes.length > 0 ? `信息是：${notes.join("；")}。` : "可验证信息不多，但身份链先给出来。";
-      return {
-        templateId: "dead-claim-no-target",
-        line: pickCorpusTemplate(
-          "public.deadClaim",
-          { roleName: roleNameById(state, aiPlayer.publicClaimRoleId), infoText },
-          rng,
-          [`我已经死了，先报身份：我是 ${roleNameById(state, aiPlayer.publicClaimRoleId)}。${infoText}`]
-        ),
-        focusId: null,
-        score: 0.5,
-      };
-    }
-    return {
-      templateId: "no-target",
-      line: "这一轮我信息不足，先听其他人发言。",
-      focusId: null,
-      score: 0.5,
-    };
-  }
-
-  const stabilized = resolveStableFocus(state, aiPlayer, topCandidate, ranked, { explicitMention: false });
-  const top = stabilized.focus;
-  const second = ranked.find((entry) => entry.player.id !== top.player.id) ?? null;
-  const stanceMemory = rememberDayStance(state, aiPlayer, top.player.id, top.score, "public");
-
-  const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
-  const hardPressThreshold = 0.58 + personaThresholdShift(persona);
-  const evidence = collectEvidence(state, aiPlayer, top.player, { publicOnly: true });
-  const reasonText = evidenceReasonText(evidence);
-  const scoreMood = top.score >= 0.68 ? "压力很高" : top.score >= hardPressThreshold ? "有明显压力" : top.score >= 0.42 ? "需要解释" : "先观察";
-  const disclosureLine = maybePublicDisclosureLine(state, aiPlayer, roundInDay, rng);
-  const values = {
-    targetName: top.player.name,
-    reasonText,
-    scoreMood,
-  };
-
-  const templates = top.score >= hardPressThreshold
-    ? [
-        corpusTemplateEntry("public.pressure", "press", values, rng, [
-          `${top.player.name} 这里我放不太下，主要卡在：${reasonText}。先听回答。`,
-        ]),
-        corpusTemplateEntry("public.pressure", "risk", values, rng, [
-          `我现在最放不下 ${top.player.name}。理由是：${reasonText}。`,
-        ]),
-        corpusTemplateEntry("public.pressure", "nominate-ready", values, rng, [
-          `如果今天要动手，我会先考虑提 ${top.player.name}。但先让 ta 把身份和信息讲完整。`,
-        ]),
-        corpusTemplateEntry(`persona.${personaCorpusKey(persona)}.focusPush`, "persona-focus", values, rng, [
-          `我会先围绕 ${top.player.name} 追问，不急着马上定票。`,
-        ]),
-      ]
-    : [
-        corpusTemplateEntry("public.probe", "probe", values, rng, [
-          `${top.player.name} 我先记一笔，还没到硬推，但需要解释。`,
-        ]),
-        corpusTemplateEntry("public.probe", "soft", values, rng, [
-          `我对 ${top.player.name} 有点不舒服。先不砍，先问清楚。`,
-        ]),
-        corpusTemplateEntry("public.probe", "watch", values, rng, [
-          `${top.player.name} 的回答我会重点听；如果继续绕，下一轮再加压。`,
-        ]),
-        corpusTemplateEntry(`persona.${personaCorpusKey(persona)}.focusPush`, "persona-focus", values, rng, [
-          `我当前更关注 ${top.player.name}，但还没到铁推。`,
-        ]),
-      ];
-
-  const personaTailPath =
-    persona === PERSONA_TYPES.PRESSURE
-      ? "public.tails.personaPressure"
-      : persona === PERSONA_TYPES.SHADOW
-      ? "public.tails.personaShadow"
-      : "public.tails.personaSteady";
-  const stanceTail =
-    stanceMemory?.turns > 1
-      ? pickCorpusTemplate(
-          "public.tails.stanceRetained",
-          { targetName: top.player.name, stanceLabel: dayStanceLabel(stanceMemory.stance) },
-          rng,
-          [`我今天对 ${top.player.name} 的口径还是“${dayStanceLabel(stanceMemory.stance)}”，暂时不换主线。`]
-        )
-      : "";
-
-  const tails = [
-    second
-      ? pickCorpusTemplate(
-          "public.tails.secondFocus",
-          { targetName: top.player.name, secondName: second.player.name },
-          rng,
-          [`次级关注是 ${second.player.name}。`]
-        )
-      : "次级关注位暂不明确。",
-    roundInDay > 1
-      ? pickCorpusTemplate(
-          "public.tails.laterRound",
-          { roundInDay },
-          rng,
-          [`这是今天第 ${roundInDay} 轮公聊，我想看 ta 有没有改口。`]
-        )
-      : "",
-    top.score >= 0.68
-      ? pickCorpusTemplate("public.tails.nominationReady", {}, rng, ["这个位置今天已经可以进提名池。"])
-      : pickCorpusTemplate("public.tails.hold", {}, rng, ["我还没说必出，但不能让 ta 舒服过白天。"]),
-    pickPersonaTemplate(persona, "publicTails", {}, rng, ["先用信息和票型压人，别只凭一句感觉出人。"]),
-    pickCorpusTemplate(personaTailPath, {}, rng, ["我先听回应，不急着把票打死。"]),
-    stanceTail,
-  ].filter(Boolean);
-
-  const lastTemplateId = state.aiDialogue?.lastPublicTemplateBySpeaker?.[aiPlayer.id] ?? "";
-  const templatePool = templates.length > 1 ? templates.filter((entry) => entry.id !== lastTemplateId) : templates;
-  const chosen = sample(templatePool.length > 0 ? templatePool : templates, 1, rng)[0];
-  const tail = sample(tails, 1, rng)[0];
-  let prefix = disclosureLine ? `${disclosureLine} ` : "";
-  if (!aiPlayer.alive && aiPlayer.publicClaimRoleId) {
-    const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state });
-    const infoText = notes.length > 0 ? `信息是：${notes.join("；")}。` : "可验证信息不多，但身份链先给出来。";
-    prefix = `${pickCorpusTemplate(
-      "public.deadClaim",
-      { roleName: roleNameById(state, aiPlayer.publicClaimRoleId), infoText },
-      rng,
-      [`我已经死了，先报身份：我是 ${roleNameById(state, aiPlayer.publicClaimRoleId)}。${infoText}`]
-    )} ${prefix}`;
-  }
-
-  const rawLine = applyDebateBeatTone(
-    joinSpeechFragments([prefix, chosen.text, tail]),
-    options.debateBeat,
-    top.player.name,
-    rng
-  );
-  return {
-    templateId: chosen.id,
-    line: applyHumanSpeechCadence(state, aiPlayer, rawLine, rng, {
-      audience: "public",
-      intent: top.score >= hardPressThreshold ? QUESTION_INTENT.SUSPECT : QUESTION_INTENT.GENERIC,
-      focusId: top.player.id,
-      focusScore: top.score,
-      roundInDay,
-    }),
-    focusId: top.player.id,
-    score: top.score,
-    debateBeat: options.debateBeat ?? "opening",
-  };
-}
-function rotateBy(arr, shift) {
-  if (arr.length === 0) {
-    return [];
-  }
-  const n = shift % arr.length;
-  return [...arr.slice(n), ...arr.slice(0, n)];
-}
 
 export function initializeAI(state) {
   ensureDialogueState(state);
@@ -2124,6 +3236,7 @@ export function refreshAIBeliefs(state) {
       applyObservedPrivateSignals(state, aiPlayer);
       applyNominationSignals(state, aiPlayer);
       applyVoteSignals(state, aiPlayer);
+      applyDynamicTrustSignals(state, aiPlayer);
       applyNightPatternSignals(state, aiPlayer);
       applyDialogueBias(aiPlayer);
       enforceEvilCoordination(state, aiPlayer);
@@ -2131,615 +3244,107 @@ export function refreshAIBeliefs(state) {
     });
 }
 
-export function runAIDiscussion(state, rng = Math.random) {
-  if (state.phase !== "day" || state.gameOver) {
-    return;
-  }
+const publicDiscussion = createAIPublicDiscussion({
+  QUESTION_INTENT,
+  PERSONA_TYPES,
+  DEBATE_BEATS,
+  ensureDialogueState,
+  refreshAIBeliefs,
+  buildAgentView,
+  buildAIThoughtFrame,
+  rankTargets,
+  resolveStableFocus,
+  rememberDayStance,
+  personaThresholdShift,
+  buildDialogueEvidenceContract,
+  publicClaimDisclosureLine,
+  thoughtFrameDisclosureLine,
+  maybePublicDisclosureLine,
+  shortReasonText,
+  renderDialogueActs,
+  corpusTemplateEntry,
+  personaCorpusKey,
+  pickCorpusTemplate,
+  pickPersonaTemplate,
+  pickLayeredSpeech,
+  sample,
+  dayStanceLabel,
+  roleNameById,
+  summarizeShareablePrivateNotes,
+  joinSpeechFragments,
+  renderPublicSurfaceActReadable,
+  buildPublicSurfaceAct,
+  ensureEvidenceContractInText,
+  applyInGamePragmatics,
+  applyHumanSpeechCadence,
+  appendPublicThoughtQuestion,
+  shouldDeadPublicClaim,
+  pickClaimRole,
+  choosePublicClaimRole,
+  claimRoleForContext,
+  applyPublicStatementContinuityFromMemory,
+  rememberStatementMemory,
+  recordPublicSpeechForAgents,
+  addLog,
+  pushTimeline,
+  predictDialogueSignals,
+  recordUtteranceMVP,
+  inferPublicSpeechActs,
+  voteStanceFromText,
+  clamp,
+});
 
-  refreshAIBeliefs(state);
-  const dialogue = ensureDialogueState(state);
-  const roundInDay = nextPublicRound(state);
+export const runAIConversationStep = (...args) => publicDiscussion.runAIConversationStep(...args);
+export const runAIDiscussion = (...args) => publicDiscussion.runAIDiscussion(...args);
+const privateSocial = createAIPrivateSocial({
+  QUESTION_INTENT,
+  PERSONA_TYPES,
+  PERSONA_LABELS,
+  ensureDialogueState,
+  refreshAIBeliefs,
+  buildAIThoughtFrame,
+  areKnownAllies,
+  composeEvilAllianceResponse,
+  composeHumanizedEvilAllianceResponse,
+  rankTargets,
+  getTopTarget,
+  summarizeShareablePrivateNotes,
+  pickCorpusTemplate,
+  pickPersonaTemplate,
+  pickLayeredSpeech,
+  claimRoleForContext,
+  roleNameById,
+  humanizeSharedPrivateNote,
+  composeNightInfoDisclosure,
+  rememberDayStance,
+  collectEvidence,
+  evidenceReasonText,
+  statementTargetLabel,
+  dayStanceLabel,
+  applySpeechBudget,
+  sanitizePrivateDialogueText,
+  joinSpeechFragments,
+  perceivedRoleForPlayer,
+  roleForPlayer,
+  isEarlyInfoRole,
+  getPlayerById,
+  addLog,
+  predictDialogueSignals,
+  recordPrivateWhisperForAgents,
+  rememberStatementMemory,
+  pushTimeline,
+  recordUtteranceMVP,
+  inferSpeechActsFromIntent,
+  voteStanceFromText,
+  applyPrivateStatementContinuity,
+  recordPrivateChannelForAgents,
+  clamp,
+});
 
-  const speakingAIs = state.players
-    .filter((entry) => !entry.isHuman)
-    .sort((a, b) => a.seatIndex - b.seatIndex);
-  const speakers = rotateBy(speakingAIs, Math.max(0, roundInDay - 1));
-
-  speakers.forEach((aiPlayer, orderIndex) => {
-    const claimRoleId = shouldDeadPublicClaim(state, aiPlayer, roundInDay, rng)
-      ? pickClaimRole(state, aiPlayer, rng, { force: true })
-      : choosePublicClaimRole(state, aiPlayer, roundInDay, rng);
-    if (claimRoleId) {
-      claimRoleForContext(state, aiPlayer, null, rng, { force: true, private: false, roleId: claimRoleId });
-    }
-
-    const debateBeat = debateBeatForOrder(orderIndex, speakers.length, roundInDay);
-    const composed = composePublicLine(state, aiPlayer, roundInDay, rng, { debateBeat });
-
-    dialogue.lastPublicFocusBySpeaker[aiPlayer.id] = composed.focusId ?? null;
-    dialogue.lastPublicTemplateBySpeaker[aiPlayer.id] = composed.templateId;
-
-    aiPlayer.speechHistory.push({ day: state.day, line: composed.line, focusId: composed.focusId });
-    state.events.speeches.push({
-      day: state.day,
-      playerId: aiPlayer.id,
-      line: composed.line,
-      focusId: composed.focusId,
-      private: false,
-      debateBeat,
-    });
-    recordPublicSpeechForAgents(state, {
-      speakerId: aiPlayer.id,
-      text: composed.line,
-      focusId: composed.focusId,
-      roundInDay,
-      orderIndex,
-      debateBeat,
-    });
-
-    addLog(state, "speech", `${aiPlayer.name}：${composed.line}`, {
-      playerId: aiPlayer.id,
-      focusId: composed.focusId,
-      score: composed.score,
-      roundInDay,
-      orderIndex,
-      private: false,
-      debateBeat,
-    });
-
-    pushTimeline(state, {
-      mode: "public",
-      roundInDay,
-      orderIndex,
-      speakerId: aiPlayer.id,
-      targetId: composed.focusId,
-      text: composed.line,
-      debateBeat,
-      debateBeatLabel: debateBeatLabel(debateBeat),
-    });
-    const publicSignals = predictDialogueSignals(composed.line);
-
-    recordUtteranceMVP(state, {
-      speakerId: aiPlayer.id,
-      audience: "public",
-      text: composed.line,
-      speechActs: inferPublicSpeechActs(composed),
-      targets: composed.focusId ? [composed.focusId] : [],
-      intent: composed.score >= 0.62 ? "suspect" : "plan",
-      voteStance: voteStanceFromText(composed.line),
-      evidenceSource: "social_read",
-      epistemicStrength: composed.score >= 0.74 ? 3 : composed.score >= 0.58 ? 2 : 1,
-      nominationRelated: /提名|nominate/i.test(composed.line),
-      metadata: {
-        source: "ai_public_discussion",
-        roundInDay,
-        orderIndex,
-        debateBeat,
-        debateBeatLabel: debateBeatLabel(debateBeat),
-        templateId: composed.templateId ?? "",
-        focusScore: composed.score ?? null,
-        mlVoteLabel: publicSignals.voteLabel ?? "undecided",
-        mlVoteConfidence: publicSignals.voteConfidence ?? 0,
-        mlSpeechActs: publicSignals.speechActs ?? [],
-        mlTokenHits: publicSignals.tokenHits ?? 0,
-      },
-    });
-  });
-}
-
-function proactiveWhisperDayRecord(state) {
-  const dialogue = ensureDialogueState(state);
-  const dayKey = `${state.day ?? 0}`;
-  dialogue.proactivePrivateByDay[dayKey] = dialogue.proactivePrivateByDay[dayKey] ?? {
-    sentIds: [],
-  };
-  return dialogue.proactivePrivateByDay[dayKey];
-}
-
-function aiPrivateDayRecord(state) {
-  const dialogue = ensureDialogueState(state);
-  const dayKey = `${state.day ?? 0}`;
-  dialogue.aiPrivateByDay[dayKey] = dialogue.aiPrivateByDay[dayKey] ?? {
-    pairKeys: [],
-  };
-  return dialogue.aiPrivateByDay[dayKey];
-}
-
-function aiPrivatePairLimitForDay(day) {
-  return clamp(5 - Math.max(1, Number(day) || 1), 1, 4);
-}
-
-function scoreProactiveWhisperCandidate(state, aiPlayer, human) {
-  const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
-  const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
-  const top = getTopTarget(aiPlayer, state);
-  const humanRisk = aiPlayer.suspicion?.[human.id] ?? 0.5;
-  let score = 0;
-
-  if (!aiPlayer.alive && !aiPlayer.publicClaimRoleId) {
-    score += 7;
-  } else if (!aiPlayer.alive) {
-    score += 3;
-  }
-  if (notes.length > 0) {
-    score += Math.min(4, notes.length * 2);
-  }
-  if (isEarlyInfoRole(perceivedRole)) {
-    score += state.day <= 1 ? 3 : 1.5;
-  }
-  if (perceivedRole?.category === "outsider") {
-    score += state.day <= 2 ? 1.5 : 0.5;
-  }
-  if (top?.score >= 0.58) {
-    score += 1.5;
-  }
-  if (humanRisk >= 0.58) {
-    score += 1;
-  }
-  if (areKnownAllies(state, aiPlayer, human)) {
-    score += 6;
-  }
-
-  return score;
-}
-
-function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random) {
-  const sameEvilTeam = areKnownAllies(state, aiPlayer, human);
-  if (sameEvilTeam) {
-    const allianceAnalysis = {
-      intent: QUESTION_INTENT.PLAN,
-      mentionedPlayers: [],
-      secondaryIntent: null,
-    };
-    const original = composeEvilAllianceResponse(state, aiPlayer, human, allianceAnalysis, rng);
-    return {
-      ...composeHumanizedEvilAllianceResponse(state, aiPlayer, human, allianceAnalysis, original, rng),
-      intent: QUESTION_INTENT.PLAN,
-    };
-  }
-
-  const ranked = rankTargets(aiPlayer, state, 3).filter((entry) => entry.player.id !== human.id);
-  const focus = ranked[0] ?? null;
-  const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
-  const lines = [];
-  const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
-  let intent = QUESTION_INTENT.PLAN;
-
-  if (!aiPlayer.alive) {
-    lines.push(pickCorpusTemplate("private.proactive.deadOpeners", {}, rng, [
-      "我已经死了，再藏身份意义不大，先把链条交给你。",
-    ]));
-    if (!aiPlayer.publicClaimRoleId) {
-      const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true });
-      if (roleId) {
-        lines.push(`我的身份口径是 ${roleNameById(state, roleId)}。`);
-        intent = QUESTION_INTENT.CLAIM;
-      }
-    } else {
-      lines.push(`我的身份口径是 ${roleNameById(state, aiPlayer.publicClaimRoleId)}。`);
-      intent = QUESTION_INTENT.CLAIM;
-    }
-  } else if (notes.length > 0) {
-    lines.push(pickCorpusTemplate("private.proactive.infoOpeners", {}, rng, [
-      "我主动找你一下，手里有条线，不想等公聊里被噪音盖过去。",
-    ]));
-    intent = QUESTION_INTENT.NIGHT;
-  } else {
-    lines.push(
-      rng() < 0.55
-        ? pickPersonaTemplate(persona, "privateOpeners", {}, rng, ["我主动找你同步一下思路。"])
-        : pickCorpusTemplate("private.proactive.syncOpeners", {}, rng, ["我主动找你同步一下思路。"])
-    );
-  }
-
-  if (notes.length > 0) {
-    lines.push(pickCorpusTemplate(
-      "private.proactive.noteShare",
-      { notesText: notes.join("；") },
-      rng,
-      [`我目前能交代的是：${notes.join("；")}。`]
-    ));
-  }
-
-  if (focus) {
-    const stanceMemory = rememberDayStance(state, aiPlayer, focus.player.id, focus.score, "proactive-private");
-    const evidence = collectEvidence(state, aiPlayer, focus.player);
-    const reasonText = evidenceReasonText(evidence, "主要来自发言姿态和场上位置");
-    lines.push(
-      rng() < 0.55
-        ? pickPersonaTemplate(persona, "focusPush", { targetName: focus.player.name, reasonText }, rng, [
-            `我现在更想推进 ${focus.player.name}。理由是：${reasonText}。`,
-          ])
-        : pickCorpusTemplate("private.proactive.focusPush", { targetName: focus.player.name, reasonText }, rng, [
-            `我现在更想推进 ${focus.player.name}。理由是：${reasonText}。`,
-          ])
-    );
-    if (stanceMemory?.turns > 1) {
-      lines.push(pickCorpusTemplate(
-        "private.proactive.sameStance",
-        { stanceLabel: dayStanceLabel(stanceMemory.stance) },
-        rng,
-        [`这和我今天前面的判断一致，先按“${dayStanceLabel(stanceMemory.stance)}”处理。`]
-      ));
-    }
-  } else {
-    lines.push(pickCorpusTemplate("private.proactive.noFocus", {}, rng, [
-      "如果今天没人给新信息，至少要逼一个明确口径，别直接空过。",
-    ]));
-  }
-
-  if (state.day >= 3 && !aiPlayer.alive) {
-    lines.push(pickCorpusTemplate("private.proactive.deadLegacy", {}, rng, [
-      "如果我白天没机会发言，你可以把这段当作我的遗言来盘。",
-    ]));
-  }
-
-  return {
-    response: joinSpeechFragments(lines),
-    focusId: focus?.player?.id ?? null,
-    focusScore: focus?.score ?? null,
-    intent,
-  };
-}
-function scoreAIToAIWhisperPair(state, speaker, target) {
-  const perceivedRole = perceivedRoleForPlayer(state, speaker) ?? roleForPlayer(state, speaker);
-  const notes = summarizeShareablePrivateNotes(speaker, 2, { state, audience: target });
-  const top = getTopTarget(speaker, state);
-  const targetRisk = speaker.suspicion?.[target.id] ?? 0.5;
-  let score = 0;
-
-  if (areKnownAllies(state, speaker, target)) {
-    score += 7;
-  }
-  if (!speaker.alive && !speaker.publicClaimRoleId) {
-    score += 4;
-  } else if (!speaker.alive) {
-    score += 2;
-  }
-  if (notes.length > 0) {
-    score += Math.min(4, notes.length * 2);
-  }
-  if (isEarlyInfoRole(perceivedRole)) {
-    score += state.day <= 1 ? 2.5 : 1;
-  }
-  if (targetRisk <= 0.4) {
-    score += 1.2;
-  }
-  if (top?.player?.id === target.id && top.score >= 0.58) {
-    score += 1.2;
-  }
-
-  return score;
-}
-
-function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
-  if (areKnownAllies(state, speaker, target)) {
-    const allianceAnalysis = {
-      intent: QUESTION_INTENT.PLAN,
-      mentionedPlayers: [],
-      secondaryIntent: null,
-    };
-    const original = composeEvilAllianceResponse(state, speaker, target, allianceAnalysis, rng);
-    return {
-      ...composeHumanizedEvilAllianceResponse(state, speaker, target, allianceAnalysis, original, rng),
-      intent: QUESTION_INTENT.PLAN,
-    };
-  }
-
-  const ranked = rankTargets(speaker, state, 3).filter((entry) => entry.player.id !== target.id);
-  const focus = ranked[0] ?? null;
-  const notes = summarizeShareablePrivateNotes(speaker, 2, { state, audience: target });
-  const lines = [];
-  const persona = speaker.aiPersona ?? PERSONA_TYPES.STEADY;
-  let intent = QUESTION_INTENT.PLAN;
-
-  if (!speaker.alive) {
-    lines.push(pickCorpusTemplate("private.proactive.deadOpeners", {}, rng, [
-      "我已经死了，白天如果再藏信息只会拖节奏。",
-    ]));
-    if (!speaker.publicClaimRoleId) {
-      const roleId = claimRoleForContext(state, speaker, target, rng, { private: true, force: true });
-      if (roleId) {
-        lines.push(`我的身份口径是 ${roleNameById(state, roleId)}。`);
-        intent = QUESTION_INTENT.CLAIM;
-      }
-    } else {
-      lines.push(`我的身份口径是 ${roleNameById(state, speaker.publicClaimRoleId)}。`);
-      intent = QUESTION_INTENT.CLAIM;
-    }
-  } else if (notes.length > 0) {
-    lines.push(pickCorpusTemplate("private.proactive.infoOpeners", {}, rng, [
-      "我私下先给你一条线，公聊里我不一定马上全摊。",
-    ]));
-    intent = QUESTION_INTENT.NIGHT;
-  } else {
-    lines.push(
-      rng() < 0.55
-        ? pickPersonaTemplate(persona, "privateOpeners", {}, rng, ["公聊前先同步一下，我不想被第一轮发言带偏。"])
-        : pickCorpusTemplate("private.proactive.syncOpeners", {}, rng, ["公聊前先同步一下，我不想被第一轮发言带偏。"])
-    );
-  }
-
-  if (notes.length > 0) {
-    lines.push(pickCorpusTemplate(
-      "private.proactive.noteShare",
-      { notesText: notes.join("；") },
-      rng,
-      [`我目前能说的是：${notes.join("；")}。`]
-    ));
-  }
-
-  if (focus) {
-    const stanceMemory = rememberDayStance(state, speaker, focus.player.id, focus.score, "ai-private");
-    const evidence = collectEvidence(state, speaker, focus.player);
-    const reasonText = evidenceReasonText(evidence, "主要是发言姿态和场上位置还不顺");
-    lines.push(
-      rng() < 0.55
-        ? pickPersonaTemplate(persona, "focusPush", { targetName: focus.player.name, reasonText }, rng, [
-            `我更想盯 ${focus.player.name}。理由是：${reasonText}。`,
-          ])
-        : pickCorpusTemplate("private.proactive.focusPush", { targetName: focus.player.name, reasonText }, rng, [
-            `我更想盯 ${focus.player.name}。理由是：${reasonText}。`,
-          ])
-    );
-    if (stanceMemory?.turns > 1) {
-      lines.push(pickCorpusTemplate(
-        "private.proactive.sameStance",
-        { stanceLabel: dayStanceLabel(stanceMemory.stance) },
-        rng,
-        [`我今天对 ta 的口径还是“${dayStanceLabel(stanceMemory.stance)}”，先不乱跳线。`]
-      ));
-    }
-  } else {
-    lines.push(pickCorpusTemplate("private.proactive.noFocus", {}, rng, [
-      "如果今天没有新信息，至少要逼一个明确口径，不要直接空过。",
-    ]));
-  }
-
-  return {
-    response: joinSpeechFragments(lines),
-    focusId: focus?.player?.id ?? null,
-    focusScore: focus?.score ?? null,
-    intent,
-  };
-}
-export function runAIToAIPrivateWhispers(state, rng = Math.random) {
-  if (state.phase !== "day" || state.dayStage !== "private" || state.gameOver) {
-    return [];
-  }
-
-  ensureDialogueState(state);
-  state.events.speeches = state.events.speeches ?? [];
-  refreshAIBeliefs(state);
-
-  const dayRecord = aiPrivateDayRecord(state);
-  const usedPairs = new Set(dayRecord.pairKeys ?? []);
-  const aiPlayers = state.players.filter((entry) => !entry.isHuman);
-  const maxPairs = aiPrivatePairLimitForDay(state.day);
-  const remainingPairs = Math.max(0, maxPairs - usedPairs.size);
-  if (remainingPairs === 0 || aiPlayers.length < 2) {
-    return [];
-  }
-
-  const candidates = [];
-  aiPlayers.forEach((speaker) => {
-    aiPlayers
-      .filter((target) => target.id !== speaker.id)
-      .forEach((target) => {
-        const pairKey = [speaker.id, target.id].sort().join("::");
-        if (usedPairs.has(pairKey)) {
-          return;
-        }
-        candidates.push({
-          speaker,
-          target,
-          pairKey,
-          score: scoreAIToAIWhisperPair(state, speaker, target),
-          tie: rng(),
-        });
-      });
-  });
-
-  const selected = candidates
-    .filter((entry) => entry.score >= 3)
-    .sort((a, b) => b.score - a.score || a.tie - b.tie)
-    .slice(0, remainingPairs);
-
-  const messages = [];
-  selected.forEach(({ speaker, target, pairKey }) => {
-    const composed = composeAIToAIWhisper(state, speaker, target, rng);
-    const responseSignals = predictDialogueSignals(composed.response);
-
-    state.events.speeches.push({
-      day: state.day,
-      playerId: speaker.id,
-      line: composed.response,
-      focusId: composed.focusId,
-      private: true,
-      viewerIds: [speaker.id, target.id],
-      targetId: target.id,
-      aiToAi: true,
-      hiddenFromHuman: true,
-    });
-
-    recordPrivateWhisperForAgents(state, {
-      speakerId: speaker.id,
-      targetId: target.id,
-      text: composed.response,
-      intent: composed.intent,
-      focusId: composed.focusId,
-    });
-
-    recordUtteranceMVP(state, {
-      speakerId: speaker.id,
-      audience: "private",
-      text: composed.response,
-      speechActs: [
-        ...new Set([
-          ...inferSpeechActsFromIntent(composed.intent, { audience: "private", isQuestion: false }),
-          ...(responseSignals.speechActs ?? []),
-        ]),
-      ],
-      targets: composed.focusId ? [composed.focusId] : [target.id],
-      intent: composed.intent,
-      voteStance: voteStanceFromText(composed.response),
-      evidenceSource: areKnownAllies(state, speaker, target) ? "storyteller_signal" : "private_chat",
-      epistemicStrength: composed.focusScore >= 0.72 ? 3 : composed.focusScore >= 0.56 ? 2 : 1,
-      nominationRelated: /提名|nominate/i.test(composed.response),
-      metadata: {
-        source: "ai_to_ai_private_whisper",
-        targetId: target.id,
-        aiToAi: true,
-        hiddenFromHuman: true,
-        mlVoteLabel: responseSignals.voteLabel ?? "undecided",
-        mlVoteConfidence: responseSignals.voteConfidence ?? 0,
-        mlSpeechActs: responseSignals.speechActs ?? [],
-        mlTokenHits: responseSignals.tokenHits ?? 0,
-      },
-    });
-
-    addLog(state, "whisper", `${speaker.name} 与 ${target.name} 进行了私聊。`, {
-      private: false,
-      redacted: true,
-      aiToAi: true,
-      sourceId: speaker.id,
-      targetId: target.id,
-    });
-
-    usedPairs.add(pairKey);
-    messages.push({
-      speakerId: speaker.id,
-      speakerName: speaker.name,
-      targetId: target.id,
-      targetName: target.name,
-      response: composed.response,
-      focusId: composed.focusId,
-      intent: composed.intent,
-    });
-  });
-
-  dayRecord.pairKeys = [...usedPairs];
-  if (messages.length > 0) {
-    refreshAIBeliefs(state);
-  }
-  return messages;
-}
-
-export function runAIProactiveWhispers(state, rng = Math.random) {
-  if (state.phase !== "day" || state.dayStage !== "private" || state.gameOver) {
-    return [];
-  }
-
-  const human = state.players.find((entry) => entry.isHuman);
-  if (!human) {
-    return [];
-  }
-
-  refreshAIBeliefs(state);
-  const dayRecord = proactiveWhisperDayRecord(state);
-  const sentIds = new Set(dayRecord.sentIds ?? []);
-  const maxMessages = state.day <= 1 || !human.alive ? 2 : 1;
-  const remainingDailySlots = Math.max(0, maxMessages - sentIds.size);
-  if (remainingDailySlots === 0) {
-    return [];
-  }
-
-  const candidates = state.players
-    .filter((entry) => !entry.isHuman && !sentIds.has(entry.id))
-    .map((entry) => ({
-      player: entry,
-      score: scoreProactiveWhisperCandidate(state, entry, human),
-      tie: rng(),
-    }))
-    .filter((entry) => entry.score >= 2.2)
-    .sort((a, b) => b.score - a.score || a.tie - b.tie)
-    .slice(0, remainingDailySlots);
-
-  const messages = [];
-  candidates.forEach(({ player: aiPlayer }) => {
-    const composed = composeProactiveWhisper(state, aiPlayer, human, rng);
-    const responseSignals = predictDialogueSignals(composed.response);
-
-    addLog(state, "whisper", `${aiPlayer.name} -> 你：${composed.response}`, {
-      private: true,
-      viewerId: human.id,
-      sourceId: aiPlayer.id,
-      direction: "in",
-      intent: composed.intent,
-      proactive: true,
-    });
-
-    state.events.speeches.push({
-      day: state.day,
-      playerId: aiPlayer.id,
-      line: composed.response,
-      focusId: composed.focusId,
-      private: true,
-      viewerId: human.id,
-      targetId: human.id,
-      proactive: true,
-    });
-
-    recordPrivateWhisperForAgents(state, {
-      speakerId: aiPlayer.id,
-      targetId: human.id,
-      text: composed.response,
-      intent: composed.intent,
-      focusId: composed.focusId,
-    });
-
-    pushTimeline(state, {
-      mode: "whisper-in",
-      speakerId: aiPlayer.id,
-      targetId: human.id,
-      text: composed.response,
-      proactive: true,
-    });
-
-    recordUtteranceMVP(state, {
-      speakerId: aiPlayer.id,
-      audience: "private",
-      text: composed.response,
-      speechActs: [
-        ...new Set([
-          ...inferSpeechActsFromIntent(composed.intent, { audience: "private", isQuestion: false }),
-          ...(responseSignals.speechActs ?? []),
-        ]),
-      ],
-      targets: composed.focusId ? [composed.focusId] : [human.id],
-      intent: composed.intent,
-      voteStance: voteStanceFromText(composed.response),
-      evidenceSource: areKnownAllies(state, aiPlayer, human) ? "storyteller_signal" : "private_chat",
-      epistemicStrength: composed.focusScore >= 0.72 ? 3 : composed.focusScore >= 0.56 ? 2 : 1,
-      nominationRelated: /提名|nominate/i.test(composed.response),
-      metadata: {
-        source: "ai_proactive_private_whisper",
-        viewerId: human.id,
-        direction: "in",
-        proactive: true,
-        mlVoteLabel: responseSignals.voteLabel ?? "undecided",
-        mlVoteConfidence: responseSignals.voteConfidence ?? 0,
-        mlSpeechActs: responseSignals.speechActs ?? [],
-        mlTokenHits: responseSignals.tokenHits ?? 0,
-      },
-    });
-
-    sentIds.add(aiPlayer.id);
-    messages.push({
-      targetId: aiPlayer.id,
-      targetName: aiPlayer.name,
-      targetSeat: aiPlayer.seatIndex + 1,
-      personaLabel: PERSONA_LABELS[aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY] ?? "稳健",
-      question: "主动来访",
-      response: composed.response,
-      focusId: composed.focusId,
-    });
-  });
-
-  dayRecord.sentIds = [...sentIds];
-  return messages;
-}
-
+export const runAIToAIPrivateWhispers = (...args) => privateSocial.runAIToAIPrivateWhispers(...args);
+export const runAIProactiveWhispers = (...args) => privateSocial.runAIProactiveWhispers(...args);
+export const acceptAIProactiveWhisper = (...args) => privateSocial.acceptAIProactiveWhisper(...args);
+export const declineAIProactiveWhisper = (...args) => privateSocial.declineAIProactiveWhisper(...args);
 export function runPrivateWhisper(
   state,
   { targetId, humanLine, intentHint = QUESTION_INTENT.GENERIC, deception = {} },
@@ -2776,10 +3381,14 @@ export function runPrivateWhisper(
 
   const memory = ensurePairMemory(state, target.id, human.id);
   const sameEvilTeam = areKnownAllies(state, target, human);
+  const targetView = buildAgentView(state, target, { audience: "private", targetId: human.id });
   const rawComposed = sameEvilTeam
     ? composeEvilAllianceResponse(state, target, human, analysis, rng)
-    : composePrivateResponse(state, target, human, analysis, question, memory, rng);
-  const composed = humanizePrivateComposedResponse(state, target, human, analysis, rawComposed, rng, { sameEvilTeam });
+    : composePrivateResponse(state, target, human, analysis, question, memory, rng, { agentView: targetView });
+  let composed = humanizePrivateComposedResponse(state, target, human, analysis, rawComposed, rng, { sameEvilTeam });
+  composed = applyPrivateStatementContinuity(state, target, human, composed, analysis);
+  composed = applyPrivateDialogueTurnTaking(state, target, human, composed, analysis, question, memory, { sameEvilTeam });
+  composed = ensurePrivateAnswerAlignment(state, target, human, analysis, composed);
   const responseSignals = predictDialogueSignals(composed.response);
 
   addLog(state, "whisper", `你 -> ${target.name}：${question}`, {
@@ -2820,12 +3429,17 @@ export function runPrivateWhisper(
     intent: analysis.intent,
     focusId: composed.focusId,
   });
+  rememberStatementMemory(state, target, "private", human.id, composed, {
+    source: "ai_private_whisper",
+    intent: analysis.intent,
+  });
 
   pushTimeline(state, {
     mode: "whisper-out",
     speakerId: human.id,
     targetId: target.id,
     text: question,
+    intent: analysis.intent,
   });
 
   pushTimeline(state, {
@@ -2833,6 +3447,12 @@ export function runPrivateWhisper(
     speakerId: target.id,
     targetId: human.id,
     text: composed.response,
+    intent: analysis.intent,
+    focusId: composed.focusId ?? "",
+    evidenceSummary: composed.evidenceContract?.spokenText || composed.evidenceContract?.text || "",
+    evidenceKind: evidenceKindForSurface(composed.evidenceContract),
+    questionToAsk: composed.thoughtFrame?.questionToAsk ?? "",
+    followUpPrompts: composed.followUpPrompts ?? [],
   });
 
   recordUtteranceMVP(state, {
@@ -2927,6 +3547,10 @@ export function runPrivateWhisper(
     personaLabel: PERSONA_LABELS[target.aiPersona ?? PERSONA_TYPES.STEADY] ?? "稳健",
     question,
     response: composed.response,
+    focusId: composed.focusId ?? null,
+    focusScore: composed.focusScore ?? null,
+    evidenceContract: composed.evidenceContract ?? null,
+    followUpPrompts: composed.followUpPrompts ?? [],
     followUp: !!slot.followUp,
     followUpUsed: slot.followUpUsed ?? 0,
     followUpLimit: slot.followUpLimit ?? 2,
@@ -2950,12 +3574,20 @@ export function decideAIVote(voter, nominee, state, rng = Math.random) {
     if (areKnownAllies(state, voter, nominee)) {
       return suspicion > 0.9 && rng() < 0.08;
     }
-    const shift = personaThresholdShift(voter.aiPersona ?? PERSONA_TYPES.STEADY);
-    return suspicion >= (voter.alive ? 0.43 + shift : 0.56 + shift);
+    const persona = voter.aiPersona ?? PERSONA_TYPES.STEADY;
+    const shift = personaThresholdShift(persona) + personaStrategyProfile(persona).voteShift;
+    const memoryShift = publicStatementVoteThresholdShift(state, voter, nominee);
+    return suspicion >= (voter.alive ? 0.43 + shift + memoryShift : 0.56 + shift + memoryShift);
   }
 
-  const shift = personaThresholdShift(voter.aiPersona ?? PERSONA_TYPES.STEADY);
-  const threshold = voter.alive ? 0.58 + shift : 0.69 + shift;
+  const persona = voter.aiPersona ?? PERSONA_TYPES.STEADY;
+  const evidenceCount = countAgentEvidence(getAIAgent(state, voter), nominee.id);
+  const strategicShift =
+    personaStrategyProfile(persona).voteShift -
+    (evidenceCount > 0 && persona === PERSONA_TYPES.PRESSURE ? 0.025 : 0);
+  const shift = personaThresholdShift(persona) + strategicShift;
+  const memoryShift = publicStatementVoteThresholdShift(state, voter, nominee);
+  const threshold = voter.alive ? 0.58 + shift + memoryShift : 0.69 + shift + memoryShift;
   return suspicion >= threshold;
 }
 
@@ -2991,28 +3623,68 @@ function nominationThreshold(state) {
 }
 
 function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold, evidenceSummary = "") {
-  const score = aiPlayer.suspicion?.[target.id] ?? 0.5;
   if (evidenceSummary) {
-    return `压力提名：${evidenceSummary}；怀疑度 ${Math.round(score * 100)}%，先看票型和回应。`;
+    return `我先把 ${target.name} 放上台：${evidenceSummary}。先听回应，再看票型。`;
   }
   if (evidenceCount > 0) {
-    return `压力提名：已有 ${evidenceCount} 条个人证据，怀疑 ${Math.round(score * 100)}%，达到 ${Math.round(threshold * 100)}% 的行动线。`;
+    return `我先提 ${target.name}。手里已经有 ${evidenceCount} 条线，不想让这边轻轻滑过去。`;
   }
   if (support > 0) {
-    return `压力提名：硬证据不足，但预计有 ${support} 个 AI 倾向支持，先看票型和反应。`;
+    return `我先提 ${target.name}。证据还不硬，但这轮需要看大家怎么站票。`;
   }
-  return `压力提名：硬证据不足，但连续空过收益太低，先把最高疑点位放上台。`;
+  return `我先提 ${target.name}。继续空过收益太低，至少让这个位置正面回应。`;
 }
 
 function buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex, options = {}) {
-  const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
-  const evidenceSummary =
-    summarizeEvidenceForDialogue(state, aiPlayer, candidate.player.id, {
-      limit: 1,
-      redactPrivate: true,
-    })[0] ?? "";
+  const agentView =
+    options.agentView ?? buildAgentView(state, aiPlayer, { audience: "public", targetId: candidate.player.id });
+  const thoughtFrame = options.thoughtFrame ?? buildAIThoughtFrame(state, aiPlayer, {
+    agentView,
+    audience: "public",
+    stage: "nomination",
+  });
+  const evidenceCount = agentView
+    ? agentView.evidenceCountForTarget(candidate.player.id)
+    : countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
+  const statementReason = publicStatementNominationReason(state, aiPlayer, candidate.player.id);
+  const evidenceContract = buildDialogueEvidenceContract(agentView ?? state, aiPlayer, candidate.player, {
+    limit: 1,
+    publicOnly: true,
+    fallback: "公开证据还不够，先用提名看回应和票型",
+  });
+  const evidenceSummary = evidenceContract.hasEvidence ? evidenceContract.text : "";
+  const framing = aiPlayer.team === "evil" && !areKnownAllies(state, aiPlayer, candidate.player) && (evidenceContract.graphChains?.length ?? 0) > 0;
   const support = expectedSupportFor(state, candidate.player.id);
   const highConfidence = candidate.score >= 0.56 && !options.forcePressure;
+  const nominationLabel = highConfidence ? "正式提名" : "先提上台";
+  const nominationTargetName = statementTargetLabel(state, candidate.player.id);
+  const nominationAct = renderDialogueActs(
+    state,
+    aiPlayer,
+    "nomination",
+    {
+      targetName: nominationTargetName,
+      reasonText: evidenceContract.spokenText || evidenceContract.text,
+      shortReason: shortReasonText(evidenceContract.spokenText || evidenceContract.text),
+      nominationLabel,
+    },
+    () => 0.37,
+    [`${nominationLabel}：${nominationTargetName} 这边需要正面回应，理由是 ${evidenceContract.spokenText || evidenceContract.text}。`],
+    { audience: "public" }
+  );
+  const rawProposalReason = statementReason
+    ? `${nominationLabel}：${statementReason}。`
+    : ensureEvidenceContractInText(
+      highConfidence
+      ? evidenceSummary
+        ? nominationAct
+        : `${nominationLabel}：${nominationTargetName} 这边需要正面回应，${evidenceContract.text}。`
+      : evidenceSummary
+      ? nominationAct
+      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold, evidenceSummary),
+    evidenceContract
+  );
+  const proposalReason = applySpeechBudget(polishConversationalText(rawProposalReason), { audience: "nomination" });
   return {
     nominatorId: aiPlayer.id,
     nomineeId: candidate.player.id,
@@ -3023,11 +3695,12 @@ function buildNominationProposal(state, aiPlayer, candidate, threshold, rankInde
     threshold,
     rankIndex,
     evidenceSummary,
-    reason: highConfidence
-      ? evidenceSummary
-        ? `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，理由：${evidenceSummary}。`
-        : `自动提名：怀疑度 ${Math.round(candidate.score * 100)}%，已达到常规提名线。`
-      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold, evidenceSummary),
+    evidenceContract,
+    statementMemoryFocus: !!statementReason,
+    framing,
+    thoughtFrame,
+    thoughtFrameFocus: thoughtFrame.primaryConcernId === candidate.player.id,
+    reason: proposalReason,
   };
 }
 
@@ -3035,6 +3708,15 @@ function sortNominationProposals(proposals) {
   proposals.sort((a, b) => {
     if (a.pressure !== b.pressure) {
       return a.pressure ? 1 : -1;
+    }
+    if (!!a.statementMemoryFocus !== !!b.statementMemoryFocus) {
+      return a.statementMemoryFocus ? -1 : 1;
+    }
+    if (!!a.framing !== !!b.framing) {
+      return a.framing ? -1 : 1;
+    }
+    if (!!a.thoughtFrameFocus !== !!b.thoughtFrameFocus) {
+      return a.thoughtFrameFocus ? -1 : 1;
     }
     if (b.support !== a.support) {
       return b.support - a.support;
@@ -3056,6 +3738,15 @@ function choosePressureFallbackNomination(state, candidates, threshold) {
   const fallbackProposals = [];
 
   candidates.forEach((aiPlayer) => {
+    const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+    const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
+      agentView,
+      audience: "public",
+      stage: "nomination",
+    });
+    const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
+    const frameShift = thoughtFrame.nominationReadiness >= 0.68 ? -0.06 : thoughtFrame.nominationReadiness >= 0.55 ? -0.03 : 0;
+    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift, 0.28, 0.62);
     const candidate = rankTargets(aiPlayer, state, state.players.length)
       .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
       .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player))
@@ -3066,7 +3757,9 @@ function choosePressureFallbackNomination(state, candidates, threshold) {
     }
 
     fallbackProposals.push(
-      buildNominationProposal(state, aiPlayer, candidate, Math.min(threshold, fallbackFloor), 0, {
+      buildNominationProposal(state, aiPlayer, candidate, Math.min(effectiveThreshold, fallbackFloor), 0, {
+        agentView,
+        thoughtFrame,
         forcePressure: true,
       })
     );
@@ -3090,20 +3783,45 @@ export function chooseAINomination(state) {
   const proposals = [];
 
   candidates.forEach((aiPlayer) => {
-    rankTargets(aiPlayer, state, state.players.length)
+    const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+    const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
+      agentView,
+      audience: "public",
+      stage: "nomination",
+    });
+    const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
+    const frameShift = thoughtFrame.nominationReadiness >= 0.68 ? -0.06 : thoughtFrame.nominationReadiness >= 0.55 ? -0.03 : 0;
+    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift, 0.28, 0.62);
+    const rankedTargets = rankTargets(aiPlayer, state, state.players.length)
       .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
-      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player))
-      .slice(0, 3)
-      .forEach((candidate, rankIndex) => {
+      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player));
+    const publicMemory = currentPublicStatementMemory(state, aiPlayer.id);
+    const primaryTargets = rankedTargets.slice(0, 3);
+    const memoryTarget = rankedTargets.find((entry) => entry.player.id === publicMemory?.focusId);
+    const thoughtTarget = rankedTargets.find((entry) => entry.player.id === thoughtFrame.primaryConcernId);
+    const targetsToConsider =
+      memoryTarget && !primaryTargets.some((entry) => entry.player.id === memoryTarget.player.id)
+        ? [...primaryTargets, memoryTarget]
+        : [...primaryTargets];
+    if (thoughtTarget && !targetsToConsider.some((entry) => entry.player.id === thoughtTarget.player.id)) {
+      targetsToConsider.push(thoughtTarget);
+    }
+
+    targetsToConsider.forEach((candidate, rankIndex) => {
         const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
         const support = expectedSupportFor(state, candidate.player.id);
         const hasEvidence = evidenceCount > 0 || support > 0;
+        const hasPublicMemory =
+          publicStatementMemoryMatches(publicMemory, candidate.player.id) &&
+          publicStatementMemoryPressure(publicMemory) > 0;
         const highConfidence = candidate.score >= 0.56;
-        const pressureEligible = candidate.score >= threshold && (hasEvidence || state.day <= 1 || getAlivePlayers(state).length <= 5);
+        const pressureEligible =
+          (candidate.score >= effectiveThreshold && (hasEvidence || state.day <= 1 || getAlivePlayers(state).length <= 5)) ||
+      (hasPublicMemory && candidate.score >= Math.max(0.24, effectiveThreshold - 0.24));
         if (!highConfidence && !pressureEligible) {
           return;
         }
-        proposals.push(buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex));
+        proposals.push(buildNominationProposal(state, aiPlayer, candidate, effectiveThreshold, rankIndex, { agentView, thoughtFrame }));
       });
   });
 
@@ -3112,6 +3830,163 @@ export function chooseAINomination(state) {
   }
 
   return sortNominationProposals(proposals)[0];
+}
+
+function nextNominationDebateId(state) {
+  const existing = state.events?.nominationDebates?.length ?? 0;
+  return `nomination-debate-${state.day ?? 0}-${existing + 1}`;
+}
+
+function publicRoleClaimText(state, player) {
+  if (!player?.publicClaimRoleId) {
+    return "我先不把身份一次说死，但会把昨晚信息和投票理由讲清楚";
+  }
+  return `我公开报的是 ${roleNameById(state, player.publicClaimRoleId)}`;
+}
+
+function nominationDefenseLine(state, nominee, nominator, reason, rng = Math.random) {
+  if (!nominee) {
+    return "";
+  }
+  if (nominee.isHuman) {
+    return "等你回应。你可以先说身份和昨晚信息，再决定要不要拉票。";
+  }
+  const pressure = nominee.suspicion?.[nominator?.id] ?? 0.5;
+  const claimText = publicRoleClaimText(state, nominee);
+  const options = [
+    `我不认这个票。${claimText}，先让我把信息讲完，再决定要不要上票。`,
+    `这个提名太急了。${claimText}，我可以解释，但别在我没说完前锁票。`,
+    `我先防一下：${claimText}。如果要票我，至少把刚才那条理由重新摊开听一遍。`,
+  ];
+  if (pressure >= 0.6) {
+    options.push(`我反过来看 ${nominator?.name ?? "提名者"} 这边也不稳。${claimText}，这票别闭眼跟。`);
+  }
+  return sample(options, 1, rng)[0];
+}
+
+function defaultHumanNominationDebateResponse(state, speaker, debate) {
+  const speakerRole = speaker?.id === debate?.nomineeId ? "nominee" : "nominator";
+  if (speakerRole === "nominee") {
+    return "我先回应这票：别急着锁。我会把身份和昨晚信息讲清楚，大家听完再决定。";
+  }
+  return "我补一句：我提这个人不是为了赶票，是想先把他的解释放到台面上。";
+}
+
+function sanitizeNominationDebateResponse(text) {
+  return `${text ?? ""}`.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+export function createNominationDebate(state, { nominatorId, nomineeId, reason = "", source = "manual" } = {}, rng = Math.random) {
+  if (state.phase !== "day" || state.dayStage !== "nomination" || state.gameOver) {
+    return { ok: false, reason: "当前不在提名阶段。" };
+  }
+  state.dayStageMeta = state.dayStageMeta ?? {};
+  if (state.dayStageMeta.nominationDebate?.active) {
+    return { ok: true, debate: state.dayStageMeta.nominationDebate, message: "已有待处理的提名互辩。" };
+  }
+  const nominator = getPlayerById(state, nominatorId);
+  const nominee = getPlayerById(state, nomineeId);
+  if (!nominator || !nominee) {
+    return { ok: false, reason: "提名者或被提名者不存在。" };
+  }
+  if (!nominator.alive) {
+    return { ok: false, reason: "死亡玩家无法发起提名。" };
+  }
+  if (nominator.nominatedToday) {
+    return { ok: false, reason: `${nominator.name} 今天已提名过。` };
+  }
+  if (nominee.beenNominatedToday) {
+    return { ok: false, reason: `${nominee.name} 今天已被提名过。` };
+  }
+  const nominationReason = `${reason ?? ""}`.trim() || `我提 ${nominee.name}。先把这个位置放上台，听完整回应再看票。`;
+  const lines = [
+    {
+      speakerId: nominator.id,
+      role: "nominator",
+      text: nominationReason,
+    },
+    {
+      speakerId: nominee.id,
+      role: "nominee",
+      text: nominationDefenseLine(state, nominee, nominator, nominationReason, rng),
+      pending: !!nominee.isHuman,
+    },
+  ];
+  const debate = {
+    active: true,
+    nominationId: nextNominationDebateId(state),
+    day: state.day ?? 0,
+    nominatorId: nominator.id,
+    nomineeId: nominee.id,
+    source,
+    reason: nominationReason,
+    lines,
+    nextAction: "vote",
+    createdAt: Date.now(),
+  };
+  state.dayStageMeta.nominationDebate = debate;
+  state.events.nominationDebates = state.events.nominationDebates ?? [];
+  state.events.nominationDebates.push(debate);
+  addLog(state, "nomination-debate", `${nominator.name} 提名 ${nominee.name}，进入互辩。`, {
+    nominationId: debate.nominationId,
+    nominatorId: nominator.id,
+    nomineeId: nominee.id,
+  });
+  pushTimeline(state, {
+    mode: "nomination-debate",
+    speakerId: nominator.id,
+    targetId: nominee.id,
+    text: `${nominator.name} 提名 ${nominee.name}，先互辩再投票。`,
+    nominationId: debate.nominationId,
+  });
+  return { ok: true, debate, message: `${nominator.name} 提名 ${nominee.name}，进入互辩。` };
+}
+
+export function recordNominationDebateResponse(state, { speakerId = "", text = "" } = {}) {
+  const debate = state.dayStageMeta?.nominationDebate;
+  if (!debate?.active) {
+    return { ok: false, reason: "当前没有待回应的提名互辩。" };
+  }
+  const human = state.players?.find((player) => player.isHuman);
+  const speaker = getPlayerById(state, speakerId || human?.id);
+  if (!speaker) {
+    return { ok: false, reason: "回应者不存在。" };
+  }
+  if (speaker.id !== debate.nominatorId && speaker.id !== debate.nomineeId) {
+    return { ok: false, reason: "只有提名者和被提名者可以在互辩中发言。" };
+  }
+  const role = speaker.id === debate.nominatorId ? "nominator" : "nominee";
+  const responseText = sanitizeNominationDebateResponse(text) || defaultHumanNominationDebateResponse(state, speaker, debate);
+  const existing = debate.lines?.find((line) => line.speakerId === speaker.id && line.role === role);
+  if (existing?.pending) {
+    existing.text = responseText;
+    existing.pending = false;
+  } else {
+    debate.lines = debate.lines ?? [];
+    debate.lines.push({
+      speakerId: speaker.id,
+      role,
+      text: responseText,
+      pending: false,
+    });
+  }
+  debate.updatedAt = Date.now();
+  state.events.nominationDebateResponses = state.events.nominationDebateResponses ?? [];
+  state.events.nominationDebateResponses.push({
+    day: state.day ?? 0,
+    nominationId: debate.nominationId,
+    speakerId: speaker.id,
+    role,
+    text: responseText,
+  });
+  pushTimeline(state, {
+    mode: "nomination-debate-response",
+    speakerId: speaker.id,
+    targetId: role === "nominator" ? debate.nomineeId : debate.nominatorId,
+    text: `${speaker.name} 回应提名：${responseText}`,
+    nominationId: debate.nominationId,
+  });
+  return { ok: true, debate, message: `${speaker.name} 已回应这次提名。` };
 }
 
 function snapshotAIBeliefFields(state) {
@@ -3144,6 +4019,10 @@ function restoreAIBeliefFields(state, snapshot) {
 
 export function getAIInsightRows(state) {
   const snapshot = snapshotAIBeliefFields(state);
+  const hadStatementMemory = !!state.aiDialogue?.statementMemory;
+  const statementMemorySnapshot = hadStatementMemory
+    ? structuredClone(state.aiDialogue.statementMemory)
+    : null;
   refreshAIBeliefs(state);
   const rows = state.players
     .filter((entry) => !entry.isHuman)
@@ -3171,5 +4050,12 @@ export function getAIInsightRows(state) {
       };
     });
   restoreAIBeliefFields(state, snapshot);
+  if (state.aiDialogue) {
+    if (hadStatementMemory) {
+      state.aiDialogue.statementMemory = statementMemorySnapshot;
+    } else {
+      delete state.aiDialogue.statementMemory;
+    }
+  }
   return rows;
 }

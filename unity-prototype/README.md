@@ -94,6 +94,8 @@ npm run unity:bridge:build
 
 一般用户路径不需要手动运行上述命令。直接启动已构建的 `unity-build/BOTC_Unity_Prototype.exe` 时，Unity 会尝试自动拉起内置 bridge。
 
+AI 发言润色是可选实验功能。构建版如果在 exe 同级看到 `botc_ai_polish.enabled`，或用 `-botc-llm-renderer` / `-botc-ai-polish` 启动，会优先查找 exe 同级的 `LocalLLM/llama-server.exe` 与 `LocalLLM/models/*.gguf`，自动拉起本地 OpenAI-compatible 服务；如果缺失，会回退到外部 endpoint 或 Ollama，再失败则使用 JS Core 的确定性文本。发行打包说明见 `docs/packaging/AI_POLISHED_UNITY_RELEASE.md`。
+
 最小动作闭环：
 
 1. Unity 点击 token，写入 `select-token` action。

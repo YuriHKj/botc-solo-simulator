@@ -3,7 +3,7 @@
     "steady": {
       "privateOpeners": [
         "我按现在的盘面说。",
-        "这题我分两层看。",
+        "我直说吧。",
         "先给短结论，后面你可以继续追问。",
         "我先把能落地的判断说出来。",
         "我不把话说死，先按目前信息排优先级。"
@@ -16,10 +16,10 @@
         "我建议把这句话拿去交叉验证，不要只听我一家。"
       ],
       "claimDeflect": [
-        "身份我先不急着摊开；如果到提名前我还活着，我会给可验证口径。",
+        "身份我先不急着说出来；如果到提名前我还活着，我会给可验证说法。",
         "我可以先聊信息结论，身份先不裸。",
         "我不是空白位，但现在全跳身份会让夜里太好刀。",
-        "先记我的口径，真要推到我身上我会补完整身份链。"
+        "先记我的说法，真要推到我身上我会补完整身份和信息。"
       ],
       "focusPush": [
         "我当前更关注 {targetName}，但还没到铁推。",
@@ -43,15 +43,15 @@
         "别太急着冲票，但也别让话题散掉。"
       ],
       "claimDeflect": [
-        "身份可以聊，但别第一句就逼我裸跳；先让我把压力线打出来。",
+        "身份可以聊，但别第一句就逼我直接跳身份；先让我把压力线打出来。",
         "我不是不报，是不想让强功能位被白天逼光。",
-        "真要到投票前，我会给完整口径；现在先看谁在躲问题。",
+        "真要到投票前，我会给完整说法；现在先看谁在躲问题。",
         "先别拿身份卡死我，今天更该看回应和票型。"
       ],
       "focusPush": [
         "今天先把火力推到 {targetName} 身上。",
         "{targetName} 必须先回答，不能让 ta 滑过去。",
-        "我会优先压 {targetName}，至少逼出明确口径。"
+        "我会优先压 {targetName}，至少逼出明确说法。"
       ]
     },
     "shadow": {
@@ -71,7 +71,7 @@
       ],
       "claimDeflect": [
         "身份线我先给可公开部分，细节等压力真的到我身上再展开。",
-        "我暂时不摊身份，今天先看谁在逼信息位裸跳。",
+        "我暂时不摊身份，今天先看谁在逼信息位直接跳身份。",
         "我能给范围，但不会现在把技能细节全交出来。",
         "先别替我公开身份，我要看一圈反应。"
       ],
@@ -89,15 +89,211 @@
       "如果今天要给压力，我会先给到 {targetName}。我的理由很简单：{reasonText}。"
     ],
     "probe": [
-      "{targetName} 我先记一笔，还没到硬推，但需要把口径讲完整。",
+      "{targetName} 我先记一笔，还没到硬推，但需要把说法讲完整。",
       "我对 {targetName} 有点不舒服。先不砍，先问清楚。",
       "{targetName} 的回答我会重点听；如果继续绕，下一轮再加压。"
     ],
     "deadClaim": [
-      "我已经死了，继续藏身份收益不高。我先把口径交出来：我是 {roleName}。{infoText}",
+      "我已经死了，继续藏身份收益不高。我先把说法交出来：我是 {roleName}。{infoText}",
       "死人信息不该再一直压着。我先报：我是 {roleName}。{infoText}",
-      "我这票已经很贵了，所以身份链先摊开：我是 {roleName}。{infoText}"
+      "我这票已经很贵了，所以身份和信息先说出来：我是 {roleName}。{infoText}"
     ],
+    "dialogueActs": {
+      "steady": {
+        "pressure": [
+          "{targetName} 我先放到桌面上。{reasonText}，这条要听回应再定。",
+          "我会先问 {targetName}。目前卡点是 {reasonText}，但我不急着拍死。",
+          "{targetName} 有压力，不过我想先把问题问完整：{reasonText}。"
+        ],
+        "probe": [
+          "{targetName} 我先记一笔。{reasonText}，还没到硬推。",
+          "我对 {targetName} 有疑问，先听解释。重点是 {reasonText}。",
+          "{targetName} 先进入观察位，回应之后再重排。"
+        ],
+        "challengeResponse": [
+          "我不是在硬保谁。我的意思是先把 {shortReason} 问清楚。",
+          "这个质疑我接。{targetName} 这条我只说需要回应，不是说已经定恶。",
+          "如果你问我为什么盯 {targetName}，核心就是 {shortReason}。"
+        ],
+        "nominationPressure": [
+          "{targetName} 可以进提名池，但我先听一句回应。",
+          "提名前我先把话说清：{targetName} 这条是 {shortReason}。",
+          "如果今天要动流程，我会先看 {targetName}，但票前还要听解释。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我倾向先看回应再决定票。",
+          "到投票我会看 {targetName} 的回应有没有东西，不是闭眼跟。",
+          "票前说法先放这：{targetName} 这条我还没撤。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}，不是闭眼冲，主要因为 {reasonText}。",
+          "{nominationLabel}：{targetName} 这条需要正式吃一轮压力，理由是 {reasonText}。",
+          "{nominationLabel}：先把 {targetName} 放上台，听完回应再看票型。"
+        ]
+      },
+      "pressure": {
+        "pressure": [
+          "{targetName} 先上压力。{reasonText}，这不能轻轻放过。",
+          "我直接点 {targetName}。理由就摆这儿：{reasonText}。",
+          "今天别散火力，先压 {targetName}，让 ta 把 {shortReason} 讲清楚。"
+        ],
+        "probe": [
+          "{targetName} 还没到必出，但必须先回答。",
+          "先别让 {targetName} 滑过去，至少把 {shortReason} 说清。",
+          "{targetName} 我先压一轮，回答不好再进提名。"
+        ],
+        "challengeResponse": [
+          "我回应一下：我不是乱打，{targetName} 先把 {shortReason} 讲清楚。",
+          "质疑可以，但压力别撤。{targetName} 这里先回答。",
+          "你要反问我也行，我就一句：{shortReason} 不解释清楚，今天别想滑过去。"
+        ],
+        "nominationPressure": [
+          "{targetName} 今天可以上台。{shortReason} 这点够给正式压力。",
+          "提名前我先表态：{targetName} 解释不清，我愿意提。",
+          "别再绕了，{targetName} 这条该进提名池。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我大概率会跟票。",
+          "票型阶段我会先压 {targetName}，看谁敢硬保。",
+          "{targetName} 被提我不会躲票，{shortReason} 得有答案。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}。{reasonText} 已经够上台。",
+          "{nominationLabel}：{targetName} 先吃票型，别让白天空转。",
+          "{nominationLabel}：我把 {targetName} 推上来，回应和票型一起看。"
+        ]
+      },
+      "shadow": {
+        "pressure": [
+          "{targetName} 我不急着拍死，但这条链要说出来：{reasonText}。",
+          "我会看 {targetName} 怎么接话，也看谁替 ta 卸压。{reasonText}。",
+          "{targetName} 先留在主线里，尤其是 {shortReason} 这点。"
+        ],
+        "probe": [
+          "{targetName} 我先暗记，重点看后面谁接话。",
+          "这轮我不明冲 {targetName}，但 {shortReason} 不能直接放。",
+          "{targetName} 先问，不急着票，先看站边怎么动。"
+        ],
+        "challengeResponse": [
+          "我先回应。重点不是我想冲 {targetName}，而是谁在替这条链卸压。",
+          "这个反问有价值。{targetName} 这边我先看 {shortReason}，也看谁接话。",
+          "我不急着把票打死，但 {shortReason} 这点不能没人解释。"
+        ],
+        "nominationPressure": [
+          "{targetName} 上台不一定要出，重点是看站边。",
+          "提名前我先留一句：{targetName} 这条会照出票型。",
+          "{targetName} 可以吃一轮流程压力，我更想看谁保、谁反。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我会盯反票和临时保人的位置。",
+          "票前我不急着喊死，但 {targetName} 的票型值得看。",
+          "{targetName} 被提时，我更关注谁帮 ta 松绑。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}，重点不是一票定生死，是看谁站边。",
+          "{nominationLabel}：{targetName} 上台后，反票和保人的位置会很有信息。",
+          "{nominationLabel}：先让 {targetName} 进流程，票型会把关系链照出来。"
+        ]
+      }
+    },
+    "evilPerformance": {
+      "steady": {
+        "pressure": [
+          "我先按好人视角盘：{targetName} 这条是 {shortReason}，要先听回应。",
+          "台面上我能公开说的是，{targetName} 这里需要解释 {shortReason}。",
+          "我不想把节奏打散，先让 {targetName} 回应 {shortReason}。"
+        ],
+        "probe": [
+          "{targetName} 我先轻轻记一笔，重点是 {shortReason}。",
+          "我这里先不硬推 {targetName}，但这条说法需要补完整。",
+          "先问 {targetName}，别急着定票；看 ta 能不能把 {shortReason} 说顺。"
+        ],
+        "challengeResponse": [
+          "我回应一下：我不是在带节奏，只是 {targetName} 这条还缺解释。",
+          "你质疑我可以，但我现在只是把 {shortReason} 放到台面上。",
+          "我先按公开信息说，{targetName} 要把这条补清楚。"
+        ],
+        "nominationPressure": [
+          "{targetName} 可以进提名讨论，但我先听一句解释，别急着把票打死。",
+          "提名前先把说法对齐：{targetName} 这条是 {shortReason}。",
+          "如果今天要动流程，我会先把 {targetName} 放进候选。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我会看回应质量再决定票。",
+          "票型我先不锁死，但 {targetName} 被提时我会认真考虑跟。",
+          "到票前我会看谁在替 {targetName} 解围，先不闭眼冲。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}。台面理由是 {reasonText}。",
+          "{nominationLabel}：先让 {targetName} 上台讲清楚，别让白天只停在感觉上。",
+          "{nominationLabel}：我把 {targetName} 放进流程，听完回应再看票。"
+        ]
+      },
+      "pressure": {
+        "pressure": [
+          "今天不能空转，{targetName} 先回答。{shortReason} 这点够给压力。",
+          "我先把火力打到 {targetName}，理由摆台面：{reasonText}。",
+          "{targetName} 别滑过去，先把 {shortReason} 讲清楚。"
+        ],
+        "probe": [
+          "先压一轮 {targetName}，不一定马上出，但不能让 ta 舒服过白天。",
+          "{targetName} 先吃问题，回答不好再进提名。",
+          "这轮我先盯 {targetName}，看 ta 怎么补说法。"
+        ],
+        "challengeResponse": [
+          "我回应：我不是乱冲，{targetName} 这里确实需要交代。",
+          "反问可以，但压力别撤。{shortReason} 不讲清楚就过不了。",
+          "我可以被质疑，但 {targetName} 也得先把回应拿出来。"
+        ],
+        "nominationPressure": [
+          "{targetName} 今天能上台，至少先逼一轮正式回应。",
+          "提名前我先表态：{targetName} 这条不清，我愿意给流程压力。",
+          "别只聊边缘位，{targetName} 这条该进提名池看票型。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我大概率会跟，除非回应特别有力。",
+          "{targetName} 上台我不会躲票，票型本身也有信息。",
+          "到投票我会先压 {targetName}，看谁临时硬保。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}。{reasonText} 已经够给正式压力。",
+          "{nominationLabel}：{targetName} 上台，回应和票型一起看。",
+          "{nominationLabel}：我不想让这天空过，先把 {targetName} 推进流程。"
+        ]
+      },
+      "shadow": {
+        "pressure": [
+          "我先不把票说死，但 {targetName} 这条关系链要说出来：{shortReason}。",
+          "我更想看谁会替 {targetName} 卸压，先把这条放桌上。",
+          "{targetName} 先留在主线里，尤其是 {shortReason}。"
+        ],
+        "probe": [
+          "{targetName} 我先暗记，重点看后面谁接话。",
+          "这轮不明冲 {targetName}，但这条不能直接放。",
+          "先问 {targetName}，再看站边怎么动。"
+        ],
+        "challengeResponse": [
+          "我先回应：重点不是我想冲 {targetName}，是这条链没人解释。",
+          "这个反问我接，但 {shortReason} 仍然要有人对。",
+          "我不急着定票，先看谁帮 {targetName} 把压力拆掉。"
+        ],
+        "nominationPressure": [
+          "{targetName} 上台不一定要出，重点是照出票型和站边。",
+          "提名前我先留一句：{targetName} 这条会照出谁在保。",
+          "{targetName} 可以吃一轮流程压力，我更想看谁保、谁反。"
+        ],
+        "voteIntent": [
+          "如果提 {targetName}，我会盯反票和临时保人的位置。",
+          "{targetName} 的票我不急着喊死，但票型值得看。",
+          "{targetName} 被提时，我更关注谁帮 ta 松绑。"
+        ],
+        "nomination": [
+          "{nominationLabel}：我提 {targetName}，重点是看站边，不是一票定生死。",
+          "{nominationLabel}：{targetName} 上台后，反票和保人的位置会很有信息。",
+          "{nominationLabel}：先让 {targetName} 进流程，关系链会自己亮出来。"
+        ]
+      }
+    },
     "tails": {
       "secondFocus": [
         "次级关注是 {secondName}。",
@@ -106,7 +302,7 @@
       ],
       "laterRound": [
         "这是今天第 {roundInDay} 轮公聊，我想看 ta 有没有改口。",
-        "聊到第 {roundInDay} 轮了，口径如果还不清楚就要进提名池。",
+        "聊到第 {roundInDay} 轮了，说法如果还不清楚就要进提名池。",
         "现在不是第一轮试探了，第 {roundInDay} 轮还绕就很难放。"
       ],
       "nominationReady": [
@@ -135,14 +331,14 @@
         "我现在给的是优先级，不是最终判决。"
       ],
       "stanceRetained": [
-        "我今天对 {targetName} 的口径还是“{stanceLabel}”，暂时不换主线。",
+        "我今天对 {targetName} 的说法还是“{stanceLabel}”，暂时不换主线。",
         "这和我前面的判断一致，{targetName} 先继续留在主线里。",
         "除非有新硬信息，否则我先不从 {targetName} 身上挪开。"
       ]
     },
     "debateBeat": {
       "opening": [
-        "我先开个口径：",
+        "我先开个说法：",
         "先把我的桌面信息放一下：",
         "我先说当前视角："
       ],
@@ -164,7 +360,7 @@
       "vote-intent": [
         "投票意向先说清：如果提 {focusName}，",
         "到票型阶段我会这样看：{focusName} 被提名时，",
-        "我先给票型口径：围绕 {focusName}，"
+        "我先给票型说法：围绕 {focusName}，"
       ]
     }
   },
@@ -176,7 +372,7 @@
         "别急，我给你一个能落地的判断。",
         "我不把话说死，但目前倾向是这样。",
         "先给结论，细节你可以继续追问。",
-        "我尽量不绕，先把我的判断摊开。",
+        "我尽量不绕，先把我的判断说出来。",
         "这事我有点想法，但先别当铁证听。"
       ],
       "closers": [
@@ -184,9 +380,9 @@
         "这只是我当前视角，不排除夜里信息被污染。",
         "我建议你别马上信我，先拿这句话去和别人交叉验证。",
         "如果你手里有硬信息，我可以跟着重排优先级。",
-        "这局先别急着拍死，问出反应比一句结论更值钱。",
+        "先别急着定死，问一句看反应更有用。",
         "我现在能说到这一步，再多说就容易装懂了。",
-        "你可以记一下我的口径，之后如果我改口再来质疑我。"
+        "你可以记一下我的说法，之后如果我改口再来质疑我。"
       ],
       "softeners": [
         "大概",
@@ -196,6 +392,229 @@
         "如果不考虑醉酒/中毒的话"
       ]
     },
+    "dialogueActs": {
+      "steady": {
+        "reason": [
+          "我先不把话说死。{focusText} 这条我主要卡在：{evidenceText}。",
+          "从我这边看，{focusText} 值得先追。不是铁证，重点是 {evidenceText}。",
+          "{focusText} 我会先放主线，原因是 {evidenceText}。",
+          "我先看 {targetName}。{evidenceText}，还没到定死。",
+          "从我这边看，{targetName} 要先解释。主要是 {evidenceText}。",
+          "{targetName} 先放主线，不是铁证，但这点绕不过去：{evidenceText}。"
+        ],
+        "plan": [
+          "{trustLine} 今天我建议先问 {targetName}，把 {followUp} 这件事问清楚。",
+          "我会先让 {targetName} 补完整解释。{evidenceText}，这条还不能直接放掉。",
+          "计划很简单：先追 {targetName} 的时间线，再看要不要进提名。",
+          "先别急着出票。让 {targetName} 把身份和昨晚信息讲完，再看。",
+          "今天先问 {targetName}，问不出来再考虑上台。"
+        ],
+        "generic": [
+          "我现在会先看 {focusText}。{evidenceText}，但还没到拍死。",
+          "{targetName} 先留在主线里。{evidenceText}，等回应后再重排。",
+          "先别急着出人，我会从 {targetName} 这里问起。"
+        ],
+        "vote": [
+          "如果现在提 {targetName}，我倾向跟票，但还想先听一句解释。",
+          "{targetName} 进提名我能接受，理由是 {evidenceText}。",
+          "票型上我会先压 {targetName}，但不是闭眼冲。",
+          "提 {targetName} 我能接受，但先听防守；防守空我就跟。",
+          "{targetName} 上台可以，票要看他有没有把这条说圆。"
+        ],
+        "deadPrivate": [
+          "我已经死了，所以这段你可以当遗言看。{targetName} 先问 {followUp}。",
+          "死人票很贵，我不想乱带节奏。{evidenceText}，你拿去交叉确认。",
+          "我出局后能做的就是留线索。{targetName} 这里先别放。"
+        ]
+      },
+      "pressure": {
+        "reason": [
+          "{targetName} 我会直接压。{evidenceText}，这不能轻轻放过。",
+          "先给结论：{focusText} 得回答。理由就是 {evidenceText}。",
+          "我不想再绕，{targetName} 这里先上压力，因为 {evidenceText}。",
+          "直接说，{targetName} 得先回答。{evidenceText}。",
+          "{targetName} 这条别放过，{shortReason} 已经够压一轮。",
+          "我会先压 {targetName}，因为 {evidenceText}。"
+        ],
+        "plan": [
+          "{trustLine} 今天别散，先把 {targetName} 推到台前，问：{followUp}",
+          "我的打法是先压 {targetName}。解释不清，就进提名池。",
+          "先让 {targetName} 把这条讲完整，讲不清就吃票型。",
+          "打法很简单：先问 {targetName}，答不出来就上台。",
+          "今天别散，{targetName} 先吃压力。"
+        ],
+        "generic": [
+          "我会先盯 {targetName}。{evidenceText}，够给压力了。",
+          "{targetName} 不能舒服过白天。先问清，再决定票。",
+          "现在火力先别散，{targetName} 是最该被逼回应的位置。"
+        ],
+        "vote": [
+          "如果提 {targetName}，我大概率会跟。{evidenceText} 已经够进票型。",
+          "{targetName} 这票我不怕给，先看谁敢保。",
+          "我倾向把 {targetName} 放上台，票型本身也会给信息。",
+          "{targetName} 被提我倾向跟，除非他防守特别硬。",
+          "这票可以给，重点看谁敢在最后硬保 {targetName}。"
+        ],
+        "deadPrivate": [
+          "我死了就不藏了。{targetName} 这条先压，问：{followUp}",
+          "我已经出局，剩下就是把压力交给活人。{evidenceText}。",
+          "死人票不能乱用，但 {targetName} 解释不清就该上台。"
+        ]
+      },
+      "shadow": {
+        "reason": [
+          "我更在意这条链怎么传出来。{targetName} 不是单点怪，是 {evidenceText}。",
+          "{focusText} 我先暗记。{evidenceText}，后面看谁帮 ta 拆压力。",
+          "这条我不会马上拍死，但 {targetName} 的关系链需要复盘：{evidenceText}。",
+          "我更想看 {targetName} 后面谁接话，起因是 {evidenceText}。",
+          "{targetName} 不一定马上出，但这条会照出谁在帮他。",
+          "先别明冲 {targetName}，但 {shortReason} 不能直接放。"
+        ],
+        "plan": [
+          "{trustLine} 我建议先问 {targetName}：{followUp} 别急着把全部身份说出来。",
+          "先让 {targetName} 讲链条来源，再看谁接话。这里比直接冲票更有信息。",
+          "我会让 {targetName} 先补可验证部分，其他人别急着替 ta 圆。",
+          "先让 {targetName} 讲完，再看谁替他补话。",
+          "我想先听 {targetName} 防守，也看旁边谁急着帮忙。"
+        ],
+        "generic": [
+          "{targetName} 我先不明冲，但不会放掉。{evidenceText}。",
+          "我想看 {targetName} 后面怎么接话，也想看谁替 ta 卸压。",
+          "{focusText} 先放在暗线里，等公聊反应再决定要不要明推。"
+        ],
+        "vote": [
+          "提 {targetName} 我可以跟，但我更想看谁在票前帮 ta 松绑。",
+          "{targetName} 的票我不反对，关键是票型会暴露站边。",
+          "如果今天推 {targetName}，我会盯住反票和临时保人的位置。",
+          "提 {targetName} 我可以跟，但我更在意谁反票、谁保人。",
+          "{targetName} 的票型值得看，防守和站边一起记。"
+        ],
+        "deadPrivate": [
+          "我已经出局，能留的不是结论，是关系链。{targetName} 先看 {shortReason}。",
+          "这段你先别照搬原话。死人视角我更想让你看谁替 {targetName} 卸压。",
+          "我没法再站场上试反应了，只能把 {evidenceText} 交给你。"
+        ]
+      }
+    },
+    "evilPerformance": {
+      "steady": {
+        "reason": [
+          "我先按好人视角说，{focusText} 这条卡在 {evidenceText}。",
+          "台面上能讲的理由是 {evidenceText}，所以我会先问 {targetName}。",
+          "我不把话说死，但 {targetName} 需要解释 {shortReason}。"
+        ],
+        "plan": [
+          "{trustLine} 今天先问 {targetName}：{followUp}",
+          "我建议先让 {targetName} 把 {shortReason} 讲完整，再看要不要进提名。",
+          "先别散，围着 {targetName} 问一轮，回应不好再加压。"
+        ],
+        "generic": [
+          "我现在会先看 {focusText}。{evidenceText}",
+          "{targetName} 先留在主线里，但我不急着把票说死。",
+          "先按公开能交叉的部分盘，{targetName} 这条要补回应。"
+        ],
+        "vote": [
+          "如果提 {targetName}，我会看回应再决定票，不会闭眼跟。",
+          "{targetName} 进提名我能接受，理由是 {evidenceText}。",
+          "票型上我会先观察 {targetName}，也看谁替 ta 解围。"
+        ],
+        "deadPrivate": [
+          "我已经死了，能留的就是这条线：{targetName} 先问 {followUp}。",
+          "死人视角别当铁证，但 {evidenceText} 值得你带去交叉。",
+          "我出局后不想乱带节奏，{targetName} 这条先别放。"
+        ],
+        "claimCover": [
+          "身份我先不给死，只给你可公开的说法范围：我会往 {roleName} 这类好人位上靠。",
+          "我现在不想把身份说太满，先按 {roleName} 这条说法聊信息。",
+          "如果你要记，就记我偏 {roleName} 说法，但先别替我公开。",
+          "你先记我往 {roleName} 方向说，但别替我公开。",
+          "我会按 {roleName} 这类身份往外聊，细节我自己补。"
+        ],
+        "claimCoverPressured": [
+          "你既然追到身份，我给完整说法：我是 {roleName}。这条先别急着公开，让我看一圈反应。",
+          "压力到这我可以私下报：我是 {roleName}。你先别替我说出来。",
+          "我给你一个能落地的说法：我是 {roleName}。如果要公开，等我自己补细节。"
+        ]
+      },
+      "pressure": {
+        "reason": [
+          "我直说，{targetName} 这条先压。{evidenceText}",
+          "{focusText} 得回应，理由就是 {shortReason}。",
+          "别让 {targetName} 滑过去，先把 {shortReason} 讲清楚。"
+        ],
+        "plan": [
+          "{trustLine} 今天先把 {targetName} 推到台前，问：{followUp}",
+          "打法很简单，先压 {targetName}，回答不好就进提名。",
+          "别让白天空转，{targetName} 先吃一轮正式回应。"
+        ],
+        "generic": [
+          "我会先盯 {targetName}。{evidenceText}",
+          "{targetName} 不能舒服过白天，先问清楚再说。",
+          "火力别散，先看 {targetName} 怎么解释。"
+        ],
+        "vote": [
+          "如果提 {targetName}，我倾向跟票，除非回应很硬。",
+          "{targetName} 这票我不怕给，{shortReason} 得有答案。",
+          "我会先压 {targetName} 的票型，看谁敢硬保。"
+        ],
+        "deadPrivate": [
+          "我死了就不绕，{targetName} 先压，问：{followUp}",
+          "我已经出局，剩下就是把压力交给活人。{evidenceText}",
+          "死人票不能乱用，但 {targetName} 解释不清就该上台。"
+        ],
+        "claimCover": [
+          "身份先别卡我死，我会按 {roleName} 这类说法给信息。",
+          "我不是不报，是现在先按 {roleName} 方向聊，别把我第一时间说出来。",
+          "先记 {roleName} 方向，真到票前我会把说法补齐。",
+          "先按 {roleName} 听我，真被推到台上我再补完整。",
+          "别第一时间替我背书，我会自己把 {roleName} 讲圆。"
+        ],
+        "claimCoverPressured": [
+          "追到这个份上我不躲：我是 {roleName}。现在先看谁拿这个反踩我。",
+          "我可以报：我是 {roleName}。但你先别替我背书，等公聊看反应。",
+          "给你完整说法：我是 {roleName}。如果有人硬打我，就让他先给理由。"
+        ]
+      },
+      "shadow": {
+        "reason": [
+          "我更看重这条怎么传出来。{targetName} 先看 {shortReason}。",
+          "{focusText} 我先暗记，{evidenceText}，后面看谁帮 ta 拆压。",
+          "这条别急着公开放大，但 {targetName} 的关系链需要复盘。"
+        ],
+        "plan": [
+          "{trustLine} 先问 {targetName}：{followUp}，别急着把身份全说出来。",
+          "先让 {targetName} 补可验证部分，再看谁接话。",
+          "我会看 {targetName} 的回应，也看谁替 ta 圆。"
+        ],
+        "generic": [
+          "{targetName} 我先不明冲，但不会放。{evidenceText}",
+          "我想看 {targetName} 后面怎么接话，也想看谁替 ta 卸压。",
+          "{focusText} 先放在暗线里，等公聊反应再决定要不要明推。"
+        ],
+        "vote": [
+          "提 {targetName} 我可以跟，但我更想看谁在票前保 ta。",
+          "{targetName} 的票我不反对，关键是票型会暴露站边。",
+          "如果今天推 {targetName}，我会盯反票和临时保人的位置。"
+        ],
+        "deadPrivate": [
+          "我已经出局，能留的不是结论，是关系链。{targetName} 先看 {shortReason}。",
+          "这段你先别照搬原话。死人视角我更想让你看谁替 {targetName} 卸压。",
+          "我没法再站场上试反应了，只能把 {evidenceText} 交给你。"
+        ],
+        "claimCover": [
+          "身份线我先给可公开部分，暂时按 {roleName} 方向记。",
+          "我能给范围，但不想现在把技能细节全交出去。先记 {roleName} 说法。",
+          "先别替我公开身份，我会按 {roleName} 这条线观察反应。",
+          "先记 {roleName} 方向，公聊看别人缺什么再补。",
+          "我会往 {roleName} 上靠，但别帮我说太满。"
+        ],
+        "claimCoverPressured": [
+          "压力真到我身上，我私下给你：我是 {roleName}。先别照搬，听我公聊怎么补。",
+          "我可以报 {roleName}，但现在更重要的是看谁借这个位置做文章。",
+          "给你底牌式说法：我是 {roleName}。如果我之后改细节，你再质疑我。"
+        ]
+      }
+    },
     "proactive": {
       "deadOpeners": [
         "我已经死了，再藏身份意义不大，先把链条交给你。",
@@ -203,9 +622,9 @@
         "死人票只剩一张，我得先把能用的信息留下。"
       ],
       "infoOpeners": [
-        "我主动找你一下，手里有条线，不想等公聊里被噪音盖过去。",
-        "这条信息我先私下给你，公聊里我不一定马上全摊。",
-        "我先和你对一下信息，免得白天节奏被带偏。"
+        "有条线先私下给你，别等公聊被噪音盖过去。",
+        "这条信息先私下同步，公聊里不一定马上全摊。",
+        "先对一下信息，免得白天节奏被带偏。"
       ],
       "syncOpeners": [
         "我主动找你同步一下思路。",
@@ -213,24 +632,24 @@
         "我这里有个初步判断，先私下给你听。"
       ],
       "noteShare": [
-        "我目前能交代的是：{notesText}。",
-        "我手上可公开验证的部分是：{notesText}。",
-        "先别当铁证，但我的信息链是：{notesText}。"
+        "目前能交代的是：{notesText}。",
+        "手上可公开验证的部分是：{notesText}。",
+        "先别当铁证，夜里拿到的是：{notesText}。"
       ],
       "focusPush": [
-        "我现在更想推进 {targetName}。{reasonText}",
-        "今天我会优先盯 {targetName}，理由是：{reasonText}",
-        "{targetName} 这边我放不下，主要因为：{reasonText}"
+        "现在更想推进 {targetName}。{reasonText}",
+        "今天优先盯 {targetName}，理由是：{reasonText}",
+        "{targetName} 这边放不下，主要因为：{reasonText}"
       ],
       "sameStance": [
-        "这和我今天前面的判断一致，先按“{stanceLabel}”处理。",
-        "我不是突然改口，前面我也在这条线上。",
-        "这条线我今天已经盯了一会儿，暂时不乱跳。"
+        "这和前面的判断一致，先按“{stanceLabel}”处理。",
+        "不是突然改口，前面也在这条线上。",
+        "这条线已经盯了一会儿，暂时不乱跳。"
       ],
       "noFocus": [
-        "如果今天没人给新信息，至少要逼一个明确口径，别直接空过。",
+        "如果今天没人给新信息，至少要逼一个明确说法，别直接空过。",
         "我现在没有铁推位，但白天不能只是互相客气。",
-        "先找人交身份范围和夜间信息，不然晚上会被恶魔慢慢拖死。"
+        "先找人交大概身份和夜间信息，不然晚上会被恶魔慢慢拖死。"
       ],
       "deadLegacy": [
         "如果我白天没机会发言，你可以把这段当作我的遗言来盘。",
@@ -244,7 +663,7 @@
         "自己人，先别把这段带到公聊里，我直接说。",
         "好，我跟你对一下底，但公聊别照搬我的原话。",
         "可以，我这边按邪恶视角跟你同步一下。",
-        "那我摊开说，咱们现在重点是别互相踩穿。"
+        "那我说出来说，咱们现在重点是别互相踩穿。"
       ],
       "demonMinionInfo": [
         "我看到的爪牙是 {minions}。",
@@ -253,7 +672,7 @@
       ],
       "minionTeamInfo": [
         "我知道的恶魔是 {demonSeat}；其他爪牙 {otherMinions}。",
-        "队伍信息我这边是：恶魔 {demonSeat}，其他爪牙 {otherMinions}。",
+        "队伍信息：恶魔 {demonSeat}，其他爪牙 {otherMinions}。",
         "先对底：恶魔位 {demonSeat}；爪牙同伴 {otherMinions}。"
       ],
       "bluffCover": [
@@ -267,15 +686,15 @@
         "伪装身份先不锁死，免得和别人的信息撞车。"
       ],
       "targetPressure": [
-        "今天我们可以先把 {targetName} 放到讨论中心，不一定马上出，但要让 ta 多说。",
-        "我建议先压 {targetName}，别太急着冲票，先看 ta 怎么解释。",
-        "白天话术可以围着 {targetName} 打一圈，压力给到就行。",
+        "今天先把 {targetName} 放到讨论中心，不一定马上出，但要让他多说。",
+        "先压 {targetName}，别太急着冲票，看他怎么解释。",
+        "白天可以先问 {targetName}，别急着冲票，先看回应。",
         "{targetName} 是个不错的火力点，先问身份和夜里信息，再决定要不要提。"
       ],
       "targetReason": [
         "能说出口的理由就用这个：{reasonText}。",
         "理由别编太花，简单说“{reasonText}”就够了。",
-        "如果要推，口径可以是：{reasonText}。"
+        "如果要推，说法可以是：{reasonText}。"
       ],
       "noTarget": [
         "目前没有特别顺手的好人目标，先听公聊里谁先露破绽。",
@@ -284,11 +703,226 @@
       ],
       "closers": [
         "公聊里我们别互相补太满，留一点模糊空间更安全。",
-        "如果有人追问我细节，你帮我把话题带回票型和发言。",
+        "有人追细节时，帮忙把话题带回票型和发言。",
         "先这样，等今天公聊跑一轮再决定要不要提名。",
         "别急着把队友关系聊出来，站边自然一点就行。",
         "如果我公聊装糊涂，不是改口，是在压信息量。"
       ]
+    }
+  },
+  "layers": {
+    "publicDiscussion": {
+      "public": {
+        "act": {
+          "noTarget": [
+            "这一轮信息不够，先听别人把身份和昨晚信息讲完。",
+            "这轮先不硬点人，桌面信息还差一口。",
+            "先不急着点人，信息位把能说的部分说完。",
+            "今天开头别散票，先听昨晚信息怎么对。",
+            "这轮先听身份和昨晚信息，等有人对不上再压。"
+          ],
+          "deadClaimNoTarget": [
+            "已经死了，继续藏身份意义不大。身份是 {roleName}，{infoText}",
+            "死人信息先交出来：我是 {roleName}。{infoText}"
+          ],
+          "pressure": [
+            "先压 {targetName}。卡点是 {shortReason}，先听回应。",
+            "{targetName} 这边不能舒服过白天，主要因为 {reasonText}。",
+            "{targetName} 先吃一轮问题。{shortReason} 这点过不了。",
+            "{targetName} 别先滑过去，先把 {shortReason} 讲清楚。",
+            "桌上先看 {targetName}，不是定死，是这条得有回应：{shortReason}。"
+          ],
+          "probe": [
+            "{targetName} 先记一笔，还没到拍死，但得解释 {shortReason}。",
+            "先问 {targetName}，重点不是出人，是把 {shortReason} 讲清楚。",
+            "{targetName} 先留桌上，还不到出人，但 {shortReason} 要说清。",
+            "先问 {targetName} 一句：{shortReason} 这点怎么解释？",
+            "{targetName} 这边先别放，等回应后再看票。"
+          ],
+          "challengeResponse": [
+            "回应一下：不是硬保谁，只是 {targetName} 这边还缺解释。",
+            "这个质疑先接住，核心还是 {targetName} 要解释 {shortReason}。",
+            "这个反问先接住。{targetName} 不是被定死，但 {shortReason} 得回答。",
+            "不是要硬带票，先让 {targetName} 把 {shortReason} 说顺。",
+            "如果要反问我，答案很简单：{targetName} 这条还缺回应。"
+          ],
+          "nominationPressure": [
+            "{targetName} 可以进提名池，但先听一句回应。",
+            "提名前先说清楚：{targetName} 这条卡在 {shortReason}。",
+            "{targetName} 可以上台说一轮，先不等于必出。",
+            "提名前先留一句：{targetName} 这条不清，就该吃流程压力。",
+            "{targetName} 今天至少要有正式回应，不然白天太轻了。"
+          ],
+          "voteIntent": [
+            "如果提 {targetName}，先看解释和票型，不闭眼跟。",
+            "{targetName} 上台的话，先看回应质量再决定票。",
+            "{targetName} 真上台，先听防守，再看票型。",
+            "如果提 {targetName}，票先不锁死，但回应空就会跟。",
+            "到举手时看两件事：{targetName} 怎么防，谁临时保。"
+          ]
+        },
+        "persona": {
+          "pressure": {
+            "pressure": [
+              "直说，{targetName} 先吃压力。{shortReason} 这点过不了。",
+              "别散火，今天先让 {targetName} 把 {shortReason} 讲清楚。"
+            ],
+            "nominationPressure": [
+              "{targetName} 已经够上台了，解释不好就推票。"
+            ],
+            "voteIntent": [
+              "{targetName} 上台我会给压力，除非回应很硬。",
+              "这票不怕给，先看谁在最后一秒保 {targetName}。"
+            ]
+          },
+          "shadow": {
+            "pressure": [
+              "{targetName} 先暗记，重点看谁帮他卸压。",
+              "不急着拍死 {targetName}，但 {shortReason} 这点不能没人解释。"
+            ],
+            "probe": [
+              "{targetName} 先问，不急着出票，顺便看谁接话。"
+            ],
+            "voteIntent": [
+              "{targetName} 上台时，我更想看谁保、谁反。",
+              "这票型会亮关系，{targetName} 的防守先听，但保人也要记。"
+            ]
+          },
+          "steady": {
+            "probe": [
+              "先慢一点，{targetName} 这边把 {shortReason} 说清就行。",
+              "{targetName} 先放观察，不急着出，但这点要问：{shortReason}。",
+              "这条我先留桌上，{targetName} 回完再排优先级。"
+            ],
+            "voteIntent": [
+              "{targetName} 被提时先听防守；防守空，我可以跟。",
+              "票先不预设，关键看 {targetName} 的回应能不能对上。"
+            ]
+          }
+        },
+        "team": {
+          "evil": {
+            "default": {
+              "pressure": [
+                "台面上先看 {targetName}，理由是 {shortReason}。",
+                "公开说，{targetName} 这条需要回应，先别让节奏散掉。"
+              ],
+              "probe": [
+                "台面上先轻轻记 {targetName} 一笔，重点是 {shortReason}。",
+                "公开说不硬冲，先让 {targetName} 把这条补完整。"
+              ],
+              "nominationPressure": [
+                "台面上 {targetName} 可以进提名讨论，但先听解释。"
+              ],
+              "voteIntent": [
+                "公开说，如果提 {targetName}，先看解释和票型，不闭眼冲。"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "privateSocial": {
+      "private": {
+        "act": {
+          "syncOpener": [
+            "我主动找你一下，先对一条思路。",
+            "公聊前我想先和你确认一个点。",
+            "我找你不是要定票，先对一个疑点。",
+            "公聊前先问你一件事，别急着带出去。",
+            "这段先当私下交换，等桌上有人回应再说。"
+          ],
+          "infoOpener": [
+            "我手里有一条信息，先私下给你听。",
+            "这条我不想第一时间丢到公聊里，先让你知道。",
+            "昨晚我拿到一点东西，先给你听，但别当铁证。",
+            "这条我先私下给你，公聊里看情况再讲。",
+            "我手上有一小段信息，先让你知道。"
+          ],
+          "deadOpener": [
+            "我已经死了，能留的信息先给你。",
+            "死人不用再藏太多，我把能说的交给你。"
+          ],
+          "focusPush": [
+            "我现在更想看 {targetName}，因为 {reasonText}。",
+            "{targetName} 这条我放不下，卡在 {reasonText}。",
+            "我现在放不下 {targetName}，主要是 {reasonText}。",
+            "{targetName} 先别放过，卡在 {reasonText}。",
+            "我会先问 {targetName}，因为 {reasonText}。"
+          ],
+          "noFocus": [
+            "如果今天没人给新信息，至少要逼一个人把身份和信息说完整。",
+            "我现在没有铁点，但不能让白天空转。",
+            "现在没有铁点，但至少要找一个人把身份和昨晚信息说完整。",
+            "如果大家都含糊，今天就会被拖成空白天。",
+            "先别急着出票，先逼出一条能对上的信息。"
+          ]
+        },
+        "persona": {
+          "pressure": {
+            "focusPush": [
+              "我直接说，先压 {targetName}。{reasonText} 这点得回答。"
+            ]
+          },
+          "shadow": {
+            "syncOpener": [
+              "这段先别带进公聊，我想看谁后面接话。"
+            ]
+          }
+        }
+      }
+    },
+    "claimPolicy": {
+      "public": {
+        "act": {
+          "outsiderRangeRisky": [
+            "可以先承认自己偏外来者，但这个剧本别把外来者当免费处决。",
+            "外来者信息容易被邪恶利用，我先给范围，细节等需要时补。",
+            "我可以认自己偏外来者，但别把外来者直接当免费票。",
+            "我是偏外来者的说法，细节先别逼太死。"
+          ],
+          "outsiderRangeSafe": [
+            "这边偏低信息量，今天可以给范围。",
+            "不是强信息位，如果压力上来可以再补身份。"
+          ],
+          "infoRange": [
+            "有一点早期信息，但第一天先不完整报身份。",
+            "手里有能对的信息，先看大家怎么说。",
+            "我有早期信息，但第一天不想一口气全倒。",
+            "手里有点东西，先听别人怎么报，再决定讲多少。"
+          ],
+          "powerHold": [
+            "强功能位今天别被逼着交全身份，先用信息和票型压人。",
+            "暂时不摊身份，先看谁在逼信息位直接跳身份。",
+            "强功能位别第一天全交，先让信息互相撞。",
+            "身份细节先压一点，今天更该看谁逼人跳太快。"
+          ],
+          "publicClaim": [
+            "公开身份：{roleName}。",
+            "先跳一下，{roleName}。",
+            "身份先放桌上：{roleName}。",
+            "我跳 {roleName}，先按这个来问我。"
+          ]
+        },
+        "team": {
+          "evil": {
+            "default": {
+              "publicClaim": [
+                "台面上先跳 {roleName}，先按这个身份盘。",
+                "公开说，身份是 {roleName}，先听信息能不能对上。"
+              ]
+            }
+          }
+        }
+      },
+      "private": {
+        "act": {
+          "privateClaim": [
+            "补充一句：我先报身份，{roleName}。",
+            "这句先私下说：我是 {roleName}。"
+          ]
+        }
+      }
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   getPerceivedRoleId,
   publicRoleLabel,
 } from "./engine.js";
+import { getOfficialRoleReference } from "./grimoire_reference.js";
 import { buildUnityPhaseAdvance } from "./unity_phase_guard.mjs";
 
 const UNITY_VIEWMODEL_VERSION = 1;
@@ -80,7 +81,7 @@ function latestDialogue(state) {
     };
   }
 
-  const timeline = safeArray(state?.aiDialogue?.timeline);
+  const timeline = safeArray(state?.aiDialogue?.timeline).filter((entry) => !entry.hiddenFromHuman);
   const active = state?.aiDialogue?.activeSpeech ?? timeline[timeline.length - 1] ?? null;
   if (!active) {
     return {
@@ -110,6 +111,21 @@ function buildActionStatus(state) {
     updatedAt: bridge.updatedAt ?? "",
     selectedPlayerId: bridge.selectedPlayerId ?? "",
     selectedPlayerName: selected ? `${(selected.seatIndex ?? 0) + 1}号${selected.isHuman ? "（你）" : ""}` : "",
+    llmRenderer: buildLLMRendererStatus(state),
+  };
+}
+
+function buildLLMRendererStatus(state) {
+  const status = state?.unityBridge?.llmRenderer ?? {};
+  return {
+    enabled: !!status.enabled,
+    provider: status.provider ?? status.source ?? "",
+    source: status.source ?? status.provider ?? "",
+    model: status.model ?? "",
+    touched: Number.isFinite(status.touched) ? status.touched : 0,
+    fallback: Number.isFinite(status.fallback) ? status.fallback : 0,
+    reason: cleanText(status.reason ?? ""),
+    updatedAt: status.updatedAt ?? "",
   };
 }
 
@@ -165,14 +181,24 @@ function buildRoleAction(action) {
 function buildScriptHandbook(state) {
   const bridge = state?.unityBridge ?? {};
   const nightOrder = getNightOrderReference(state.scriptId);
-  const roles = getAllRoles(state.scriptId).map((role) => ({
-    id: role.id,
-    name: role.name,
-    category: role.category,
-    team: role.team,
-    ability: role.ability ?? role.description ?? "",
-    icon: role.icon ?? "",
-  }));
+  const roles = getAllRoles(state.scriptId).map((role) => {
+    const reference = getOfficialRoleReference(state.scriptId, role.id)
+      ?? getOfficialRoleReference(state.scriptId, role.name);
+    return {
+      id: role.id,
+      name: role.name,
+      category: role.category,
+      team: role.team,
+      ability: reference?.ability ?? role.ability ?? role.description ?? "",
+      icon: role.icon ?? "",
+      firstNightReminder: reference?.firstNightReminder ?? "",
+      otherNightReminder: reference?.otherNightReminder ?? "",
+      reminders: safeArray(reference?.reminders),
+      remindersGlobal: safeArray(reference?.remindersGlobal),
+      firstNight: Number(reference?.firstNight ?? 0),
+      otherNight: Number(reference?.otherNight ?? 0),
+    };
+  });
   return {
     open: !!bridge.scriptHandbookOpen,
     activeTab: bridge.scriptHandbookTab ?? "roles",
@@ -208,7 +234,6 @@ function visibleRoleIdForUnity(state, player, note) {
   if (state?.grimoireView) return player.roleId ?? "";
   if (player.isHuman) return getPerceivedRoleId(player) ?? player.roleId ?? "";
   if (player.publicClaimRoleId) return player.publicClaimRoleId;
-  if (note?.markedRoleId) return note.markedRoleId;
   return "";
 }
 
@@ -231,9 +256,6 @@ function playerRemindersForUnity(state, player, note) {
   if (state?.grimoireView) {
     if (player.poisoned) reminders.push("中毒");
     if (player.drunk) reminders.push("醉酒");
-  }
-  if (!player.alive && player.ghostVoteAvailable) {
-    reminders.push("鬼票");
   }
   return [...new Set(reminders)].slice(0, 5);
 }
@@ -318,9 +340,102 @@ function buildNominationText(state) {
   const human = alive.find((player) => player.isHuman);
   const nomineeCount = alive.filter((player) => !player.isHuman).length;
   if (state?.dayStage !== "nomination") {
-    return `尚未进入提名阶段；可先公聊，再进入提名。存活可提名目标：${nomineeCount}`;
+    return `尚未进入提名窗口；先让公聊走到提名压力，再开启窗口。存活可提名目标：${nomineeCount}`;
   }
-  return `提名阶段：${human ? `${(human.seatIndex ?? 0) + 1}号可作为默认提名者` : "请选择提名者"}；存活可提名目标：${nomineeCount}`;
+  const clock = state?.dayStageMeta?.nominationClock;
+  const clockText = clock?.status === "open"
+    ? `窗口剩余 ${clock.ticksRemaining ?? 0}/${clock.totalTicks ?? 0}`
+    : clock?.status === "nomination-made"
+      ? "已有提名，等待互辩/投票"
+      : clock?.status === "passed"
+        ? "今日无人提名"
+        : "窗口未开启";
+  return `提名阶段：${clockText}；${human ? `${(human.seatIndex ?? 0) + 1}号可作为默认提名者` : "请选择提名者"}；存活可提名目标：${nomineeCount}`;
+}
+
+function conversationClockLabel(clock) {
+  return {
+    opening: "开场",
+    response: "回应",
+    crossfire: "交锋",
+    "nomination-ready": "提名压力",
+    cooldown: "冷却",
+  }[clock] ?? "公聊";
+}
+
+function buildPublicConversation(state) {
+  const conversation = state?.dayStageMeta?.publicConversation ?? {};
+  const players = new Map(safeArray(state?.players).map((player) => [player.id, player]));
+  const speaker = players.get(conversation.activeSpeakerId);
+  const focus = players.get(conversation.focusId);
+  const clock = conversation.clock ?? (state?.dayStage === "public" ? "opening" : "");
+  return {
+    active: state?.phase === "day" && state?.dayStage === "public",
+    clock,
+    label: conversationClockLabel(clock),
+    step: conversation.step ?? 0,
+    pressure: Number.isFinite(conversation.pressure) ? conversation.pressure : 0,
+    speakerId: conversation.activeSpeakerId ?? "",
+    speakerName: speaker?.name ?? "",
+    focusId: conversation.focusId ?? "",
+    focusName: focus?.name ?? "",
+    canContinue: conversation.canContinue !== false,
+    suggestedActions: safeArray(conversation.suggestedActions),
+  };
+}
+
+function buildNominationClock(state) {
+  const clock = state?.dayStageMeta?.nominationClock ?? {};
+  return {
+    active: !!clock.active,
+    status: clock.status ?? "idle",
+    ticksRemaining: clock.ticksRemaining ?? 0,
+    totalTicks: clock.totalTicks ?? 0,
+    progress: clock.totalTicks ? Math.max(0, Math.min(1, (clock.ticksRemaining ?? 0) / clock.totalTicks)) : 0,
+    lastActorId: clock.lastActorId ?? "",
+    lastIntent: clock.lastIntent ?? "",
+  };
+}
+
+function buildNominationDebate(state) {
+  const debate = state?.dayStageMeta?.nominationDebate ?? null;
+  if (!debate) {
+    return null;
+  }
+  const players = new Map(safeArray(state?.players).map((player) => [player.id, player]));
+  const nominator = players.get(debate.nominatorId);
+  const nominee = players.get(debate.nomineeId);
+  const human = safeArray(state?.players).find((player) => player.isHuman);
+  const humanLine = safeArray(debate.lines).find((line) => line.speakerId === human?.id && !!line.pending);
+  return {
+    active: !!debate.active,
+    nominationId: debate.nominationId ?? "",
+    day: debate.day ?? state?.day ?? 0,
+    nominatorId: debate.nominatorId ?? "",
+    nominatorName: nominator?.name ?? debate.nominatorId ?? "",
+    nomineeId: debate.nomineeId ?? "",
+    nomineeName: nominee?.name ?? debate.nomineeId ?? "",
+    reason: cleanText(debate.reason ?? ""),
+    nextAction: debate.nextAction ?? "vote",
+    canHumanRespond: !!(debate.active && humanLine),
+    humanSpeakerRole: humanLine?.role ?? "",
+    responsePrompt:
+      humanLine?.role === "nominee"
+        ? "你被提名了。先回应身份和昨晚信息，再决定是否拉票。"
+        : humanLine?.role === "nominator"
+          ? "你可以补充提名理由。"
+          : "",
+    lines: safeArray(debate.lines).map((line) => {
+      const speaker = players.get(line.speakerId);
+      return {
+        speakerId: line.speakerId ?? "",
+        speakerName: speaker?.name ?? line.speakerId ?? "",
+        role: line.role ?? "",
+        text: cleanText(line.text ?? ""),
+        pending: !!line.pending,
+      };
+    }),
+  };
 }
 
 function buildPrivateDeceptionText(state) {
@@ -329,6 +444,95 @@ function buildPrivateDeceptionText(state) {
   }
   const roles = getAllRoles(state.scriptId).slice(0, 6).map((role) => role.name);
   return `私聊可附带：声称身份、编夜间信息、请求保密。候选身份：${roles.join(" / ")}`;
+}
+
+function buildPendingProactiveWhispers(state) {
+  if (state?.phase !== "day" || state?.dayStage !== "private" || state?.gameOver) {
+    return [];
+  }
+  return safeArray(state?.aiDialogue?.pendingProactiveWhispers)
+    .filter((entry) => entry.day === (state.day ?? 0))
+    .map((entry) => ({
+      id: entry.id ?? "",
+      playerId: entry.playerId ?? "",
+      playerName: entry.playerName ?? entry.playerId ?? "",
+      playerSeat: Number.isFinite(entry.playerSeat) ? entry.playerSeat : 0,
+      personaLabel: entry.personaLabel ?? "",
+      reason: cleanText(entry.reason ?? ""),
+      prompt: cleanText(entry.prompt ?? ""),
+      intent: entry.intent ?? "",
+      focusId: entry.focusId ?? "",
+      createdAt: entry.createdAt ?? 0,
+    }));
+}
+
+function playerNameById(state, playerId) {
+  const player = safeArray(state?.players).find((entry) => entry.id === playerId);
+  return player?.name ?? playerId ?? "";
+}
+
+function buildAiSocialClues(state, limit = 8) {
+  const seen = new Set();
+  const lines = [];
+  for (const agent of Object.values(state?.aiAgents ?? {})) {
+    for (const evidence of safeArray(agent?.evidenceBook)) {
+      if (evidence?.kind !== "private-channel" || evidence?.source !== "social-read") continue;
+      const payload = evidence.payload ?? {};
+      if (!payload.aiToAi) continue;
+      const speakerId = payload.speakerId ?? "";
+      const targetId = payload.targetId ?? "";
+      if (!speakerId || !targetId) continue;
+      const key = [speakerId, targetId].sort().join("::");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`社交线索：${playerNameById(state, speakerId)} 与 ${playerNameById(state, targetId)} 有过私聊。`);
+      if (lines.length >= limit) return lines;
+    }
+  }
+  return lines;
+}
+
+function publicTimelineCount(state) {
+  return safeArray(state?.aiDialogue?.timeline).filter(
+    (entry) => entry.mode === "public" && entry.day === (state?.day ?? 0)
+  ).length;
+}
+
+function buildConversationClock(state) {
+  const beats = ["开场", "回应", "交锋", "提名压力", "冷却"];
+  const count = publicTimelineCount(state);
+  const beatIndex = Math.min(beats.length - 1, Math.max(0, Math.floor(count / 2)));
+  const visible = state?.phase === "day" && state?.dayStage === "public" && !state?.gameOver;
+  return {
+    visible,
+    beat: beats[beatIndex],
+    beatIndex,
+    beatCount: beats.length,
+    progress: visible ? Math.min(1, Math.max(0.08, (beatIndex + 1) / beats.length)) : 0,
+    label: visible ? `公聊时钟 · ${beats[beatIndex]}` : "",
+    hint: visible
+      ? beatIndex >= 3
+        ? "讨论已进入提名压力；可以收束目标并准备进入提名窗口。"
+        : "观察发言焦点变化，等信息形成后再推进到提名。"
+      : "",
+  };
+}
+
+function buildNominationWindow(state) {
+  const visible = state?.phase === "day" && state?.dayStage === "nomination" && !state?.gameOver;
+  const vote = safeArray(state?.events?.votes).at(-1);
+  const hasTodayVote = !!vote && vote.day === (state?.day ?? 0);
+  return {
+    visible,
+    label: visible ? "提名窗口" : "",
+    progress: visible ? (hasTodayVote ? 1 : 0.28) : 0,
+    expired: false,
+    hint: visible
+      ? hasTodayVote
+        ? "提名已结算；查看互辩和投票仪式，然后决定是否结束白天。"
+        : "玩家或 AI 可以主动提名；若没有合适目标，可空过今日。"
+      : "",
+  };
 }
 
 function buildAiRecap(aiInsights) {
@@ -467,10 +671,12 @@ function buildPhaseObjective(state) {
     };
   }
   if (state?.dayStage === "public") {
-    const rounds = state?.dayStageMeta?.publicRounds ?? 0;
+    const conversation = buildPublicConversation(state);
     return {
-      title: `公聊形成公开信息（${rounds}轮）`,
-      hint: "进行公聊后观察 timeline，再决定是否进入提名。",
+      title: `公聊：${conversation.label}`,
+      hint: conversation.step > 0
+        ? `当前压力 ${Math.round((conversation.pressure ?? 0) * 100)}%，可继续对话或开启提名窗口。`
+        : "让 AI 按 conversation clock 自然接话，而不是固定轮次。",
     };
   }
   if (dayAction.available) {
@@ -500,9 +706,14 @@ function buildActionSummary(state) {
     : null;
   const selectedText = selected ? `选中 ${(selected.seatIndex ?? 0) + 1}号${selected.isHuman ? "（你）" : ""}` : "未选中 token";
   const statusText = bridge.message ? `状态：${bridge.message}` : "状态：等待 Unity 操作";
+  const llmRenderer = buildLLMRendererStatus(state);
+  const llmText = llmRenderer.enabled
+    ? `LLM润色：已开启（${llmRenderer.provider || "local"}；润色 ${llmRenderer.touched} 条，回退 ${llmRenderer.fallback} 条）`
+    : "";
   const parts = [
     selectedText,
     statusText,
+    llmText,
     roleActionSummary("夜间", getHumanNightActionState(state)),
     roleActionSummary("白天", getHumanDayActionState(state)),
     roleActionSummary("Storyteller", getPendingStorytellerActionState(state)),
@@ -539,15 +750,29 @@ function buildStorytellerQueueDetails(state) {
     }));
 }
 
-function buildTimeline(state, limit = 16) {
+function buildTimeline(state, limit = 48) {
   return safeArray(state?.aiDialogue?.timeline)
+    .filter((entry) => !entry.hiddenFromHuman)
     .slice(-limit)
     .map((entry) => ({
       id: entry.id ?? "",
       mode: entry.mode ?? "event",
       speakerId: entry.speakerId ?? "",
       targetId: entry.targetId ?? "",
+      focusId: entry.focusId ?? "",
+      intent: entry.intent ?? "",
+      evidenceSummary: cleanText(entry.evidenceSummary ?? ""),
+      evidenceKind: entry.evidenceKind ?? "",
+      questionToAsk: cleanText(entry.questionToAsk ?? ""),
+      followUpPrompts: safeArray(entry.followUpPrompts).map((prompt) => cleanText(prompt)).filter(Boolean).slice(0, 4),
       text: cleanText(entry.text),
+      llmRender: entry.llmRender
+        ? {
+            source: entry.llmRender.source ?? "",
+            fallbackUsed: !!entry.llmRender.fallbackUsed,
+            reason: cleanText(entry.llmRender.reason ?? ""),
+          }
+        : null,
       day: entry.day ?? state.day ?? 0,
       night: entry.night ?? state.night ?? 0,
     }));
@@ -627,6 +852,12 @@ export function buildUnityViewModel(state, { aiInsights = [], generatedAt = new 
     storytellerActionText: describeRoleAction(storytellerAction, "Storyteller", "Storyteller"),
     nominationText: buildNominationText(state),
     privateDeceptionText: buildPrivateDeceptionText(state),
+    pendingProactiveWhispers: buildPendingProactiveWhispers(state),
+    aiSocialClues: buildAiSocialClues(state),
+    llmRenderer: buildLLMRendererStatus(state),
+    publicConversation: buildPublicConversation(state),
+    nominationClock: buildNominationClock(state),
+    nominationDebate: buildNominationDebate(state),
     aiRecap: buildAiRecap(aiInsights),
     aiRecapDetails: buildAiRecapDetails(aiInsights),
     voteCeremony: buildVoteCeremony(state),

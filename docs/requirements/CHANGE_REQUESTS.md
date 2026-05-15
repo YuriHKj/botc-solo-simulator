@@ -1,5 +1,21 @@
 ﻿# CHANGE REQUESTS
 
+## CR-2026-05-15-01
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 对 AI 发言润色做瀑布式开发，目标是让内置本地大模型的效果肉眼可见，而不是仅证明“模型被调用”。
+  2. 提升 prompt 质量：从“改写已有模板句”升级为“根据结构化对话 act 生成玩家式短发言”。
+  3. 增加近似照抄检测；当 LLM 输出与 deterministic 草稿过于相似时，自动二次重写或标记。
+  4. 增加模型体量档位：保留轻量发行版，同时支持更高质量的 1.5B 模型发行包。
+  5. 保持安全边界：LLM 只做人话表达，不参与规则、身份推理、投票、提名或隐藏信息访问。
+- 处理策略：
+  - 修改 `scripts/ai_llm_renderer.js` 的 prompt、校验和 near-copy retry。
+  - 修改 `tools/prepare_local_llm.ps1` / `tools/package_unity_ai_release.ps1`，支持 tiny/balanced/quality 模型档。
+  - 扩展 LLM renderer 契约测试，覆盖近似照抄二次重写、禁词、必需目标词和 provider 默认解析。
+  - 更新本地 LLM 发行说明和验证记录。
+- 状态：进行中（LLM renderer quality pass）。
+
 ## CR-2026-04-20-01
 - 请求人：用户
 - 目标：开发单机《血染钟楼》模拟器，先支持官方三剧本。
@@ -590,3 +606,616 @@
   - 公聊在第二轮或更强压力发言中加入“我的意思是/换句话说”等桌面承接语，减少纯模板感。
   - 增加契约测试，确保口语化不破坏证据引用和私聊泄漏防线。
 - 状态：已完成（AI human speech cadence pass）。
+
+## CR-2026-05-10-08
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 增加 AI 对话记忆一致性账本，覆盖玩家私聊、公聊和 AI-AI 私聊。
+  2. AI 连续被追问时应承接上一轮口径；如果切换关注目标，需要解释为什么换线。
+  3. 记忆账本只能存结构化摘要，不能把私聊原文提升到公聊可见记忆。
+  4. `getAIInsightRows(...)` 不应污染 statement memory。
+- 处理策略：
+  - `state.aiDialogue.statementMemory` 拆分 public-by-speaker 和 private-by-pair 两类。
+  - 发言生成后统一写入 focus、stance、claim、vote stance、evidence summary 等摘要。
+  - 发言展示前读取对应作用域记忆，补充“刚才那条线/我换目标是因为”等承接语。
+  - 增加 AI 契约测试验证连续追问、显式改口、AI-AI 作用域、身份口径和 insight 不污染。
+- 状态：已完成（AI statement memory consistency pass）。
+
+## CR-2026-05-10-09
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 继续优化 AI agent，让“当天公开说过的话”不只影响下一句表达，也能约束后续投票和提名决策。
+  2. AI 如果公开把某名玩家放进主线，后续投票/提名应更愿意延续该公开口径，而不是像没有记忆一样随机换线。
+  3. 私聊记忆仍不得直接升级为公开行动理由；公开提名/投票只能使用公开 statement memory 和安全 evidence summary。
+- 处理策略：
+  - 新增公开 statement memory 读取 helper，按当天、speaker、focusId 匹配。
+  - `decideAIVote(...)` 在目标命中公开怀疑/施压口径时小幅降低投票阈值。
+  - `chooseAINomination(...)` 将公开记忆目标纳入候选，并在低证据压力提名时生成“延续公开口径”的理由。
+  - 排序时优先保留 statement-memory-driven proposal，避免 fallback 压过 AI 自己刚公开讲过的主线。
+  - 增加 AI 契约测试覆盖公开口径降低投票阈值、公开口径驱动提名 proposal。
+- 状态：已完成（AI statement memory strategy consistency pass）。
+
+## CR-2026-05-10-10
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 新增 AI `agentView` 层，先覆盖私聊、公聊和提名，不做全仓替换。
+  2. 对话和公开提名理由优先通过 viewer-scoped evidence/trail 读取，不让生成函数直接到处读裸 `state`。
+  3. Good AI 的 view 不应包含恶魔伪装、邪恶队伍列表、隐藏身份或目标真实阵营。
+- 处理策略：
+  - 在 `scripts/ai_agents.js` 新增 `buildAgentView(...)`，导出自我认知、可见声明/发言/流程、目标公开视图和 evidence/trail accessor。
+  - `collectEvidence(...)` 支持接收 `agentView`，并从 view 读取 summaries、visible claims、visible speeches 和 evidence count。
+  - 玩家私聊、公聊和提名 proposal 路径传入 `agentView`；旧函数签名保留兼容。
+  - 增加 AI 契约测试覆盖 good view 隐藏真实信息、demon private view 合法携带邪恶知识、public/private evidence 边界。
+  - 更新 `AI_AGENT_AUDIT.md`，标注 agentView 已落地与剩余迁移点。
+- 状态：已完成（AI agentView first pass）。
+
+## CR-2026-05-10-11
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 将“私聊/公聊/提名必须引用 evidence/trail”收束为统一 contract，而不是每个函数各自拼 fallback 文案。
+  2. 有 evidence 时，最终文本必须引用 1-2 条 viewer 可见 summary。
+  3. 没有 evidence 时，最终文本必须明确标记为低证据/压力判断，不能伪装成硬证据。
+- 处理策略：
+  - 在 `scripts/ai.js` 新增 `buildDialogueEvidenceContract(...)`，统一产出 `summaries`、`text`、`hasEvidence`、`lowEvidence` 和 `publicOnly`。
+  - 新增 `ensureEvidenceContractInText(...)`，在模板和人格话术之后强制把 evidence summary 或低证据 fallback 写入最终文本。
+  - 私聊回答、公聊发言和提名 proposal 均接入该 contract。
+  - 私聊返回值、公聊 speech event、提名 proposal 均暴露 `evidenceContract`，便于契约测试和后续复盘。
+  - 增加 AI 契约测试覆盖私聊、公聊、提名三条路径。
+- 状态：已完成（AI unified evidence citation contract pass）。
+
+## CR-2026-05-10-12
+- 请求人：用户
+- 时间：2026-05-10
+- 变更内容：
+  1. 增加动态 `sourceTrust`，让 AI 根据“谁说谎、谁被验证、谁投票异常”调整来源可信度。
+  2. 增强策略型人格，让不同 AI 不只是话术不同，也在投票、提名和目标排序上有不同倾向。
+- 处理策略：
+  - `aiAgents` 增加 `sourceTrustByPlayerId` 和 `trustEvents[]`。
+  - evidence 创建和手动 evidence 写入时融合来源类别 trust 与 per-player trust。
+  - 公开 claim 被死亡/处决身份验证后，写入 `verified-claim` 或 `false-claim` trust event。
+  - 投票通过时反向投票、低可信投票等写入 `abnormal-vote` / `validated-vote` trust event。
+  - 更新 trust 后同步刷新该来源已有 evidence 的 `sourceTrust`。
+  - 新增 `personaStrategyProfile(...)`：pressure 更早压人，steady 更重证据，shadow 更重票型/改口/异常模式。
+  - 目标排序、投票阈值、提名阈值接入策略人格；公开 statement memory 作为公开承诺证据参与调分。
+  - 增加 AI 契约测试覆盖 false claim、verified claim、abnormal vote 和 persona vote behavior。
+- 状态：已完成（AI dynamic sourceTrust + strategy persona pass）。
+
+## CR-2026-05-11-01
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 评估局内知识图谱对 AI 反应时间的影响。
+  2. 先实现轻量结构，不引入图数据库，不改变现有 AI 决策主路径。
+  3. 图谱必须保持 per-agent 可见性边界，私聊关系不能进入第三方 AI 图谱。
+- 处理策略：
+  - 在每个 AI agent 上新增 `knowledgeGraph: { version, nodes, edges }`。
+  - 图谱只在 `pushEvidence(...)` 写入 evidence 时增量追加节点/边，不在每次发言时全图搜索。
+  - 节点限制为 420、边限制为 680，避免长局无限增长。
+  - 初始支持 `player` / `role` / `evidence` 节点。
+  - 初始支持 `claimed_role`、`whispered_to`、`nominated`、`voted_yes_on`、`voted_no_on`、`revealed_as`、`night_info_about` 等边。
+  - `buildAgentView(...)` 暴露 `graphForTarget(...)` 供后续解释/复盘使用。
+  - 增加 AI 契约测试覆盖 claim+reveal、私聊 participant scope、vote edges 和图谱大小上限。
+- 状态：已完成（AI lightweight per-agent knowledge graph pass）。
+
+## CR-2026-05-11-02
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 将轻量知识图谱更深地用于 AI agent 决策，而不只是用于复盘/解释。
+  2. KG 应影响怀疑、提名等选择，但不能变成全知最优解，避免好人阵营稳定碾压。
+  3. 保持局内趣味性：AI 可以被污染信息、弱证据、人设策略和公开压力影响。
+- 处理策略：
+  - 新增 `computeGraphPressureForTarget(...)`，从单个 agent 的可见 KG 中抽取目标相关压力。
+  - 将 claim/reveal 矛盾、验证声明、投票异常、提名记录和夜间信息转成小幅 `scoreDelta`。
+  - 在 `personaAdjustedTargetScore(...)` 中加入 KG 压力，使其影响目标排序与提名焦点。
+  - 在 `buildDialogueEvidenceContract(...)` 中加入 KG 安全理由，使 AI 解释能引用关系证据。
+  - 对 public dialogue / nomination 使用 `publicOnly` 图谱压力，防止私聊原文升级为公开理由。
+  - 对污染夜间信息降低权重并标记 `night-info-risk`，避免 AI 把可能错误的信息当硬证据。
+  - 将 KG 决策压力限制在小幅区间，保留 persona、statement memory、sourceTrust、怀疑度和流程约束的作用。
+- 状态：已完成（AI knowledge graph decision pressure pass）。
+
+## CR-2026-05-11-03
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 继续深化 KG 在 AI agent 决策中的应用。
+  2. 动态 `sourceTrust` 变化应同步影响 KG，而不是让图谱边保留旧可信度。
+  3. AI 应能把“某人作为信息来源可靠/不可靠”作为弱关系证据，但不能把它当作硬身份结论。
+- 处理策略：
+  - 在 `updateAgentSourceTrustForPlayer(...)` 后刷新该来源玩家关联的 KG 边 `trust`。
+  - `source_of`、`claimed_role` 等同源 evidence 边会随 evidenceBook 的 `sourceTrust` 一起更新。
+  - `computeGraphPressureForTarget(...)` 增加来源可信度信号：
+    - 平均 source trust 偏低时，对目标增加小幅压力。
+    - 平均 source trust 偏高时，对目标提供小幅保护。
+  - 该信号仍走 public/private visibility 过滤，公开发言不会使用私聊来源细节。
+  - 增加 AI 契约测试覆盖 sourceTrust 更新后 KG 边权同步。
+- 状态：已完成（AI KG sourceTrust propagation pass）。
+
+## CR-2026-05-11-04
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 继续深入 KG 决策应用，让 AI 能识别局内公开关系结构，而不只看单条证据。
+  2. 优先实现 BOTC 玩家常用的“撞身份”推理模式。
+  3. 保持趣味性：不同人格对同一 KG 模式的反应应有差异。
+- 处理策略：
+  - `computeGraphPressureForTarget(...)` 增加 role-claim conflict motif。
+  - 当 viewer 可见图谱中多名玩家声称同一角色时，对相关目标增加小幅压力。
+  - 该判断只使用可见 `claimed_role` 边，不读取真实身份或阵营。
+  - `personaStrategyProfile(...)` 增加 `graphPressureWeight`：
+    - pressure persona 更愿意用 KG 推进节奏。
+    - shadow persona 更重视关系模式。
+    - steady persona 将 KG 作为较弱的辅助上下文。
+  - 增加契约测试覆盖撞身份进入私聊 evidence contract。
+- 状态：已完成（AI KG relation motif + persona weighting pass）。
+
+## CR-2026-05-11-05
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 继续深入 KG 决策应用，让 AI 识别公开发言里的站队关系。
+  2. 将“谁公开压谁 / 谁公开保谁”作为轻量图谱边，服务后续解释和决策。
+  3. 保持非全知：只基于 viewer 可见公聊和 viewer 当前怀疑压力判断站队是否异常。
+- 处理策略：
+  - `public-speech` evidence 根据 `polarity` 写入 `public_accused` / `public_defended` KG 边。
+  - AI 公聊记录时将高压发言标记为 `accuse` polarity。
+  - `computeGraphPressureForTarget(...)` 增加社交站队 motif：
+    - 公开维护当前高压目标时，对 speaker 增加小幅压力。
+    - 公开攻击当前低压目标时，对 speaker 增加小幅压力。
+    - 与当前压力一致的公开站队给予轻微保护。
+  - 该逻辑读取的是当前 AI 自己的 suspicion，不读取真实身份/阵营。
+  - 增加契约测试覆盖“公开维护高压目标”进入 KG 边和私聊 evidence reason。
+- 状态：已完成（AI KG public stance edge pass）。
+
+## CR-2026-05-11-06
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 实现 KG chain extractor，让 AI 不只引用单条 evidence，而是能说出短链式解释。
+  2. 实现邪恶方基于 KG 的嫁祸倾向，但不引入全知最优解。
+  3. 实现 KG-driven 追问，让私聊回答能给出下一步应问什么。
+- 处理策略：
+  - 新增 `extractGraphReasonChains(...)`，从 per-agent KG 中提取 top-K 短链。
+  - 当前支持 false claim、verified claim、role conflict、公聊维护高压位、公聊推动低证据位、night-info risk、low source trust 等链。
+  - `buildDialogueEvidenceContract(...)` 优先纳入 KG chains，再合并 graph pressure reason 和普通 evidence summary。
+  - 新增 `buildGraphFollowUpPrompts(...)`，将 KG chain 转换为私聊追问建议。
+  - `runPrivateWhisper(...)` 返回 `followUpPrompts`，私聊理由/计划类回复会自然补一句“下一句我会这样追”。
+  - 邪恶 AI 在 `personaAdjustedTargetScore(...)` 中获得小幅 public KG chain framing bonus，且仍过滤 known evil allies。
+  - `buildNominationProposal(...)` 对邪恶方 KG 嫁祸 proposal 标记 `framing: true`。
+  - 增加契约测试覆盖 false claim chain、KG-driven follow-up、evil framing nomination。
+- 状态：已完成（AI KG chain extractor + evil framing + follow-up pass）。
+
+## CR-2026-05-11-07
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 实现 AI 说话自然化小闭环，让不同 persona 对同一推理结果有不同表达。
+  2. 使用轻量本地语料库，不引入在线 LLM 或大型运行时依赖。
+  3. 降低“证据线 / 口径 / 复核”等 stock phrase 在日志和私聊中的重复感。
+- 处理策略：
+  - 扩展 `scripts/ai_speech_corpus.json`，新增 `private.dialogueActs`。
+  - 新增 `renderDialogueActs(...)`，将结构化 act（reason / plan / generic / vote）按 persona 渲染成人话。
+  - 私聊 `composePrivateResponse(...)` 的 reason / plan / generic / vote 路径接入 dialogue act renderer。
+  - 新增 `speechStyleMemory`，记录每个 AI 最近表达。
+  - `applyHumanSpeechCadence(...)` 增加 phrase cooldown，将高频 stock phrase 替换为轻量同义表达。
+  - 增加契约测试覆盖 persona 输出差异和 phrase cooldown。
+- 状态：已完成（AI lightweight speech corpus rendering pass）。
+
+## CR-2026-05-11-08
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 继续深化 AI 说话自然化，让公聊和提名也使用结构化 act 渲染。
+  2. 同一 public evidence contract 下，不同 persona 应稳定呈现不同公聊风格。
+  3. 提名理由要更像玩家上台发言，避免把 `自动提名` / `压力提名` 等内部标签直接说给玩家听。
+- 处理策略：
+  - 扩展 `scripts/ai_speech_corpus.json`，新增 `public.dialogueActs`。
+  - `renderDialogueActs(...)` 支持 `audience` 参数，复用同一轻量表达层渲染 private/public act。
+  - `composePublicLine(...)` 强制使用 public dialogue act 作为主体发言，再叠加 debate beat 和 evidence contract。
+  - `buildNominationProposal(...)` 使用 public `nomination` act 渲染提名理由，并继续通过 `ensureEvidenceContractInText(...)` 保证证据文本可追踪。
+  - 增加契约测试覆盖 pressure/shadow 公聊风格差异。
+- 状态：已完成（AI public/nomination dialogue act rendering pass）。
+
+## CR-2026-05-11-09
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 继续扩展 AI 表达闭环，加入 speechBudget、玩家式短摘要、被质询回应 act。
+  2. 降低 Unity 日志和资料抽屉里的长段落压力，同时保留完整 evidence contract 供测试和复盘使用。
+  3. 公聊 defense/被质询语境应更像在回应桌上质疑，而不是继续念同一套压力模板。
+- 处理策略：
+  - `buildDialogueEvidenceContract(...)` 新增 `spokenText`，将完整 evidence summary 压缩成玩家式短摘要。
+  - 新增 `playerStyleEvidenceSummary(...)`，把常见证据链转成“身份撞车 / 身份对不上 / 票型反着走 / 夜信可能脏 / 在保高压位”等短说法。
+  - 新增 `applySpeechBudget(...)`，按 audience 控制句数和字符数，并保留 `短线` / `弱证据说明` 句。
+  - `applyHumanSpeechCadence(...)` 接入 speechBudget。
+  - 扩展 `public.dialogueActs`，新增 `challengeResponse`。
+  - `composePublicLine(...)` 在 debate beat 为 `defense` 时使用 challenge-response act。
+  - 提名和公聊优先使用 `spokenText`，但 `evidenceContract.text` 仍保留完整证据。
+  - 增加契约测试覆盖 speechBudget、玩家式短摘要、challenge-response act。
+- 状态：已完成（AI speech budget + spoken evidence + challenge response pass）。
+
+## CR-2026-05-11-10
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 做“语境化表达”，让 AI 的措辞跟当前桌面语境绑定，而不是只靠 persona 改词。
+  2. 公聊中的提名压力、投票意向、被质询回应应分别使用不同表达 act。
+  3. 已死亡 AI 的私聊回复应带死亡/遗言语境，但不破坏 evidence contract。
+- 处理策略：
+  - 扩展 `scripts/ai_speech_corpus.json`：
+    - `public.dialogueActs.*.nominationPressure`
+    - `public.dialogueActs.*.voteIntent`
+    - `private.dialogueActs.*.deadPrivate`
+  - 新增 `publicDialogueActForContext(...)`，根据 debate beat 映射 public act。
+  - `composePublicLine(...)` 使用 `publicDialogueActForContext(...)`，让 `nomination-pressure` 与 `vote-intent` 不再落回普通 pressure/probe 文案。
+  - `composePrivateResponse(...)` 在死亡 AI 的 reason/plan/generic/suspect 回复中补一条死亡语境表达，并继续通过 unified evidence contract 引用安全证据。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js` 与 `ai_speech_corpus.json`。
+  - 增加契约测试覆盖死亡私聊语境、公聊提名压力语境、公聊投票意向语境。
+- 状态：已完成（AI contextual expression pass）。
+
+## CR-2026-05-11-11
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 增加邪恶方表演语料，让邪恶 AI 对外发言更像普通玩家在盘证据。
+  2. 邪恶同队私聊仍可同步真实队伍和 bluff 信息，但对好人私聊、公聊、提名不得泄漏内部词。
+  3. 继续沿用本地轻量语料库，不引入在线 LLM 或额外运行时。
+- 处理策略：
+  - 扩展 `scripts/ai_speech_corpus.json`：
+    - `public.evilPerformance.*`：覆盖 pressure / probe / challengeResponse / nominationPressure / voteIntent / nomination。
+    - `private.evilPerformance.*`：覆盖 reason / plan / generic / vote / deadPrivate / claimCover / claimCoverPressured。
+  - `renderDialogueActs(...)` 在 speaker 具备 evil perspective 且 audience 为 public/private 时，优先读取 `evilPerformance`，缺省再回落到普通 `dialogueActs`。
+  - `composePrivateClaimPolicy(...)` 的邪恶对外身份回复改为走 `private.evilPerformance.*.claimCover`，避免固定模板反复出现。
+  - 保持 `private.evilAlliance.*` 只用于已知同队私聊，继续允许真实队伍/伪装同步。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js` 与 `ai_speech_corpus.json`。
+  - 增加契约测试覆盖邪恶对好人私聊 claim、公聊发言、提名理由均使用表演语料且不泄漏邪恶内部词。
+- 状态：已完成（AI evil performance corpus pass）。
+
+## CR-2026-05-11-12
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 做更真实的记忆延续，让 AI 不只是机械插入“刚才那条线”。
+  2. AI 连续盯同一目标时，应能承接上一轮理由。
+  3. AI 切换目标时，应解释旧目标是暂放还是新问题显式要求，而不是像无记忆一样突然换人。
+- 处理策略：
+  - 扩展 `state.aiDialogue.statementMemory`：
+    - 新增 `recentTurns`，保留最近几轮结构化发言摘要。
+    - 新增 `consecutiveFocusCount`，记录连续围绕同一目标的次数。
+    - 新增 `previousEvidenceSummary` / `previousStance`，用于下一轮承接。
+  - `continuityLineForPrivateStatement(...)`：
+    - 同目标追问时引用上一轮 evidence summary。
+    - 多次同目标时表达为“连续盯这个位置”，更像真人坚持主线。
+    - 显式换目标时说明“前面那条暂放/不是作废”。
+  - `continuityLineForPublicStatement(...)`：
+    - 第二轮以后公聊承接上一轮公开口径和卡点。
+    - 公开换目标时说明是压力转移，不是洗掉前一轮。
+  - 连续承接后重新套 speech budget，避免 Unity 日志/资料抽屉出现过长文本。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js`。
+  - 增加契约测试覆盖私聊 recentTurns、连续 focus 计数、显式换目标承认旧线、公聊第二轮承接上一轮卡点。
+- 状态：已完成（AI richer statement memory continuity pass）。
+
+## CR-2026-05-11-13
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 做“问答风格”，让玩家私聊提问后，AI 先直接回答问题，再展开理由。
+  2. 理由、计划、投票类回答应补一个可继续追问的具体问题。
+  3. 不改变规则、怀疑度、KG 或 evidence contract，只调整表达组织方式。
+- 处理策略：
+  - 新增 `directAnswerForPrivateQuestion(...)`：
+    - 根据 `QUESTION_INTENT` 生成 `短答：...` 开头。
+    - 覆盖 reason / trust / claim / vote / night / compare / plan / generic。
+  - 新增 `followUpQuestionForPrivateAnswer(...)`：
+    - reason/suspect/generic 回答后补“我会反问一句...”。
+    - plan 回答后补下一问。
+    - vote 回答后补票前检查问题。
+  - `composePrivateResponse(...)` 先插入短答，再沿用现有 persona dialogue act、evidence contract、statement memory 和 speech budget。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js`。
+  - 增加契约测试覆盖私聊 reason 和 vote 的问答形态。
+- 状态：已完成（AI private Q&A style pass）。
+
+## CR-2026-05-11-14
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 深度做一轮局内语用层，让 AI 根据局内压力改变说话方式。
+  2. 支持死亡、被提名上台、高压目标、低证据、提名阶段、后期天数等局内语境。
+  3. 不改变规则、怀疑度、KG、agentView 或 evidence contract，只改变表达 framing。
+- 处理策略：
+  - 新增 `pragmaticPressureContext(...)`：
+    - 汇总 `alive`、`beenNominatedToday`、`nominatedToday`、`dayStage`、`day`、`focusScore`、`lowEvidence`、`selfHeat`。
+  - 新增 `pragmaticLineForSpeech(...)`：
+    - 死亡：声明“当遗言线索听”。
+    - 被提名：进入防御式票前回应。
+    - 自身压力高：先说明会给可复核逻辑。
+    - 提名阶段/后期：压缩成可执行版本。
+    - 目标高压：语气更急，要求马上听回应。
+    - 低证据：明确“当追问入口，不当定罪”。
+  - 新增 `applyInGamePragmatics(...)`，在私聊和公聊主体文本生成后、speech budget 与 evidence-contract enforcement 前插入语用 framing。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js`。
+  - 增加契约测试覆盖高压私聊目标和被提名公聊 speaker 的语用变化。
+- 状态：已完成（AI in-game pragmatics pass）。
+
+## CR-2026-05-11-15
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 修复 AI 聊天仍不像人的问题，重点处理模板味、调试摘要味和不自然括号标签。
+  2. 消除截图中出现的“这题我分两层看”“核心还是 我私下听到的口径...”“5号（暂时偏清白）”等表达。
+  3. 保留 evidence contract，不因为口语化清洗破坏证据引用。
+- 处理策略：
+  - `scripts/ai_speech_corpus.json`：
+    - 将 steady 私聊 opener “这题我分两层看” 改为“我直说吧”。
+    - 将“问出反应比一句结论更值钱”改为“问一句看反应更有用”。
+  - `scripts/ai_agents.js`：
+    - 私聊 evidence 摘要从“我私下听到的口径把焦点指向 X 号”改为“有人私下提到 X 号”。
+  - `scripts/ai.js`：
+    - `formatFocus(..., false)` 改为只输出玩家名，避免聊天中出现“5号（暂时偏清白）”。
+    - `ensureEvidenceContractInText(...)` 标签从 `短线` / `弱证据说明` 改为 `我现在抓的点` / `这条还弱`。
+    - 新增 `polishConversationalText(...)`，在 cadence/speech budget 前清洗模板化短语。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js`、`ai_agents.js` 和 `ai_speech_corpus.json`。
+  - 增加契约测试覆盖 conversational polish，不允许这些调试味短语回流。
+- 状态：已完成（AI conversational polish pass）。
+
+## CR-2026-05-11-16
+- 请求人：用户
+- 时间：2026-05-11
+- 变更内容：
+  1. 建立 AI 对话自测闭环，让开发时可以离线产出多类 AI 对话样本。
+  2. 自动标记“不像人”的坏味道，例如报告腔、工程词、过长发言、私聊泄漏风险和评分标签。
+  3. 根据首轮 smoke 结果，先修一波高频表达问题。
+- 处理策略：
+  - 新增 `scripts/ai_dialogue_smoke.mjs`：
+    - 固定生成 TB 局面，覆盖连续私聊、换焦点追问、公聊两轮、AI-AI 私聊、邪恶方表演和提名理由。
+    - 输出 `output/ai_dialogue_smoke/latest.md` 与 `latest.json`。
+    - 支持 `--strict`，后续可以用于 CI 或本地强制检查。
+  - 新增 npm 命令 `npm run ai:dialogue-smoke`。
+  - 首轮报告从 31 个 warning 收束到 8 个 warning：
+    - 缩短普通私聊/公聊 speech budget。
+    - 将“可信度有限/污染”类证据后缀改成更像玩家说法的“先复核/这条先打折听”。
+    - 将“短答：...”改成“先给结论/先说你这边/如果提...”等更自然的问答开头。
+    - 修复 AI-AI smoke 报告里的 seat 字段显示为 `undefined号`。
+  - 继续二次收束到 0 个 warning：
+    - 面向玩家的提名理由不再输出“压力提名 / 自动提名 / 怀疑度 / 行动线”，改成“先提上台 / 正面回应 / 看站票”。
+    - smoke 审计区分合法邪恶 AI-AI 私聊，不把参与双方可见的队伍信息误报为玩家可见泄漏。
+    - 私聊 cadence 从“我换个说法”压成“换个说法”，减少第一人称堆叠。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js` 和 `ai_agents.js`。
+- 状态：已完成（AI dialogue smoke harness + self-correction pass to zero warnings）。
+
+## CR-2026-05-12-01
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 实现“结构化 act -> 人话渲染器”，先覆盖私聊怀疑、夜信、追问和提名样本文案。
+  2. 修复 `latest` 中出现的病句：“你能把 让他把身份和信息讲完整 讲清楚吗？”。
+  3. 不接在线 LLM，不改变规则结算、怀疑度、agentView 或 Unity UI。
+- 处理策略：
+  - 新增私聊 surface act 渲染链：
+    - `buildPrivateSurfaceAct(...)` 将 focus、evidence、persona、intent、statement memory 压成结构化 act。
+    - `renderPrivateSurfaceAct(...)` 用完整句式渲染连续怀疑、明确换焦点、夜间信息、投票态度和追问。
+    - `surfaceFollowUpForAct(...)` 直接生成“7号，你身份和信息能连起来说吗？”这类完整追问，不再嵌套内部指令。
+  - `normalizeSurfaceEvidence(...)` 把证据摘要转成更像玩家的话：
+    - “我自己的夜间信息牵到 X 号” -> “夜里那条信息让我先看 X 号”。
+    - “该玩家的行为与我掌握的信息不一致” -> “这条行为和我手里的信息对不上”。
+  - `humanizeSharedPrivateNote(...)` 清理 AI-AI 私聊中的原始夜间日志，避免 `信息链是：[第1夜]...` 直接出现在对白中。
+  - 扩展 `ai_dialogue_smoke` 坏味道规则：
+    - `nested-prompt`：禁止“你能把 让他...”/原始日志嵌入。
+    - `abstract-subject`：禁止“该玩家/当前目标”式系统摘要。
+    - `empty-transition`：禁止“简单讲，我现在是这么看”等空转过渡句。
+  - 契约测试调整为接受 surface-rendered 的自然承接语，例如“我暂时不换目标”“那条暂放一边”。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js` 和 `ai_agents.js`。
+- 当前效果：
+  - `npm run ai:dialogue-smoke` 通过，20 条样本 0 warning。
+  - 私聊中已不再出现用户指出的嵌套追问病句。
+  - 仍观察到公聊样本里存在 `你 我先...` 这类公开发言拼接问题，下一轮应把 public discussion 也迁移到 surface renderer。
+- 状态：已完成（private structured surface renderer first pass）。
+
+## CR-2026-05-12-02
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 继续完善结构化 act -> 人话渲染器，覆盖公聊 pressure / defense / nomination-pressure / vote-intent。
+  2. 修复公聊样本中出现的“你 我先...”“你 可以进提名池”等目标代词拼接问题。
+  3. 保持离线本地生成，不接在线 LLM，不改 Unity UI 或规则结算。
+- 处理策略：
+  - 新增公聊 surface 渲染路径：
+    - `buildPublicSurfaceAct(...)` 读取公开 focus、evidence contract、debateBeat、persona、阵营表演状态。
+    - `renderPublicSurfaceActReadable(...)` 将公聊意图渲染为短句，例如“我先压 7号”“7号 可以进提名池，但我先听一句回应”。
+    - 邪恶方公开发言保留“台面上 / 公开说 / 别闭眼冲”等表演语气，但不泄漏邪恶信息。
+  - 公开目标名统一使用座位号：
+    - 当目标是玩家本人或名字为“你”时，公聊和提名理由改用 `N号`，避免公开记录里出现“你 可以...”。
+  - 增加 `sanitizePublicSurfaceEvidence(...)`：
+    - 清理公开证据摘要里继承来的“你 这边 / 看 你 的解释 / 围着 你 打”等残留。
+    - 将 `...` 统一渲染为 `…`，减少 smoke 误判和 UI 文本截断感。
+  - 扩展 `ai_dialogue_smoke`：
+    - 新增 `public-splice` 规则，专门抓公开发言里的目标代词拼接。
+    - 当前 20 条固定样本为 0 warning。
+  - 契约测试放宽 evidence contract 的展示匹配，允许自然口语渲染中的省略号与短摘要，但仍要求引用 contract-derived 证据。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js` 和 `ai_dialogue_smoke.mjs`。
+- 当前效果：
+  - 私聊与公聊都已走结构化 surface 渲染主路径。
+  - 公开样本不再出现 `你 我...` / `你 可以...` 这类硬拼。
+  - 下一步可继续做 AI-AI 私聊、提名理由和死亡复盘的专用 act renderer，进一步降低模板味。
+- 状态：已完成（public structured surface renderer pass）。
+
+## CR-2026-05-12-03
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 继续优化 AI 语言自然度，重点处理 smoke 虽然 0 warning、但肉眼仍像系统摘要的表达。
+  2. 收束低证据公聊、AI-AI 私聊、主动私聊和提名理由中的模板残留。
+  3. 不改规则引擎、不接在线 LLM、不改变 Unity UI。
+- 处理策略：
+  - 低证据 evidence contract：
+    - 无公开硬证据时，`spokenText` 改为“公开信息还不够，先听回应和票型”。
+    - 公聊 evidence label 从“我现在抓的点”改为更桌边的“卡点是 / 证据还薄”。
+  - AI-AI / 主动私聊：
+    - `private.proactive.noteShare` 从“我的信息链是”改为“我这边拿到的是”。
+    - 邪恶方“白天话术可以围着 X 打一圈”改成“白天可以先问 X，别急着冲票，先看回应”。
+    - `sanitizePrivateDialogueText(...)` 清理 `信息链是`、`ta`、`围绕 9号 追问`、`你这边先放进观察位` 等模板痕迹。
+    - AI-AI 目标如果是玩家本人，统一转成座位号。
+  - 提名理由：
+    - 公开记忆驱动的提名理由不再复读整段公聊原文，改为短句：“刚才我已经点过 7号，理由还是 8号公聊口径需要复核。”
+  - smoke 规则：
+    - 新增 `mechanical-dialogue` 检查，覆盖 `低证据判断`、`信息链是`、`围着你`、`ta` 等本轮发现的机械残留。
+  - Unity StreamingAssets 内置 JS Core 已同步 `ai.js`、`ai_speech_corpus.json` 和 `ai_dialogue_smoke.mjs`。
+- 当前效果：
+  - `npm run ai:dialogue-smoke` 仍为 20 条样本 0 warning。
+  - 样本里 AI-AI 私聊已从“信息链是 / 围着你 / ta”转为更像玩家私下对线的短句。
+- 状态：已完成（AI-AI/proactive/nomination language polish pass）。
+
+## CR-2026-05-12-04
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 增加游戏中的“对话感”，让 AI 不只是陈述判断，而是能接住玩家追问、直接回应语气压力。
+  2. 私聊需要在“别绕/直接说/刚才那条/投票怎么站”等语境下给出明显 turn-taking。
+  3. 公聊引用前面发言时更像接话，而不是孤立输出判断。
+- 处理策略：
+  - 新增轻量 turn-taking 层：
+    - `privateDialogueTurnPrefix(...)` 识别“别绕/直接/刚才/投票/对外口径/下一步”等玩家语用信号。
+    - `applyPrivateDialogueTurnTaking(...)` 在 AI 私聊回复前补“好，我直接答”“嗯，我接着刚才那条说”“票这块我先说清楚”等接话短句。
+    - claim/vote 场景给更宽的 speech budget，避免接话前缀挤掉身份、票型态度或证据句。
+  - 公聊 surface renderer：
+    - 当公聊证据来自前面发言，且处于 defense / nomination-pressure / vote-intent beat 时，补“我接一下前面的发言：...”。
+  - smoke 场景：
+    - 新增“玩家追问压迫感”样本，模拟玩家先问判断，再追问“别绕，直接说”。
+    - 新增 `missing-turn-taking` 检查，确保 AI 在这种追问下先接住对话动作。
+- 当前效果：
+  - 私聊样本出现“嗯，我接着刚才那条说”“好，我直接答”“票这块我先说清楚”。
+  - 公聊样本出现“我接一下前面的发言：...”。
+  - `npm run ai:dialogue-smoke` 扩展为 22 条样本，0 warning。
+- 状态：已完成（dialogue turn-taking pass）。
+
+## CR-2026-05-12-05
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. Unity 版启动时主菜单应与游戏界面分开；不要在主菜单上叠加首夜/说书人对话。
+  2. 只有玩家选择“新游戏 / 进入魔典”或“继续当前局”后，才显示首夜或阶段引导对话。
+  3. Unity 版需要本地存档入口，支持保存当前局、继续最近存档、读档失败反馈和新局重开。
+  4. 设置面板需要提供常规选项：分辨率、全屏切换、主音量、音乐音量、UI 音效音量；游戏内顶部也需要设置按钮。
+- 处理策略：
+  - Unity UI 只负责本地菜单、设置、存档外壳；规则状态仍由 JS Core `unity_state.json` / `unity_viewmodel.json` 驱动。
+  - 设置使用 `PlayerPrefs` 保存，启动时应用到 `Screen.SetResolution` 与 Unity AudioSource 音量。
+  - 存档使用 Unity `Application.persistentDataPath` 下的 JSON 副本，保存/恢复当前 bridge state/viewmodel/action result。
+  - 主菜单显示时隐藏或弱化游戏 HUD 与底部正式对话；进入游戏后再触发首夜转场/说书人对话。
+- 状态：已完成（Unity main menu / save / settings pass）。
+
+## CR-2026-05-12-06
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 检查并修复 Unity 阶段转场动画偶尔播不完整的问题，重点覆盖白天、公聊、提名。
+  2. 提升通用 UI 字号，尤其按钮、工具按钮和角色 token 名称。
+  3. 说书人/正式对话框打字弹出时需要有更明显的 UI 音效。
+  4. 右侧资料按钮打开的抽屉需要更宽，并呈现从右侧屏幕滑入的效果。
+  5. 当前建议点击的按钮需要高亮提示，例如夜晚可推进时提示“结算夜晚/下一阶段”。
+  6. 基于剧本 JSON 补全图鉴内容，包括角色能力、夜晚提醒和标记词。
+- 处理策略：
+  - Unity UI 只改展示、动效和提示；不改变 JS Core 规则结算、AI 决策和阶段守卫判断。
+  - 阶段转场使用排队播放，避免 pending 转场被 viewmodel 快速刷新直接截断。
+  - 图鉴字段由 `assets/data/official_*.json` 生成到 JS Core viewmodel，再由 Unity 渲染。
+- 状态：已完成（Unity UI polish and handbook data pass）。
+
+## CR-2026-05-12-07
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 增加 demo 复盘记录器，把每局核心信息，尤其 AI 私聊/公聊发言，自动落盘，方便后续复盘和调试。
+  2. 自行通过 JS Core 私聊/公聊接口复现“问 AI 经常牛头不对马嘴”的问题，并修正明确意图问题的回答对齐。
+- 处理策略：
+  - `unity_action_bridge.mjs` 每次处理 Unity action 后写出 `output/demo_replays/<gameId>.json` 和 `output/demo_replays/latest.json`。
+  - replay 内容包含局面元数据、玩家公开状态、debug truth、AI speech events、dialogue timeline、日志和 AI recap 摘要。
+  - action result 增加 `replayPath` / `latestReplayPath`，方便 Unity 或调试脚本定位最近复盘文件。
+  - 私聊 `claim` / `night` 意图提前生成直接回答，避免先进入通用怀疑目标链路再被 speech budget 截断。
+  - 连续对话记忆不再把上一条怀疑线强行 prepend 到身份/夜晚回答前；重复问身份时明确保持既有身份口径。
+- 当前效果：
+  - 手动模拟“你是什么身份？”会直接给身份或身份范围；“你昨晚得到了什么信息？”会直接回答个人可分享夜间信息或明确无信息。
+  - 新增契约覆盖 replay 落盘、私聊身份直答和夜晚信息直答。
+- 状态：已完成（demo replay recorder + private Q/A intent alignment）。
+
+## CR-2026-05-12-08
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 评估“AI 回答牛头不对马嘴”是否为个例。
+  2. 从根因上收束私聊回答，让所有主要问题类型都先满足“问什么答什么”，再进入证据、人设和记忆表达。
+- 处理策略：
+  - 结论：不是个例。根因是私聊生成里 surface act / evidence focus / intent switch 多层都可能抢回答权。
+  - 新增 `privateAnswerAlignmentPattern(...)` 与 `ensurePrivateAnswerAlignment(...)`，作为最终出门前的统一私聊回答契约。
+  - 覆盖 reason、trust、claim、vote、night、compare、plan、suspect：如果最终文本没有命中当前问题类型的回答信号，会补入对应 direct answer。
+  - 兜底层只在回答缺失时生效，不覆盖已经自然成句的 surface act / 语料库表达。
+  - 同步 Unity StreamingAssets 内置 `ai.js`。
+- 当前效果：
+  - 新增契约测试一次性覆盖 8 类私聊问题。
+  - `npm run ai:dialogue-smoke` 保持 22 条样本 0 warning。
+- 状态：已完成（private answer alignment contract pass）。
+
+## CR-2026-05-12-09
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 接入 AI 主动私聊和 AI-AI 私聊到 Unity bridge。
+  2. AI 主动私聊不能突脸，玩家需要能接受或拒绝。
+  3. AI-AI 私聊不显示在人类日志中，但要成为 agent 可用的弱社交线索。
+  4. 公聊不希望按轮数呈现；提名阶段希望向限时/窗口制发展；提名后考虑双方互辩。
+  5. 完成后生成 UI 跟进 prompt。
+- 处理策略：
+  - AI 主动私聊拆为 pending offer：
+    - `ai-proactive-whispers` 只生成邀请，不泄漏完整私聊。
+    - `accept-proactive-whisper` 才写入玩家时间线和私聊 evidence。
+    - `decline-proactive-whisper` 移除邀请，不写入回复文本。
+  - Unity viewmodel 新增 `pendingProactiveWhispers[]`，供 UI 渲染“接受/拒绝”。
+  - AI-AI 私聊移除人类日志记录；内容仍只进参与双方 evidence。
+  - 新增 `private-channel` / `social-read` 弱社交 evidence，所有 agent 可知道“谁和谁有过私聊”，但不知道内容。
+  - 设计文档记录下一步：
+    - 公聊改 conversation clock，而不是轮数 UI。
+    - 提名改 nomination window/soft timer。
+    - 提名后加入双方互辩，再进入投票。
+  - 后续实现：
+    - 新增 `ai-public-step`，以 conversation clock 推进开场、回应、交锋、提名压力、冷却。
+    - 新增 `open-nomination-window`、`ai-nomination-step`、`human-nomination-intent`、`pass-nomination-window`，用软行动预算表达提名窗口。
+    - 新增 `resolve-nomination-vote`，让提名意图先进入双方互辩，再结算投票。
+- 状态：已完成（AI autonomous day flow bridge pass）。
+
+## CR-2026-05-12-10
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. 检查 Electron 版已有交互接口在 Unity 版中的接入缺口。
+  2. 将用户提供的 `bg.jpg` 接入 Unity 主菜单背景，解决主菜单黑屏感。
+  3. 在 Unity 主菜单的新游戏入口增加初设选项：剧本、人数、自选角色。
+- 处理策略：
+  - 背景只作用于主菜单，不替换游戏内白天/夜晚棋盘背景。
+  - 主菜单初设通过 Unity action payload 传给 JS Core 的 `new-game`，不绕过规则引擎。
+  - 角色列表由现有官方剧本 JSON 生成 Unity Resources 用的轻量 catalog。
+- 状态：已完成（main menu background and setup pass）。
+
+## CR-2026-05-12-11
+- 请求人：用户
+- 时间：2026-05-12
+- 变更内容：
+  1. Unity 私聊阶段消费 AI 侧新增 bridge actions：`ai-proactive-whispers`、`accept-proactive-whisper`、`decline-proactive-whisper`、`ai-private-whispers`。
+  2. AI 主动私聊以轻量 toast / 小抽屉展示，包含 token/头像、座位号、人格标签、来访原因，提供“接受 / 稍后 / 拒绝”。
+  3. 主动私聊不能突脸挡住主魔典；同屏最多显示 1 条，其余保留在队列。
+  4. AI-AI 私聊不进事件日志、不弹窗，只在 AI 复盘/调试视图显示弱社交线索。
+  5. 公聊 UI 不再强调“第 N 轮”，改为 conversation clock：开场、回应、交锋、提名压力、冷却。
+  6. 提名阶段增加软限时 UI：显示“提名窗口”进度，玩家或 AI 可主动提名；耗尽后提示今日空过。
+  7. 提名后增加双方互辩面板：提名者陈述、被提名者辩解、可选第三方插话，然后进入投票仪式。
+- 处理策略：
+  - 只做 Unity UI 与 viewmodel 消费层，不改变 AI 生成策略和规则结算。
+  - 主动私聊 toast 只显示 invitation metadata；接受后才调用 bridge action 并打开现有底部对话框。
+  - conversation clock 与 nomination window 先采用 UI 时间/阶段表现，不把软计时当作 JS Core 强规则。
+  - 投票仪式继续沿用现有 `voteCeremony` 数据，互辩面板作为投票前的表现层。
+- 当前效果：
+  - Unity 增加主动私聊小抽屉队列：同屏 1 条，支持接受、稍后、拒绝；接受后打开私聊面板，拒绝不写入时间线。
+  - AI-AI 私聊只在 AI 复盘中以“社交线索”显示，不进入玩家事件日志或弹窗。
+  - 公聊入口改为 `ai-public-step`，提名入口改为窗口/互辩/投票的分段流程。
+  - 新增 `proactive-whisper`、`nomination-debate` UI smoke 状态。
+- 状态：已完成（AI social UI and nomination flow pass）。

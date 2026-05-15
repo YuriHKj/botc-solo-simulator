@@ -1,12 +1,19 @@
 param(
   [string[]]$States = @(
     "main-board",
+    "proactive-whisper",
+    "nomination-debate",
+    "info-drawer",
+    "information-drawer",
     "private-chat",
     "action-form",
     "storyteller-queue",
     "script-handbook",
     "vote-ceremony",
-    "role-picker"
+    "role-picker",
+    "reminder-picker",
+    "stage-dialogue",
+    "phase-transition"
   ),
   [int]$Seed = 20260510,
   [int]$WindowWidth = 1920,

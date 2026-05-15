@@ -13,6 +13,8 @@
     "test:passive-info-queues": "node tests/passive_info_storyteller_queue_contracts.mjs",
     "test:night-actions": "node tests/night_action_completeness_contracts.mjs",
     "test:ai-agents": "node tests/ai_agent_contracts.mjs",
+    "test:ai-llm-renderer": "node tests/ai_llm_renderer_contracts.mjs",
+    "test:ai-llm-dialogue-eval": "node tests/ai_llm_dialogue_eval_contracts.mjs",
     "test:electron-build": "node tests/electron_build_contracts.cjs",
     "test:electron-paths": "node tests/electron_path_contracts.cjs",
     "test:unity-viewmodel": "node tests/unity_viewmodel_contracts.mjs",
@@ -20,6 +22,10 @@
     "test:unity-demo-acceptance": "node scripts/unity_demo_acceptance.mjs",
     "test:unity-assets": "node tests/unity_asset_contracts.mjs && node scripts/sync_unity_assets.mjs --check",
     "test:mojibake": "node tests/mojibake_contracts.mjs",
+    "ai:dialogue-smoke": "node scripts/ai_dialogue_smoke.mjs",
+    "ai:llm-render-smoke": "node scripts/ai_llm_render_smoke.mjs --mock",
+    "ai:llm-dialogue-eval": "node scripts/ai_llm_dialogue_eval.mjs --mock",
+    "ai:llm-dialogue-eval:live": "node scripts/ai_llm_dialogue_eval.mjs --live --provider=ollama --timeout=30000",
     "export:unity-viewmodel": "node scripts/export_unity_viewmodel.mjs",
     "unity:sync-assets": "node scripts/sync_unity_assets.mjs",
     "unity:bridge": "node scripts/unity_action_bridge.mjs --watch",
@@ -27,7 +33,12 @@
     "unity:demo:init": "node scripts/unity_action_bridge.mjs --fresh",
     "unity:demo": "powershell -ExecutionPolicy Bypass -File tools/run_unity_demo.ps1 -Fresh",
     "unity:ui-smoke": "powershell -ExecutionPolicy Bypass -File tools/capture_unity_ui_smoke.ps1",
-    "test": "npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:ai-agents && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-demo-acceptance && npm run test:mojibake"
+    "prepare:local-llm": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1",
+    "prepare:local-llm:quality": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1 -ModelTier quality -OutputDir third_party\\LocalLLM-quality",
+    "package:unity-ai": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1",
+    "package:unity-ai:embedded": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm",
+    "package:unity-ai:quality": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier quality -LocalLlmSource third_party\\LocalLLM-quality",
+    "test": "npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:ai-agents && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-demo-acceptance && npm run test:mojibake"
   },
   "devDependencies": {
     "electron": "^31.7.7",

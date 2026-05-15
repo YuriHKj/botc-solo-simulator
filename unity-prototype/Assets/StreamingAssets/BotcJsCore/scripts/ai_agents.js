@@ -4,10 +4,13 @@ const AGENT_SCHEMA_VERSION = 2;
 const MAX_AGENT_OBSERVATIONS = 240;
 const MAX_AGENT_EVIDENCE = 360;
 const MAX_BELIEF_TRAIL_PER_TARGET = 80;
+const MAX_KG_NODES = 420;
+const MAX_KG_EDGES = 680;
 
 const SOURCE_TRUST_DEFAULTS = {
   storyteller: 0.96,
   "public-procedure": 0.88,
+  "social-read": 0.58,
   "public-chat": 0.54,
   "private-chat": 0.5,
   public: 0.52,
@@ -79,6 +82,13 @@ function createAgent(player) {
     publicClaimByPlayerId: {},
     privateClaimByPlayerId: {},
     sourceTrust: {},
+    sourceTrustByPlayerId: {},
+    trustEvents: [],
+    knowledgeGraph: {
+      version: 1,
+      nodes: [],
+      edges: [],
+    },
   };
 }
 
@@ -91,6 +101,97 @@ function normalizeReliability(value, source = "unknown") {
     return RELIABILITY_SCORES[key];
   }
   return SOURCE_TRUST_DEFAULTS[source] ?? SOURCE_TRUST_DEFAULTS.unknown;
+}
+
+function dynamicSourceTrust(agent, source, sourceId = "") {
+  const categoryTrust = normalizeReliability(agent?.sourceTrust?.[source], source);
+  const playerTrust = Number.isFinite(agent?.sourceTrustByPlayerId?.[sourceId])
+    ? agent.sourceTrustByPlayerId[sourceId]
+    : null;
+  if (playerTrust === null) {
+    return categoryTrust;
+  }
+  return clamp01(categoryTrust * 0.35 + playerTrust * 0.65, categoryTrust);
+}
+
+function ensureKnowledgeGraph(agent) {
+  agent.knowledgeGraph = agent.knowledgeGraph ?? {};
+  agent.knowledgeGraph.version = 1;
+  agent.knowledgeGraph.nodes = Array.isArray(agent.knowledgeGraph.nodes) ? agent.knowledgeGraph.nodes : [];
+  agent.knowledgeGraph.edges = Array.isArray(agent.knowledgeGraph.edges) ? agent.knowledgeGraph.edges : [];
+  return agent.knowledgeGraph;
+}
+
+function pushGraphNode(agent, node) {
+  if (!node?.id || !node.type) {
+    return null;
+  }
+  const graph = ensureKnowledgeGraph(agent);
+  const existing = graph.nodes.find((entry) => entry.id === node.id);
+  if (existing) {
+    Object.assign(existing, { ...node, metadata: { ...(existing.metadata ?? {}), ...(node.metadata ?? {}) } });
+    return existing;
+  }
+  const record = {
+    id: node.id,
+    type: node.type,
+    label: node.label ?? node.id,
+    playerId: node.playerId ?? "",
+    roleId: node.roleId ?? "",
+    evidenceId: node.evidenceId ?? "",
+    day: node.day ?? null,
+    night: node.night ?? null,
+    metadata: node.metadata ?? {},
+  };
+  graph.nodes.push(record);
+  if (graph.nodes.length > MAX_KG_NODES) {
+    graph.nodes.splice(0, graph.nodes.length - MAX_KG_NODES);
+  }
+  return record;
+}
+
+function pushGraphEdge(agent, edge) {
+  if (!edge?.from || !edge?.to || !edge.type) {
+    return null;
+  }
+  const graph = ensureKnowledgeGraph(agent);
+  const key = edge.id ?? `${edge.from}->${edge.type}->${edge.to}:${edge.evidenceId ?? ""}`;
+  const existing = graph.edges.find((entry) => entry.id === key);
+  if (existing) {
+    Object.assign(existing, { ...edge, id: key, metadata: { ...(existing.metadata ?? {}), ...(edge.metadata ?? {}) } });
+    return existing;
+  }
+  const record = {
+    id: key,
+    from: edge.from,
+    to: edge.to,
+    type: edge.type,
+    evidenceId: edge.evidenceId ?? "",
+    observationId: edge.observationId ?? "",
+    day: edge.day ?? null,
+    night: edge.night ?? null,
+    visibility: edge.visibility ?? "",
+    trust: Number.isFinite(edge.trust) ? edge.trust : null,
+    contaminationRisk: Number.isFinite(edge.contaminationRisk) ? edge.contaminationRisk : null,
+    metadata: edge.metadata ?? {},
+  };
+  graph.edges.push(record);
+  if (graph.edges.length > MAX_KG_EDGES) {
+    graph.edges.splice(0, graph.edges.length - MAX_KG_EDGES);
+  }
+  return record;
+}
+
+function graphPlayerNodeId(playerId) {
+  return playerId ? `player:${playerId}` : "";
+}
+
+function graphRoleNodeId(roleId) {
+  return roleId ? `role:${roleId}` : "";
+}
+
+function graphEvidenceNodeId(evidenceId) {
+  return evidenceId ? `evidence:${evidenceId}` : "";
 }
 
 function inferChannel(observation) {
@@ -209,7 +310,7 @@ function classifyEvidence(observation) {
   if (observation.kind === "vote" || observation.kind === "nomination" || observation.kind === "execution") {
     return "procedure";
   }
-  if (observation.kind === "public-speech" || observation.kind === "private-whisper") {
+  if (observation.kind === "public-speech" || observation.kind === "private-whisper" || observation.kind === "private-channel") {
     return "social";
   }
   return observation.kind ?? "misc";
@@ -220,6 +321,7 @@ function evidenceFromObservation(state, agent, observation) {
   const reliabilityScore = normalizeReliability(observation.reliability, source);
   const contaminationRisk = inferContaminationRisk(observation, reliabilityScore);
   const targetIds = inferTargetIds(observation);
+  const sourceId = observation.sourceId ?? inferSourceId(agent, observation);
   const sourceRoleId = observation.sourceRoleId ?? observation.payload?.sourceRoleId ?? "";
   const contaminationReason = observation.contaminationReason ?? observation.payload?.contaminationReason ?? "";
   return {
@@ -232,7 +334,7 @@ function evidenceFromObservation(state, agent, observation) {
     kind: observation.kind ?? "note",
     evidenceType: observation.evidenceType ?? classifyEvidence(observation),
     source,
-    sourceId: observation.sourceId ?? inferSourceId(agent, observation),
+    sourceId,
     channel: inferChannel(observation),
     visibility: inferVisibility(observation),
     private: !!observation.private,
@@ -241,7 +343,7 @@ function evidenceFromObservation(state, agent, observation) {
     polarity: inferPolarity(observation),
     reliability: observation.reliability ?? "uncertain",
     reliabilityScore,
-    sourceTrust: normalizeReliability(agent.sourceTrust?.[source], source),
+    sourceTrust: dynamicSourceTrust(agent, source, sourceId),
     contaminationRisk,
     contaminationReason,
     sourceRoleId,
@@ -261,12 +363,213 @@ function evidenceFromObservation(state, agent, observation) {
   };
 }
 
+function addKnowledgeGraphForEvidence(agent, evidence) {
+  if (!agent || !evidence?.id) {
+    return;
+  }
+  const payload = evidence.payload ?? {};
+  const evidenceNodeId = graphEvidenceNodeId(evidence.id);
+  pushGraphNode(agent, {
+    id: evidenceNodeId,
+    type: "evidence",
+    label: conciseText(evidence.text || evidence.kind || evidence.id, 48),
+    evidenceId: evidence.id,
+    day: evidence.day,
+    night: evidence.night,
+    metadata: {
+      kind: evidence.kind,
+      source: evidence.source,
+      visibility: evidence.visibility,
+      reliabilityScore: evidence.reliabilityScore,
+      sourceTrust: evidence.sourceTrust,
+      contaminationRisk: evidence.contaminationRisk,
+    },
+  });
+
+  const sourcePlayerId = evidence.sourceId && evidence.sourceId !== "storyteller" ? evidence.sourceId : payload.speakerId;
+  if (sourcePlayerId) {
+    pushGraphNode(agent, { id: graphPlayerNodeId(sourcePlayerId), type: "player", label: sourcePlayerId, playerId: sourcePlayerId });
+    pushGraphEdge(agent, {
+      from: graphPlayerNodeId(sourcePlayerId),
+      to: evidenceNodeId,
+      type: "source_of",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: evidence.sourceTrust,
+      contaminationRisk: evidence.contaminationRisk,
+    });
+  }
+
+  (evidence.targetIds ?? []).forEach((targetId) => {
+    pushGraphNode(agent, { id: graphPlayerNodeId(targetId), type: "player", label: targetId, playerId: targetId });
+    pushGraphEdge(agent, {
+      from: evidenceNodeId,
+      to: graphPlayerNodeId(targetId),
+      type: evidence.kind === "night-info" ? "night_info_about" : "about_player",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: evidence.sourceTrust,
+      contaminationRisk: evidence.contaminationRisk,
+      metadata: {
+        polarity: evidence.polarity,
+        sourceRoleId: evidence.sourceRoleId,
+        contaminationReason: evidence.contaminationReason,
+      },
+    });
+  });
+
+  if (evidence.kind === "claim" && payload.playerId && payload.roleId) {
+    pushGraphNode(agent, { id: graphPlayerNodeId(payload.playerId), type: "player", label: payload.playerId, playerId: payload.playerId });
+    pushGraphNode(agent, { id: graphRoleNodeId(payload.roleId), type: "role", label: payload.roleId, roleId: payload.roleId });
+    pushGraphEdge(agent, {
+      from: graphPlayerNodeId(payload.playerId),
+      to: graphRoleNodeId(payload.roleId),
+      type: "claimed_role",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: evidence.sourceTrust,
+      contaminationRisk: evidence.contaminationRisk,
+      metadata: { private: !!evidence.private },
+    });
+  }
+
+  if ((evidence.kind === "private-whisper" || evidence.kind === "private-channel") && payload.speakerId && payload.targetId) {
+    pushGraphEdge(agent, {
+      from: graphPlayerNodeId(payload.speakerId),
+      to: graphPlayerNodeId(payload.targetId),
+      type: "whispered_to",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: evidence.sourceTrust,
+      contaminationRisk: evidence.contaminationRisk,
+      metadata: {
+        intent: payload.intent ?? "",
+        focusId: payload.focusId ?? "",
+        contentKnown: evidence.kind === "private-whisper",
+        aiToAi: !!payload.aiToAi,
+      },
+    });
+  }
+
+  if (evidence.kind === "public-speech" && payload.speakerId && payload.focusId) {
+    const relationType =
+      evidence.polarity === "defend"
+        ? "public_defended"
+        : evidence.polarity === "accuse" || evidence.polarity === "pressure"
+        ? "public_accused"
+        : "";
+    if (relationType) {
+      pushGraphEdge(agent, {
+        from: graphPlayerNodeId(payload.speakerId),
+        to: graphPlayerNodeId(payload.focusId),
+        type: relationType,
+        evidenceId: evidence.id,
+        observationId: evidence.observationId,
+        day: evidence.day,
+        night: evidence.night,
+        visibility: evidence.visibility,
+        trust: evidence.sourceTrust,
+        contaminationRisk: evidence.contaminationRisk,
+        metadata: { polarity: evidence.polarity, roundInDay: payload.roundInDay, orderIndex: payload.orderIndex },
+      });
+    }
+  }
+
+  if (evidence.kind === "nomination" && payload.nominatorId && payload.nomineeId) {
+    pushGraphEdge(agent, {
+      from: graphPlayerNodeId(payload.nominatorId),
+      to: graphPlayerNodeId(payload.nomineeId),
+      type: "nominated",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: evidence.sourceTrust,
+    });
+  }
+
+  if (evidence.kind === "vote" && payload.nomineeId) {
+    (payload.votes ?? []).forEach((vote) => {
+      if (!vote?.voterId || vote.abstain) {
+        return;
+      }
+      pushGraphEdge(agent, {
+        from: graphPlayerNodeId(vote.voterId),
+        to: graphPlayerNodeId(payload.nomineeId),
+        type: vote.vote ? "voted_yes_on" : "voted_no_on",
+        evidenceId: evidence.id,
+        observationId: evidence.observationId,
+        day: evidence.day,
+        night: evidence.night,
+        visibility: evidence.visibility,
+        trust: evidence.sourceTrust,
+        metadata: { passed: !!payload.passed, threshold: payload.threshold, yesVotes: payload.yesVotes },
+      });
+    });
+  }
+
+  if ((evidence.kind === "night-death" || evidence.kind === "execution") && payload.playerId && payload.roleId) {
+    pushGraphNode(agent, { id: graphPlayerNodeId(payload.playerId), type: "player", label: payload.playerId, playerId: payload.playerId });
+    pushGraphNode(agent, { id: graphRoleNodeId(payload.roleId), type: "role", label: payload.roleId, roleId: payload.roleId });
+    pushGraphEdge(agent, {
+      from: graphPlayerNodeId(payload.playerId),
+      to: graphRoleNodeId(payload.roleId),
+      type: "revealed_as",
+      evidenceId: evidence.id,
+      observationId: evidence.observationId,
+      day: evidence.day,
+      night: evidence.night,
+      visibility: evidence.visibility,
+      trust: 1,
+      metadata: { reason: payload.reason ?? "", phase: payload.phase ?? "" },
+    });
+  }
+}
+
+function refreshKnowledgeGraphTrustForSource(agent, sourcePlayerId) {
+  if (!agent || !sourcePlayerId) {
+    return;
+  }
+  const evidenceTrustById = new Map();
+  (agent.evidenceBook ?? []).forEach((entry) => {
+    if (entry.sourceId === sourcePlayerId && entry.id) {
+      evidenceTrustById.set(entry.id, entry.sourceTrust);
+    }
+  });
+  if (evidenceTrustById.size === 0) {
+    return;
+  }
+  const sourceNodeId = graphPlayerNodeId(sourcePlayerId);
+  const graph = ensureKnowledgeGraph(agent);
+  graph.edges.forEach((edge) => {
+    if (evidenceTrustById.has(edge.evidenceId)) {
+      edge.trust = evidenceTrustById.get(edge.evidenceId);
+    } else if (edge.type === "source_of" && edge.from === sourceNodeId && evidenceTrustById.has(edge.to?.replace(/^evidence:/, ""))) {
+      edge.trust = evidenceTrustById.get(edge.to.replace(/^evidence:/, ""));
+    }
+  });
+}
+
 function pushEvidence(agent, evidence) {
   agent.evidenceBook = Array.isArray(agent.evidenceBook) ? agent.evidenceBook : [];
   if (evidence.observationId && agent.evidenceBook.some((entry) => entry.observationId === evidence.observationId)) {
     return evidence;
   }
   agent.evidenceBook.push(evidence);
+  addKnowledgeGraphForEvidence(agent, evidence);
   if (agent.evidenceBook.length > MAX_AGENT_EVIDENCE) {
     agent.evidenceBook.splice(0, agent.evidenceBook.length - MAX_AGENT_EVIDENCE);
   }
@@ -300,6 +603,9 @@ export function ensureAIAgents(state) {
       existing.publicClaimByPlayerId = existing.publicClaimByPlayerId ?? {};
       existing.privateClaimByPlayerId = existing.privateClaimByPlayerId ?? {};
       existing.sourceTrust = existing.sourceTrust ?? {};
+      existing.sourceTrustByPlayerId = existing.sourceTrustByPlayerId ?? {};
+      existing.trustEvents = Array.isArray(existing.trustEvents) ? existing.trustEvents : [];
+      ensureKnowledgeGraph(existing);
       const evidenceObservationIds = new Set(existing.evidenceBook.map((entry) => entry.observationId).filter(Boolean));
       existing.observations.forEach((observation) => {
         if (!observation?.id || evidenceObservationIds.has(observation.id)) {
@@ -359,10 +665,10 @@ function evidenceDialogueWeight(evidence) {
 function contaminationSuffix(evidence) {
   const risk = clamp01(evidence.contaminationRisk, 0);
   if (risk >= 0.58) {
-    return "（可信度较低，可能被醉酒/中毒或私聊口径污染）";
+    return "（这条先打折听）";
   }
   if (risk >= 0.36) {
-    return "（可信度有限，需要复核）";
+    return "（先复核）";
   }
   return "";
 }
@@ -379,9 +685,9 @@ function summaryForDialogueEvidence(state, evidence, options = {}) {
   }
   if (isPrivate && options.redactPrivate !== false) {
     if (evidence.source === "storyteller" || evidence.kind === "night-info") {
-      return `我自己的夜间信息牵到 ${targetSeat} 号${suffix}`;
+      return `夜里那条信息让我先看 ${targetSeat} 号${suffix}`;
     }
-    return `我私下听到的口径把焦点指向 ${targetSeat} 号${suffix}`;
+    return `有人私下提到 ${targetSeat} 号${suffix}`;
   }
 
   if (evidence.kind === "claim") {
@@ -414,7 +720,7 @@ function summaryForDialogueEvidence(state, evidence, options = {}) {
     if (evidence.source === "private-chat") {
       return `有人私下声称的夜间信息提到 ${targetSeat} 号${suffix}`;
     }
-    return `我自己的夜间信息指向 ${targetSeat} 号${suffix}`;
+    return `夜里那条信息让我先看 ${targetSeat} 号${suffix}`;
   }
   const generic = conciseText(evidence.text, 30);
   return generic ? `可见记录：${generic}${suffix}` : `可见记录把焦点指向 ${targetSeat} 号${suffix}`;
@@ -524,7 +830,7 @@ export function addAgentEvidence(state, playerOrId, evidence) {
     polarity: evidence.polarity ?? "neutral",
     reliability: evidence.reliability ?? "uncertain",
     reliabilityScore,
-    sourceTrust: normalizeReliability(agent.sourceTrust?.[source], source),
+    sourceTrust: dynamicSourceTrust(agent, source, evidence.sourceId ?? "manual"),
     contaminationRisk: Number.isFinite(evidence.contaminationRisk)
       ? Math.max(0, Math.min(1, evidence.contaminationRisk))
       : Math.max(0.08, 1 - reliabilityScore),
@@ -609,6 +915,91 @@ export function getSuspicionTrailForTarget(state, playerOrId, targetId) {
   return agent.beliefTrailByPlayerId?.[targetId] ?? [];
 }
 
+export function getAgentSourceTrustForPlayer(state, viewerOrId, sourcePlayerId) {
+  const agent = getAIAgent(state, viewerOrId);
+  if (!agent || !sourcePlayerId) {
+    return 0.5;
+  }
+  return Number.isFinite(agent.sourceTrustByPlayerId?.[sourcePlayerId])
+    ? agent.sourceTrustByPlayerId[sourcePlayerId]
+    : 0.5;
+}
+
+export function getAgentKnowledgeGraph(state, viewerOrId, options = {}) {
+  const agent = getAIAgent(state, viewerOrId);
+  if (!agent) {
+    return { version: 1, nodes: [], edges: [] };
+  }
+  const graph = ensureKnowledgeGraph(agent);
+  if (!options.targetId && !options.type) {
+    return graph;
+  }
+  const targetNodeId = graphPlayerNodeId(options.targetId);
+  const edges = graph.edges.filter((edge) => {
+    if (options.type && edge.type !== options.type) {
+      return false;
+    }
+    if (targetNodeId && edge.from !== targetNodeId && edge.to !== targetNodeId) {
+      return false;
+    }
+    return true;
+  });
+  const nodeIds = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+  return {
+    version: graph.version,
+    nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
+    edges,
+  };
+}
+
+export function updateAgentSourceTrustForPlayer(
+  state,
+  viewerOrId,
+  sourcePlayerId,
+  { delta = 0, reason = "", eventKey = "", evidenceId = "", source = "social", metadata = {} } = {}
+) {
+  const agent = getAIAgent(state, viewerOrId);
+  if (!agent || !sourcePlayerId || !Number.isFinite(delta) || delta === 0) {
+    return null;
+  }
+  agent.sourceTrustByPlayerId = agent.sourceTrustByPlayerId ?? {};
+  agent.trustEvents = Array.isArray(agent.trustEvents) ? agent.trustEvents : [];
+  const key = eventKey || `${reason}:${sourcePlayerId}:${evidenceId}:${state.day ?? 0}:${state.night ?? 0}`;
+  if (agent.trustEvents.some((entry) => entry.eventKey === key)) {
+    return null;
+  }
+  const before = getAgentSourceTrustForPlayer(state, agent.ownerId, sourcePlayerId);
+  const after = clamp01(before + delta, before);
+  agent.sourceTrustByPlayerId[sourcePlayerId] = after;
+  const record = {
+    id: `trust-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    eventKey: key,
+    day: state.day ?? 0,
+    night: state.night ?? 0,
+    phase: state.phase ?? "",
+    timestamp: Date.now(),
+    sourcePlayerId,
+    source,
+    reason,
+    before,
+    after,
+    delta,
+    evidenceId,
+    metadata,
+  };
+  agent.trustEvents.push(record);
+  if (agent.trustEvents.length > 120) {
+    agent.trustEvents.splice(0, agent.trustEvents.length - 120);
+  }
+  (agent.evidenceBook ?? []).forEach((entry) => {
+    if (entry.sourceId === sourcePlayerId) {
+      entry.sourceTrust = dynamicSourceTrust(agent, entry.source, entry.sourceId);
+    }
+  });
+  refreshKnowledgeGraphTrustForSource(agent, sourcePlayerId);
+  return record;
+}
+
 function observeAllAI(state, observationFactory) {
   ensureAIAgents(state);
   Object.values(state.aiAgents ?? {}).forEach((agent) => {
@@ -690,13 +1081,16 @@ export function recordEvilRecognitionForAgents(state) {
     });
 }
 
-export function recordPublicSpeechForAgents(state, { speakerId, text, focusId = null, roundInDay = null, orderIndex = null }) {
+export function recordPublicSpeechForAgents(
+  state,
+  { speakerId, text, focusId = null, roundInDay = null, orderIndex = null, polarity = "" }
+) {
   observeAllAI(state, {
     kind: "public-speech",
     source: "public-chat",
     private: false,
     text,
-    payload: { speakerId, focusId, roundInDay, orderIndex },
+    payload: { speakerId, focusId, roundInDay, orderIndex, polarity },
   });
 }
 
@@ -709,6 +1103,22 @@ export function recordPrivateWhisperForAgents(state, { speakerId, targetId, text
       text,
       payload: { speakerId, targetId, intent, focusId },
     });
+  });
+}
+
+export function recordPrivateChannelForAgents(state, { speakerId, targetId, aiToAi = false }) {
+  observeAllAI(state, {
+    kind: "private-channel",
+    source: "social-read",
+    private: false,
+    reliability: "social",
+    text: `Private channel observed: ${speakerId} -> ${targetId}.`,
+    payload: {
+      speakerId,
+      targetId,
+      aiToAi: !!aiToAi,
+      contentKnown: false,
+    },
   });
 }
 
@@ -864,6 +1274,133 @@ export function getVisibleSpeeches(state, viewerPlayer) {
     }
     return speech.viewerId === viewerId || speech.playerId === viewerId || speech.targetId === viewerId;
   });
+}
+
+function playerPublicView(state, viewerPlayer, player) {
+  const suspicion = viewerPlayer?.suspicion?.[player.id];
+  return {
+    id: player.id,
+    name: player.name,
+    seatIndex: player.seatIndex,
+    alive: !!player.alive,
+    dead: !player.alive,
+    isHuman: !!player.isHuman,
+    ghostVote: !!player.ghostVote,
+    nominatedToday: !!player.nominatedToday,
+    beenNominatedToday: !!player.beenNominatedToday,
+    publicClaimRoleId: player.publicClaimRoleId ?? null,
+    markedRoleId: player.markedRoleId ?? null,
+    suspicion: Number.isFinite(suspicion) ? suspicion : 0.5,
+    reasonFlags: viewerPlayer?.reasonFlags?.[player.id] ?? [],
+  };
+}
+
+function audienceRelationFor(state, viewerPlayer, targetPlayer) {
+  if (!targetPlayer) {
+    return "none";
+  }
+  if (viewerPlayer?.id === targetPlayer.id) {
+    return "self";
+  }
+  if (areKnownAllies(state, viewerPlayer, targetPlayer)) {
+    return "known-ally";
+  }
+  if (targetPlayer.isHuman) {
+    return "human";
+  }
+  return "unknown";
+}
+
+export function buildAgentView(state, viewerPlayerOrId, options = {}) {
+  ensureAIAgents(state);
+  const viewerPlayer =
+    typeof viewerPlayerOrId === "string"
+      ? (state.players ?? []).find((entry) => entry.id === viewerPlayerOrId)
+      : viewerPlayerOrId;
+  if (!viewerPlayer) {
+    return null;
+  }
+
+  const agent = getAIAgent(state, viewerPlayer);
+  const audience = options.audience ?? "self";
+  const targetPlayer = options.targetId
+    ? (state.players ?? []).find((entry) => entry.id === options.targetId) ?? null
+    : null;
+  const knownSelfTeam = agent?.knownSelfTeam ?? viewerPlayer.apparentTeam ?? null;
+  const canRevealEvilKnowledge =
+    knownSelfTeam === "evil" && (audience !== "public" || targetPlayer?.id === viewerPlayer.id);
+  const knownBluffRoleIds = canRevealEvilKnowledge ? [...(agent?.knownBluffRoleIds ?? [])] : [];
+  const visibleClaims = getVisibleClaims(state, viewerPlayer);
+  const visibleSpeeches = getVisibleSpeeches(state, viewerPlayer);
+  const targets = (state.players ?? []).map((player) => playerPublicView(state, viewerPlayer, player));
+
+  const view = {
+    kind: "agent-view",
+    viewerId: viewerPlayer.id,
+    day: state.day ?? 0,
+    night: state.night ?? 0,
+    phase: state.phase ?? "",
+    dayStage: state.dayStage ?? "",
+    audience,
+    targetId: targetPlayer?.id ?? null,
+    audienceRelation: audienceRelationFor(state, viewerPlayer, targetPlayer),
+    canUsePrivateEvidence: audience !== "public",
+    canRevealEvilKnowledge,
+    self: {
+      id: viewerPlayer.id,
+      name: viewerPlayer.name,
+      seatIndex: viewerPlayer.seatIndex,
+      alive: !!viewerPlayer.alive,
+      isHuman: !!viewerPlayer.isHuman,
+      teamKnownToSelf: knownSelfTeam,
+      roleKnownToSelf: agent?.knownSelfRoleId ?? viewerPlayer.apparentRoleId ?? null,
+      perceivedRoleId: viewerPlayer.apparentRoleId ?? agent?.knownSelfRoleId ?? null,
+    },
+    knownAllies: [...(agent?.knownAllyIds ?? [])],
+    knownDemonId: canRevealEvilKnowledge ? agent?.knownDemonId ?? null : null,
+    knownMinionIds: canRevealEvilKnowledge ? [...(agent?.knownMinionIds ?? [])] : [],
+    knownBluffRoleIds,
+    visibleClaims,
+    visibleSpeeches,
+    visibleVotes: [...(state.events?.votes ?? [])],
+    visibleNominations: [...(state.events?.nominations ?? [])],
+    visibleDeaths: [
+      ...(state.events?.nightDeaths ?? []),
+      ...(state.events?.executions ?? []),
+      ...(state.events?.deaths ?? []),
+    ],
+    targets,
+    targetById: Object.fromEntries(targets.map((target) => [target.id, target])),
+    evidenceForTarget(targetId, evidenceOptions = {}) {
+      const scopedOptions = {
+        ...evidenceOptions,
+        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
+        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
+      };
+      return getDialogueEvidenceForTarget(state, viewerPlayer, targetId, scopedOptions);
+    },
+    summariesForTarget(targetId, evidenceOptions = {}) {
+      const scopedOptions = {
+        ...evidenceOptions,
+        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
+        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
+      };
+      return summarizeEvidenceForDialogue(state, viewerPlayer, targetId, scopedOptions);
+    },
+    trailForTarget(targetId) {
+      return getSuspicionTrailForTarget(state, viewerPlayer, targetId);
+    },
+    evidenceCountForTarget(targetId) {
+      return countAgentEvidence(agent, targetId);
+    },
+    graphForTarget(targetId, graphOptions = {}) {
+      return getAgentKnowledgeGraph(state, viewerPlayer, { ...graphOptions, targetId });
+    },
+  };
+  Object.defineProperty(view, "state", { value: state, enumerable: false });
+  Object.defineProperty(view, "viewerPlayer", { value: viewerPlayer, enumerable: false });
+  Object.defineProperty(view, "agent", { value: agent, enumerable: false });
+  return view;
 }
 
 export function countAgentEvidence(agent, targetId) {

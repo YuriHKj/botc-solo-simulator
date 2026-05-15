@@ -299,6 +299,11 @@ let vm = assertOk(processed, "fresh demo state");
 assert.equal(vm.players.length, 9, "fresh demo should export 9 players");
 assert.ok(vm.players.some((player) => player.human), "fresh demo should include the human player");
 summary.push({ type: "fresh-state", status: vm.action.status, message: vm.action.message ?? "" });
+assert.equal(vm.phase, "night", "fresh demo should start on the visible first night");
+
+vm = writeAction("phase", { stage: "day" });
+assert.equal(vm.phase, "day", "first night should resolve into day one");
+assert.equal(vm.day, 1, "first resolved day should be D1");
 
 const firstTarget = vm.players.find((player) => !player.human && player.alive);
 assert.ok(firstTarget, "acceptance needs a living non-human target");

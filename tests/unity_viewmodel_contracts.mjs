@@ -28,7 +28,30 @@ function testUnityViewModelShape() {
     status: "ok",
     message: "私聊已刷新。",
     updatedAt: "2026-05-08T00:00:00.000Z",
+    llmRenderer: {
+      enabled: true,
+      provider: "mock",
+      source: "mock",
+      model: "mock",
+      touched: 2,
+      fallback: 1,
+      reason: "",
+      updatedAt: "2026-05-08T00:00:01.000Z",
+    },
   };
+  state.aiDialogue = state.aiDialogue ?? {};
+  state.aiDialogue.timeline = [
+    ...(Array.isArray(state.aiDialogue.timeline) ? state.aiDialogue.timeline : []),
+    {
+      id: "llm-viewmodel-test",
+      mode: "public",
+      speakerId: state.players.find((player) => !player.isHuman)?.id ?? "",
+      text: "7号这里先听回应。",
+      day: state.day ?? 1,
+      night: state.night ?? 1,
+      llmRender: { source: "mock", fallbackUsed: false, reason: "" },
+    },
+  ];
   const aiInsights = getAIInsightRows(state);
   const vm = buildUnityViewModel(state, { aiInsights, generatedAt: new Date("2026-05-05T00:00:00.000Z") });
 
@@ -43,6 +66,15 @@ function testUnityViewModelShape() {
   assert.ok(Array.isArray(vm.timeline));
   assert.ok(vm.action, "Unity viewmodel should include action bridge status");
   assert.equal(vm.action.updatedAt, "2026-05-08T00:00:00.000Z", "Unity viewmodel should include bridge updatedAt");
+  assert.equal(vm.llmRenderer.provider, "mock", "Unity viewmodel should expose LLM renderer status");
+  assert.equal(vm.llmRenderer.model, "mock", "Unity viewmodel should expose the resolved LLM model");
+  assert.equal(vm.action.llmRenderer.touched, 2, "Unity action status should include LLM renderer status");
+  assert.match(vm.actionSummary, /LLM润色/, "action summary should show active LLM polishing status");
+  assert.equal(
+    vm.timeline.find((entry) => entry.id === "llm-viewmodel-test")?.llmRender?.source,
+    "mock",
+    "timeline entries should preserve LLM render metadata for UI badges"
+  );
   assert.ok(vm.phaseObjectiveTitle, "Unity viewmodel should include phase objective title");
   assert.ok(vm.phaseObjectiveHint, "Unity viewmodel should include phase objective hint");
   assert.ok(vm.phaseAdvance, "Unity viewmodel should include phase advance guard state");
@@ -65,6 +97,9 @@ function testUnityViewModelShape() {
   assert.ok(vm.scriptHandbook, "Unity viewmodel should include script handbook data");
   assert.ok(Array.isArray(vm.scriptHandbook.roles));
   assert.ok(Array.isArray(vm.scriptHandbook.firstNightOrder));
+  const washerwoman = vm.scriptHandbook.roles.find((role) => role.id === "washerwoman");
+  assert.ok(washerwoman?.ability?.includes("镇民角色"), "handbook roles should include official ability text");
+  assert.ok(Array.isArray(washerwoman.reminders), "handbook roles should expose official reminder tokens");
 
   const human = vm.players.find((entry) => entry.human);
   assert.ok(human, "human player should be exported");
@@ -105,8 +140,13 @@ function testUnityViewModelPhaseAdvanceGuardMatrix() {
   state.dayStageMeta.publicRounds = 1;
   vm = buildUnityViewModel(state, { aiInsights: getAIInsightRows(state) });
   assert.equal(vm.phaseAdvance.targetStage, "night", "nomination should advance toward night");
-  assert.equal(vm.phaseAdvance.blocked, true, "unplanned next-night human action should block ending the day");
-  assert.ok(vm.phaseAdvance.reason.includes("夜"), "night action blocker should be visible");
+  assert.equal(vm.humanNightAction.available, false, "next-night human action should not be exported during the day");
+  assert.equal(vm.phaseAdvance.blocked, false, "unplanned next-night human action should not block ending the current day");
+  assert.equal(
+    vm.phaseAdvance.blockers.some((entry) => /夜间|night/i.test(entry)),
+    false,
+    "day phase advance blockers should not mention next-night actions"
+  );
 }
 
 function testUnityViewModelJsonRoundTrip() {
@@ -146,6 +186,17 @@ function testUnityViewModelRoleVisibilityMatrix() {
   let exportedHidden = vm.players.find((player) => player.id === hidden.id);
   assert.equal(exportedHidden.revealed, false, "non-grimoire view should not reveal other players");
   assert.equal(exportedHidden.actualRoleId, "", "non-grimoire view should not export hidden actual roles");
+
+  state.grimoireNotes = {
+    ...(state.grimoireNotes ?? {}),
+    [hidden.id]: { ...(state.grimoireNotes?.[hidden.id] ?? {}), markedRoleId: "soldier", reminders: [] },
+  };
+  vm = buildUnityViewModel(state, { aiInsights: getAIInsightRows(state) });
+  exportedHidden = vm.players.find((player) => player.id === hidden.id);
+  assert.equal(exportedHidden.revealed, false, "manual role marks should not count as revealed identity");
+  assert.equal(exportedHidden.roleId, "", "manual role marks should stay separate from visible roleId");
+  assert.equal(exportedHidden.markedRoleId, "soldier", "manual role marks should be exported as mark metadata");
+  assert.equal(exportedHidden.markedRoleName, "士兵", "manual role marks should include display names");
 
   state.grimoireView = true;
   vm = buildUnityViewModel(state, { aiInsights: getAIInsightRows(state) });
@@ -268,6 +319,12 @@ function testUnityViewModelConsumesInteractiveFields() {
         mode: "whisper-in",
         speakerId: other.id,
         targetId: human.id,
+        focusId: other.id,
+        intent: "reason",
+        evidenceSummary: "3号的说法和公开身份对不上。",
+        evidenceKind: "claim-conflict",
+        questionToAsk: "让 3号 解释昨晚信息。",
+        followUpPrompts: ["你为什么这么判断？", "你愿意给身份范围吗？"],
         text: "这句私聊只给主视角看。",
         day: state.day,
         night: state.night,
@@ -295,6 +352,11 @@ function testUnityViewModelConsumesInteractiveFields() {
   const exportedOther = vm.players.find((player) => player.id === other.id);
   assert.equal(vm.timeline.length, 2);
   assert.equal(vm.timeline[1].targetId, human.id);
+  assert.equal(vm.timeline[1].intent, "reason");
+  assert.equal(vm.timeline[1].evidenceKind, "claim-conflict");
+  assert.equal(vm.timeline[1].evidenceSummary, "3号的说法和公开身份对不上。");
+  assert.equal(vm.timeline[1].questionToAsk, "让 3号 解释昨晚信息。");
+  assert.deepEqual(vm.timeline[1].followUpPrompts, ["你为什么这么判断？", "你愿意给身份范围吗？"]);
   assert.deepEqual(vm.storytellerQueue, ["等待洗衣妇选择两名玩家。"]);
   assert.equal(vm.storytellerQueueDetails.length, 1);
   assert.equal(vm.storytellerQueueDetails[0].current, true);

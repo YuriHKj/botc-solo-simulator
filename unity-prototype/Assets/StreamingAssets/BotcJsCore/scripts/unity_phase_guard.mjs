@@ -91,7 +91,7 @@ export function buildUnityPhaseAdvance(state, { targetStage = "", confirmed = fa
       }
       const rounds = state.dayStageMeta?.publicRounds ?? 0;
       if (rounds <= 0) {
-        blockers.push("至少进行一轮公聊后，才能进入提名。");
+        blockers.push("至少推进一次公聊对话后，才能进入提名。");
       }
       if (dayAction.available && !hasSelectedPlan(dayAction)) {
         const warning = `白天行动尚未处理：${dayAction.roleName ?? "角色行动"}。`;

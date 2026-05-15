@@ -71,6 +71,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
 
 如果已有 `unity-build/BOTC_Unity_Prototype.exe`，可以直接启动 exe。构建版会尝试从自身 `StreamingAssets/BotcJsRuntime/node.exe` 拉起 JS Core bridge，并读取同目录下的 `unity_state.json` / `unity_viewmodel.json`。
 
+需要带本地模型润色的试玩包时，先准备 `third_party/LocalLLM`，再运行：
+
+```powershell
+npm run package:unity-ai -- -LocalLlmSource third_party\LocalLLM
+```
+
+如果 `third_party/LocalLLM` 内含可用 `llama-server.exe` 与 GGUF 模型，包内会写入 `botc_ai_polish.enabled`，玩家直接双击 `BOTC_Unity_Prototype.exe` 就会自动启用本地润色；`Start AI Polished.bat` 和 `Start Basic.bat` 只作为备用入口。详细结构和许可证边界见 `docs/packaging/AI_POLISHED_UNITY_RELEASE.md`。
+
 开发期推荐从仓库根目录运行：
 
 ```powershell
