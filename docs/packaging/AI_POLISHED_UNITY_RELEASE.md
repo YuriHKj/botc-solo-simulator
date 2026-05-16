@@ -16,7 +16,7 @@ LocalLLM/
   enable_ai_polish.flag
   llama-server.exe
   models/
-    qwen2.5-0.5b-instruct-q4_k_m.gguf
+    model.gguf
   licenses/
     llama.cpp-MIT.txt
     qwen2.5-0.5b-instruct-APACHE-2.0.txt
@@ -61,6 +61,24 @@ npm run package:unity-ai:quality
 ```
 
 The quality tier uses `Qwen2.5-1.5B-Instruct-GGUF` Q4_K_M. It is larger and slower to start, but gives the renderer more language capacity than the default 0.5B package.
+
+Premium 2-3GB package:
+
+```powershell
+npm run prepare:local-llm:premium
+npm run package:unity-ai:premium
+```
+
+The premium tier uses `Qwen3-4B-GGUF` Q4_K_M from the official Qwen repo (`https://huggingface.co/Qwen/Qwen3-4B-GGUF`). It targets a final zip in the 2-3GB range and is the recommended upper tier for public testing on this machine.
+
+Upper-bound experiment:
+
+```powershell
+npm run prepare:local-llm:premium-max
+npm run package:unity-ai:premium-max
+```
+
+The premium-max tier uses Qwen3 4B Q5_K_M. It is closer to the 3GB ceiling and should be treated as an experiment until startup latency and language quality are measured.
 
 Manual packaging with an existing LocalLLM folder:
 

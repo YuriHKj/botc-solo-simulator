@@ -108,7 +108,9 @@ namespace BotcSolo.UnityPrototype
             rt.anchoredPosition = position;
             rt.sizeDelta = new Vector2(176f, 196f);
             root.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
-            root.GetComponent<Button>().onClick.AddListener(() =>
+            var tokenButton = root.GetComponent<Button>();
+            ApplyButtonStyle(tokenButton);
+            tokenButton.onClick.AddListener(() =>
             {
                 if (TryToggleGrimoireActionTarget(player)) return;
                 ShowTokenDialogue(player);
@@ -178,9 +180,9 @@ namespace BotcSolo.UnityPrototype
             {
                 RenderMarkedRoleBadge(root.transform, player);
             }
-            if (false && !player.alive)
+            if (!player.alive)
             {
-                var shroud = AddImage("Shroud", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-38f, -122f), new Vector2(38f, -28f), Color.white);
+                var shroud = AddImage("Shroud", root.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-54f, -126f), new Vector2(54f, -16f), Color.white);
                 shroud.sprite = SpriteFromResource("Botc/ui/shroud1");
                 shroud.preserveAspect = true;
                 shroud.raycastTarget = false;
@@ -238,7 +240,6 @@ namespace BotcSolo.UnityPrototype
             var row = 0;
             if (!player.alive)
             {
-                AddTokenStatusBadge(tokenRoot, "亡", new Vector2(-70f, -42f - row * 34f), new Color(0.035f, 0.035f, 0.040f, 0.92f), new Color(0.78f, 0.84f, 0.90f, 0.40f));
                 row++;
             }
 
@@ -331,9 +332,29 @@ namespace BotcSolo.UnityPrototype
             reminder.sprite = SpriteFromResource("Botc/ui/reminder1") ?? SpriteFromResource("Botc/ui/token1") ?? GetCircleFillSprite();
             reminder.preserveAspect = true;
             reminder.raycastTarget = false;
+            var role = RoleForReminderLabel(reminderLabel);
+            var roleSprite = role == null ? null : SpriteFromResource($"Botc/roles/{role.id}");
+            if (roleSprite != null)
+            {
+                var icon = AddImage("Reminder Role Icon", reminder.transform, Vector2.zero, Vector2.one, new Vector2(8f, 8f), new Vector2(-8f, -10f), new Color(1f, 1f, 1f, 0.82f));
+                icon.sprite = roleSprite;
+                icon.preserveAspect = true;
+                icon.raycastTarget = false;
+            }
             var text = AddText("Reminder Text", reminder.transform, Vector2.zero, Vector2.one, new Vector2(3f, 4f), new Vector2(-3f, -4f), ReminderShort(reminderLabel), 10, TextAnchor.MiddleCenter, FontStyle.Bold);
-            text.color = new Color(0.08f, 0.045f, 0.025f, 0.96f);
+            text.color = roleSprite != null ? new Color(0.05f, 0.030f, 0.018f, 0.78f) : new Color(0.08f, 0.045f, 0.025f, 0.96f);
             text.raycastTarget = false;
+        }
+
+
+        private ScriptRoleViewModel RoleForReminderLabel(string reminderLabel)
+        {
+            if (string.IsNullOrWhiteSpace(reminderLabel)) return null;
+            var clean = reminderLabel.Trim();
+            return (vm?.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>())
+                .FirstOrDefault((role) => role != null
+                    && ((role.reminders ?? Array.Empty<string>()).Any((entry) => string.Equals(entry?.Trim(), clean, StringComparison.OrdinalIgnoreCase))
+                        || (role.remindersGlobal ?? Array.Empty<string>()).Any((entry) => string.Equals(entry?.Trim(), clean, StringComparison.OrdinalIgnoreCase))));
         }
 
 

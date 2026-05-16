@@ -1390,8 +1390,13 @@ export function buildAgentView(state, viewerPlayerOrId, options = {}) {
     trailForTarget(targetId) {
       return getSuspicionTrailForTarget(state, viewerPlayer, targetId);
     },
-    evidenceCountForTarget(targetId) {
-      return countAgentEvidence(agent, targetId);
+    evidenceCountForTarget(targetId, evidenceOptions = {}) {
+      const scopedOptions = {
+        ...evidenceOptions,
+        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
+        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
+      };
+      return getDialogueEvidenceForTarget(state, viewerPlayer, targetId, scopedOptions).length;
     },
     graphForTarget(targetId, graphOptions = {}) {
       return getAgentKnowledgeGraph(state, viewerPlayer, { ...graphOptions, targetId });

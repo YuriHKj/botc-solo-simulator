@@ -511,3 +511,27 @@ Fun/fairness guardrails:
 - Public use of private raw text: low-to-medium, mostly guarded but old `privateNotes` remain brittle.
 - Strategy inconsistency risk: medium, improved by statement memory but not fully persona-driven.
 - Direct truth read sprawl: medium; `agentView` has landed for evidence reads, but claim and evil-alliance helpers still need migration.
+
+## 2026-05-16 Strategy View Update
+
+Newly agent-view aligned:
+
+- `buildAgentStrategyView(...)` is now the named compatibility layer for per-agent strategy decisions.
+- `buildAIStrategyContext(...)` remains compatible with existing callers and now carries `worldCandidates`.
+- `buildLightweightWorldCandidates(...)` creates top-K attention worlds from the agent's own visible suspicion, evidence counts, public pressure, legal self-team knowledge, and optional `evilWorldPlan`.
+- `simulateCoalitionVote(...)` estimates vote support from per-voter public suspicion and strategy thresholds; it does not resolve the vote.
+- `buildNominationProposal(...)` now carries `coalition`, `expectedSupport`, and `worldCandidates` metadata.
+- `composePublicLine(...)`, proactive private whispers, and AI-AI whispers can read strategy context expression hints.
+
+Still not fully migrated:
+
+- Claim disclosure and role claim helpers still read some raw player fields because they must distinguish real role, perceived role, bluff role, and public claim memory. These remain guarded by claim-policy tests, but they are not fully expressed as `agentStrategyView` inputs yet.
+- Evil-alliance private responses still legally use true evil-team knowledge for allied private channels. Non-allied public/private channels should only receive performance wording, not alliance facts.
+- Voting is still a bounded heuristic plus coalition estimate, not a complete alliance simulation or social graph solver.
+- World candidates are attention hints, not a complete multi-world inference engine.
+
+Fairness note:
+
+- Good AI receives no `evilWorldPlan`.
+- Public expression still passes through public evidence contracts.
+- Private strategy hints may use private-visible evidence, but public wording should not quote private raw text unless already public.

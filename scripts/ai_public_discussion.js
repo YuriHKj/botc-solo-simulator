@@ -6,6 +6,7 @@ export function createAIPublicDiscussion(deps) {
     ensureDialogueState,
     refreshAIBeliefs,
     buildAgentView,
+    buildAIStrategyContext,
     buildAIThoughtFrame,
     rankTargets,
     resolveStableFocus,
@@ -118,7 +119,17 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
       rng,
     });
   const ranked = rankTargets(aiPlayer, state, 3);
+  const forcedFocusPlayer = options.forcedFocusId
+    ? state.players.find((entry) => entry.id === options.forcedFocusId)
+    : null;
+  const forcedCandidate = forcedFocusPlayer
+    ? ranked.find((entry) => entry.player.id === forcedFocusPlayer.id) ?? {
+        player: forcedFocusPlayer,
+        score: aiPlayer.suspicion?.[forcedFocusPlayer.id] ?? 0.5,
+      }
+    : null;
   const topCandidate =
+    forcedCandidate ??
     (thoughtFrame?.primaryConcernId
       ? ranked.find((entry) => entry.player.id === thoughtFrame.primaryConcernId)
       : null) ??
@@ -180,6 +191,17 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
   const evidenceContract = buildDialogueEvidenceContract(agentView ?? state, aiPlayer, top.player, {
     publicOnly: true,
   });
+  const strategyContext = buildAIStrategyContext
+    ? buildAIStrategyContext(state, aiPlayer, {
+        agentView,
+        audience: "public",
+        stage: "public",
+        targetId: top.player.id,
+      })
+    : null;
+  const strategyLine = strategyContext?.evilPlanContextLine && aiPlayer.team === "evil"
+    ? strategyContext.evilPlanContextLine
+    : "";
   const evidence = evidenceContract.summaries;
   const reasonText = evidenceContract.spokenText || evidenceContract.text;
   const scoreMood = top.score >= 0.68 ? "压力很高" : top.score >= hardPressThreshold ? "有明显压力" : top.score >= 0.42 ? "需要解释" : "先观察";
@@ -293,6 +315,7 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
       : pickCorpusTemplate("public.tails.hold", {}, rng, ["我还没说必出，但不能让 ta 舒服过白天。"]),
     pickPersonaTemplate(persona, "publicTails", {}, rng, ["先用信息和票型压人，别只凭一句感觉出人。"]),
     pickCorpusTemplate(personaTailPath, {}, rng, ["我先听回应，不急着把票打死。"]),
+    strategyLine,
     stanceTail,
   ].filter(Boolean);
 
@@ -394,6 +417,7 @@ function composePublicLine(state, aiPlayer, roundInDay, rng = Math.random, optio
     debateBeat: options.debateBeat ?? "opening",
     evidenceContract,
     thoughtFrame,
+    strategyContext,
   };
 }
 
@@ -471,6 +495,7 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
   let composed = composePublicLine(state, aiPlayer, roundInDay, rng, {
     debateBeat,
     agentView,
+    forcedFocusId: state.dayStageMeta?.publicConversation?.pendingResponseFocusId ?? "",
     publicClaimRoleId: claimRoleId,
     thoughtFrame,
   });
@@ -596,6 +621,9 @@ function ensurePublicConversationClock(state) {
     pressure: Number(existing.pressure ?? 0) || 0,
     activeSpeakerId: existing.activeSpeakerId ?? null,
     focusId: existing.focusId ?? null,
+    pendingResponseSpeakerId: existing.pendingResponseSpeakerId ?? null,
+    pendingResponseFocusId: existing.pendingResponseFocusId ?? null,
+    pendingQuestionText: existing.pendingQuestionText ?? "",
     canContinue: existing.canContinue ?? true,
     suggestedActions: Array.isArray(existing.suggestedActions) ? existing.suggestedActions : ["continue-public"],
     lastUpdatedDay: state.day ?? 0,
@@ -649,6 +677,13 @@ function suggestedActionsForConversation(clock, step) {
 }
 
 function speakerForConversationStep(state, clock, step, speakers) {
+  const pendingSpeakerId = state.dayStageMeta?.publicConversation?.pendingResponseSpeakerId;
+  if (pendingSpeakerId) {
+    const pendingSpeaker = speakers.find((entry) => entry.id === pendingSpeakerId);
+    if (pendingSpeaker) {
+      return pendingSpeaker;
+    }
+  }
   if (clock === "response") {
     const lastFocused = [...(state.events?.speeches ?? [])]
       .reverse()
@@ -676,7 +711,8 @@ function runAIConversationStep(state, rng = Math.random) {
   }
   const step = conversation.step ?? 0;
   const pressure = tablePressure(state);
-  const clock = conversationClockForStep(step, pressure);
+  const hasPendingResponse = !!conversation.pendingResponseSpeakerId || !!conversation.pendingResponseFocusId;
+  const clock = hasPendingResponse ? "response" : conversationClockForStep(step, pressure);
   const debateBeat = debateBeatForConversationClock(clock);
   const speaker = speakerForConversationStep(state, clock, step, speakers);
   if (!speaker) {
@@ -694,6 +730,9 @@ function runAIConversationStep(state, rng = Math.random) {
   conversation.pressure = Math.max(pressure, composed.score ?? 0);
   conversation.activeSpeakerId = speaker.id;
   conversation.focusId = composed.focusId ?? null;
+  conversation.pendingResponseSpeakerId = null;
+  conversation.pendingResponseFocusId = null;
+  conversation.pendingQuestionText = "";
   conversation.canContinue = conversation.clock !== "cooldown" || conversation.step < 6;
   conversation.suggestedActions = suggestedActionsForConversation(conversation.clock, conversation.step);
   conversation.lastUpdatedDay = state.day ?? 0;

@@ -1,5 +1,13 @@
 import { clamp, REASON_SNIPPETS, sample } from "./data.js";
-import { addLog, consumePrivateChat, getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
+import {
+  addLog,
+  consumePrivateChat,
+  getAlivePlayers,
+  getEffectiveRoleId,
+  getPlayerById,
+  getPubliclyAlivePlayers,
+  registersAsAlive,
+} from "./engine.js";
 import { inferSpeechActsFromIntent, recordUtteranceMVP } from "./dialogue_schema.js";
 import { predictDialogueSignals, voteLabelToInGameStance } from "./ml_runtime.js";
 import { createAIPrivateSocial } from "./ai_private_social.js";
@@ -44,11 +52,14 @@ import {
   applyPublicStatementContinuity as applyPublicStatementContinuityFromMemory,
   currentPublicStatementMemory,
   dayStanceLabel,
+  getSharedInfoMemory,
   publicStatementMemoryMatches,
   publicStatementMemoryPressure,
   publicStatementNominationReason,
   publicStatementVoteThresholdShift,
+  rememberSharedInfoMemory,
   rememberStatementMemory,
+  summarizeSharedInfoRepeat,
   stanceFromScore,
   statementTargetLabel,
   voteStanceFromText,
@@ -58,6 +69,19 @@ import {
   rememberAIThoughtFrame,
   thoughtFrameDisclosureLine,
 } from "./ai_thought_frame.js";
+import {
+  buildAgentStrategyView,
+  buildAIStrategyContext,
+  buildEvilWorldPlan,
+  buildLightweightWorldCandidates,
+  evilWorldPlanTargetBias,
+  evaluateGameWindow,
+  evaluateGoodDayStrategy,
+  nominationIntentForCandidate,
+  serializeStrategyContext,
+  simulateCoalitionVote,
+  voteThresholdAdjustment,
+} from "./ai_strategy.js";
 import {
   areKnownAllies,
   addAgentObservation,
@@ -87,6 +111,15 @@ import {
 
 export { applyHumanSpeechCadence, applySpeechBudget } from "./ai_speech_renderer.js";
 export { claimDisclosurePlanner, getClaimDisclosureState, getAIScriptPressureProfile } from "./ai_claim_policy.js";
+export {
+  buildAgentStrategyView,
+  buildAIStrategyContext,
+  buildEvilWorldPlan,
+  buildLightweightWorldCandidates,
+  evaluateGameWindow,
+  evaluateGoodDayStrategy,
+  simulateCoalitionVote,
+} from "./ai_strategy.js";
 
 const QUESTION_INTENT = {
   SUSPECT: "suspect",
@@ -714,12 +747,17 @@ function personaAdjustedTargetScore(aiPlayer, state, target, baseScore) {
   const memoryPressure = publicStatementMemoryMatches(currentPublicStatementMemory(state, aiPlayer.id), target.id)
     ? publicStatementMemoryPressure(currentPublicStatementMemory(state, aiPlayer.id))
     : 0;
+  const strategyContext = buildAIStrategyContext(state, aiPlayer, { audience: "public", targetId: target.id });
+  const evilPlan = strategyContext.evilWorldPlan;
   let adjusted = baseScore;
   adjusted += graphPressure.scoreDelta * profile.graphPressureWeight;
   if (aiPlayer.team === "evil" && !areKnownAllies(state, aiPlayer, target)) {
     const framingBonus = graphChains.length > 0 ? Math.min(0.055, graphChains[0].score * 0.055) : 0;
     adjusted += framingBonus;
   }
+  adjusted += evilWorldPlanTargetBias(evilPlan, target.id, {
+    isKnownAlly: areKnownAllies(state, aiPlayer, target),
+  });
   if (evidenceCount > 0) {
     adjusted += Math.min(0.06, profile.evidenceBonus + evidenceCount * 0.006);
   } else if (memoryPressure <= 0) {
@@ -1120,7 +1158,7 @@ function enforceEvilCoordination(state, aiPlayer) {
 
 function rankTargets(aiPlayer, state, limit = 3) {
   return state.players
-    .filter((entry) => entry.alive && entry.id !== aiPlayer.id)
+    .filter((entry) => registersAsAlive(state, entry) && entry.id !== aiPlayer.id)
     .map((entry) => {
       const baseScore = aiPlayer.suspicion?.[entry.id] ?? 0.5;
       return {
@@ -1142,6 +1180,7 @@ export function buildAIThoughtFrame(state, aiPlayer, options = {}) {
     rankTargets,
     expectedSupportFor,
     pickClaimRole,
+    evaluateGoodDayStrategy,
   });
 }
 function reasonSnippet(key) {
@@ -2190,7 +2229,7 @@ function pragmaticPressureContext(state, aiPlayer, options = {}) {
     lowEvidence: !!options.lowEvidence,
     dayStage: state?.dayStage ?? "",
     day: Math.max(1, Number(state?.day) || 1),
-    alive: aiPlayer?.alive !== false,
+    alive: registersAsAlive(state, aiPlayer),
     selfNominated: !!aiPlayer?.beenNominatedToday,
     hasNominated: !!aiPlayer?.nominatedToday,
   };
@@ -2250,7 +2289,7 @@ function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.ra
   const askedCount = Number(memory.claimAskedCount ?? 0);
   const humanRisk = aiPlayer.suspicion?.[human.id] ?? 0.5;
   const selfHeat = aiPlayer.suspicion?.[aiPlayer.id] ?? 0.5;
-  const pressured = selfHeat >= 0.62 || askedCount >= 2 || day >= 3 || !aiPlayer.alive;
+  const pressured = selfHeat >= 0.62 || askedCount >= 2 || day >= 3 || !registersAsAlive(state, aiPlayer);
   const disclosurePlan = claimDisclosurePlanner(state, aiPlayer, human, rng, {
     private: true,
     audience: "private",
@@ -2259,7 +2298,7 @@ function composePrivateClaimPolicy(state, aiPlayer, human, memory, rng = Math.ra
     trustScore: humanRisk,
   });
 
-  if (!aiPlayer.alive) {
+  if (!registersAsAlive(state, aiPlayer)) {
     const roleId = claimRoleForContext(state, aiPlayer, human, rng, { private: true, force: true });
     const roleName = roleNameById(state, roleId || perceivedRole?.id || actualRole?.id);
     return `我已经死了，继续藏身份收益不高。我私下先报：我是 ${roleName}。`;
@@ -2545,6 +2584,18 @@ function composeNightInfoDisclosure(state, aiPlayer, audience, rng = Math.random
 }
 
 function composePrivateNightAnswer(state, aiPlayer, human, memory = {}, rng = Math.random, options = {}) {
+  const sharedSummary = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human })
+    .map(humanizeSharedPrivateNote)
+    .filter(Boolean)
+    .join(" / ");
+  const repeatInfo = summarizeSharedInfoRepeat(state, aiPlayer, human, sharedSummary);
+  if (
+    repeatInfo.line &&
+    !shouldForceExactNightInfo(options.questionText, memory.nightAskedCount ?? 0) &&
+    !privateQuestionAsksForInfoFormat(options.questionText)
+  ) {
+    return repeatInfo.line;
+  }
   const disclosure = composeNightInfoDisclosure(state, aiPlayer, human, rng, {
     askedCount: memory.nightAskedCount ?? 0,
     trustScore: aiPlayer.suspicion?.[human.id],
@@ -2723,7 +2774,7 @@ function composePrivateResponse(state, aiPlayer, human, analysis, questionText, 
     }) || sample(openerPool, 1, rng)[0]
   );
 
-  if (!aiPlayer.alive && [QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN, QUESTION_INTENT.GENERIC, QUESTION_INTENT.SUSPECT].includes(analysis.intent)) {
+  if (!registersAsAlive(state, aiPlayer) && [QUESTION_INTENT.REASON, QUESTION_INTENT.PLAN, QUESTION_INTENT.GENERIC, QUESTION_INTENT.SUSPECT].includes(analysis.intent)) {
     lines.push(
       renderDialogueActs(state, aiPlayer, "deadPrivate", dialogueValues, rng, [
         `我已经死了，所以这段你可以当遗言看。${focus.player.name} 先问 ${followUpText}。`,
@@ -3251,6 +3302,7 @@ const publicDiscussion = createAIPublicDiscussion({
   ensureDialogueState,
   refreshAIBeliefs,
   buildAgentView,
+  buildAIStrategyContext,
   buildAIThoughtFrame,
   rankTargets,
   resolveStableFocus,
@@ -3303,6 +3355,7 @@ const privateSocial = createAIPrivateSocial({
   ensureDialogueState,
   refreshAIBeliefs,
   buildAIThoughtFrame,
+  buildAIStrategyContext,
   areKnownAllies,
   composeEvilAllianceResponse,
   composeHumanizedEvilAllianceResponse,
@@ -3317,10 +3370,12 @@ const privateSocial = createAIPrivateSocial({
   humanizeSharedPrivateNote,
   composeNightInfoDisclosure,
   rememberDayStance,
+  getSharedInfoMemory,
   collectEvidence,
   evidenceReasonText,
   statementTargetLabel,
   dayStanceLabel,
+  applyHumanSpeechCadence,
   applySpeechBudget,
   sanitizePrivateDialogueText,
   joinSpeechFragments,
@@ -3329,9 +3384,12 @@ const privateSocial = createAIPrivateSocial({
   isEarlyInfoRole,
   getPlayerById,
   addLog,
+  consumePrivateChat,
   predictDialogueSignals,
   recordPrivateWhisperForAgents,
+  rememberSharedInfoMemory,
   rememberStatementMemory,
+  summarizeSharedInfoRepeat,
   pushTimeline,
   recordUtteranceMVP,
   inferSpeechActsFromIntent,
@@ -3433,6 +3491,17 @@ export function runPrivateWhisper(
     source: "ai_private_whisper",
     intent: analysis.intent,
   });
+  if (analysis.intent === QUESTION_INTENT.NIGHT || analysis.intent === QUESTION_INTENT.CLAIM || target.publicClaimRoleId) {
+    const infoSummary = summarizeShareablePrivateNotes(target, 2, { state, audience: human })
+      .map(humanizeSharedPrivateNote)
+      .filter(Boolean)
+      .join(" / ");
+    rememberSharedInfoMemory(state, target, human, {
+      infoSummary,
+      claimRoleId: target.publicClaimRoleId ?? "",
+      source: "ai_private_whisper",
+    });
+  }
 
   pushTimeline(state, {
     mode: "whisper-out",
@@ -3566,7 +3635,13 @@ export function decideAIVote(voter, nominee, state, rng = Math.random) {
   }
 
   const suspicion = voter.suspicion?.[nominee.id] ?? 0.5;
-  if (!voter.alive && !voter.ghostVoteAvailable) {
+  const strategyContext = buildAIStrategyContext(state, voter, {
+    audience: "public",
+    stage: "nomination",
+    targetId: nominee.id,
+  });
+  const voterPubliclyAlive = registersAsAlive(state, voter);
+  if (!voterPubliclyAlive && !voter.ghostVoteAvailable) {
     return false;
   }
 
@@ -3577,7 +3652,13 @@ export function decideAIVote(voter, nominee, state, rng = Math.random) {
     const persona = voter.aiPersona ?? PERSONA_TYPES.STEADY;
     const shift = personaThresholdShift(persona) + personaStrategyProfile(persona).voteShift;
     const memoryShift = publicStatementVoteThresholdShift(state, voter, nominee);
-    return suspicion >= (voter.alive ? 0.43 + shift + memoryShift : 0.56 + shift + memoryShift);
+    const evidenceCount = strategyContext.target?.totalEvidenceCount ?? countAgentEvidence(getAIAgent(state, voter), nominee.id);
+    const strategyShift = voteThresholdAdjustment(strategyContext, {
+      suspicion,
+      evidenceCount,
+      isKnownAlly: false,
+    });
+    return suspicion >= (voterPubliclyAlive ? 0.43 + shift + memoryShift + strategyShift : 0.56 + shift + memoryShift + strategyShift);
   }
 
   const persona = voter.aiPersona ?? PERSONA_TYPES.STEADY;
@@ -3587,7 +3668,11 @@ export function decideAIVote(voter, nominee, state, rng = Math.random) {
     (evidenceCount > 0 && persona === PERSONA_TYPES.PRESSURE ? 0.025 : 0);
   const shift = personaThresholdShift(persona) + strategicShift;
   const memoryShift = publicStatementVoteThresholdShift(state, voter, nominee);
-  const threshold = voter.alive ? 0.58 + shift + memoryShift : 0.69 + shift + memoryShift;
+  const strategyShift = voteThresholdAdjustment(strategyContext, {
+    suspicion,
+    evidenceCount,
+  });
+  const threshold = voterPubliclyAlive ? 0.58 + shift + memoryShift + strategyShift : 0.69 + shift + memoryShift + strategyShift;
   return suspicion >= threshold;
 }
 
@@ -3596,7 +3681,7 @@ function expectedSupportFor(state, nomineeId) {
   if (!nominee) {
     return 0;
   }
-  return getAlivePlayers(state)
+  return getPubliclyAlivePlayers(state)
     .filter((voter) => !voter.isHuman)
     .reduce((sum, voter) => {
     if (decideAIVote(voter, nominee, state, () => 0.4)) {
@@ -3607,7 +3692,7 @@ function expectedSupportFor(state, nomineeId) {
 }
 
 function nominationThreshold(state) {
-  const aliveCount = getAlivePlayers(state).length;
+  const aliveCount = getPubliclyAlivePlayers(state).length;
   const day = state.day ?? 1;
   const publicRounds = state.dayStageMeta?.publicRounds ?? 0;
   let threshold = day <= 1 ? 0.48 : 0.52;
@@ -3623,30 +3708,62 @@ function nominationThreshold(state) {
 }
 
 function pressureReasonFor(aiPlayer, target, support, evidenceCount, threshold, evidenceSummary = "") {
+  const targetName = target?.isHuman || target?.name === "你" ? `${(target?.seatIndex ?? 0) + 1}号` : target?.name ?? "这个位置";
   if (evidenceSummary) {
-    return `我先把 ${target.name} 放上台：${evidenceSummary}。先听回应，再看票型。`;
+    return `我先提 ${targetName}。不是说现在一定出，卡点是 ${evidenceSummary}。先听他把身份和信息讲完，再看票。`;
   }
   if (evidenceCount > 0) {
-    return `我先提 ${target.name}。手里已经有 ${evidenceCount} 条线，不想让这边轻轻滑过去。`;
+    return `我先提 ${targetName}。我这里有线索牵到他，但公开信息还不够硬，先让他上台讲清楚。`;
   }
   if (support > 0) {
-    return `我先提 ${target.name}。证据还不硬，但这轮需要看大家怎么站票。`;
+    return `我先提 ${targetName}。这不是铁证，是想看他怎么防、别人怎么站票。`;
   }
-  return `我先提 ${target.name}。继续空过收益太低，至少让这个位置正面回应。`;
+  return `我先提 ${targetName}。白天不能只绕着感觉聊，先让这个位置把身份、信息和票型讲清楚。`;
+}
+
+function nominationReasonLine(state, aiPlayer, target, evidenceContract, options = {}) {
+  const targetName = statementTargetLabel(state, target?.id);
+  const publicReason = evidenceContract?.spokenText || evidenceContract?.text || "";
+  const shortReason = shortReasonText(publicReason);
+  const highConfidence = !!options.highConfidence;
+  const forcePressure = !!options.forcePressure;
+  const framing = !!options.framing;
+  if (framing) {
+    return publicReason
+      ? `台面理由我说清楚：我提 ${targetName}，主要卡在 ${publicReason}。先让他上台讲完，再看票。`
+      : `台面理由先放这：我提 ${targetName}。先让他上台讲清楚，票型也会给信息。`;
+  }
+  if (evidenceContract?.hasEvidence) {
+    if (highConfidence && !forcePressure) {
+      return `我提 ${targetName}。核心不是赶票，是 ${publicReason}。他要把这点解释清楚。`;
+    }
+    return `我先提 ${targetName}。这条还没到拍死，但 ${shortReason} 过不去，先听防守。`;
+  }
+  return `我先提 ${targetName}。${publicReason}，不是闭眼冲。`;
 }
 
 function buildNominationProposal(state, aiPlayer, candidate, threshold, rankIndex, options = {}) {
   const agentView =
     options.agentView ?? buildAgentView(state, aiPlayer, { audience: "public", targetId: candidate.player.id });
+  const strategyContext = options.strategyContext ?? buildAIStrategyContext(state, aiPlayer, {
+    agentView,
+    audience: "public",
+    stage: "nomination",
+    targetId: candidate.player.id,
+  });
   const thoughtFrame = options.thoughtFrame ?? buildAIThoughtFrame(state, aiPlayer, {
     agentView,
     audience: "public",
     stage: "nomination",
   });
   const evidenceCount = agentView
-    ? agentView.evidenceCountForTarget(candidate.player.id)
+    ? agentView.evidenceCountForTarget(candidate.player.id, { publicOnly: true, includePrivate: false })
     : countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
-  const statementReason = publicStatementNominationReason(state, aiPlayer, candidate.player.id);
+  const publicMemory = currentPublicStatementMemory(state, aiPlayer.id);
+  const statementReason =
+    publicStatementMemoryPressure(publicMemory) > 0
+      ? publicStatementNominationReason(state, aiPlayer, candidate.player.id)
+      : "";
   const evidenceContract = buildDialogueEvidenceContract(agentView ?? state, aiPlayer, candidate.player, {
     limit: 1,
     publicOnly: true,
@@ -3655,41 +3772,44 @@ function buildNominationProposal(state, aiPlayer, candidate, threshold, rankInde
   const evidenceSummary = evidenceContract.hasEvidence ? evidenceContract.text : "";
   const framing = aiPlayer.team === "evil" && !areKnownAllies(state, aiPlayer, candidate.player) && (evidenceContract.graphChains?.length ?? 0) > 0;
   const support = expectedSupportFor(state, candidate.player.id);
+  const coalition = simulateCoalitionVote(state, aiPlayer, candidate.player, { strategyContext });
+  const expectedSupport = Math.max(support, coalition.expectedYesVotes ?? 0);
   const highConfidence = candidate.score >= 0.56 && !options.forcePressure;
-  const nominationLabel = highConfidence ? "正式提名" : "先提上台";
-  const nominationTargetName = statementTargetLabel(state, candidate.player.id);
-  const nominationAct = renderDialogueActs(
-    state,
-    aiPlayer,
-    "nomination",
-    {
-      targetName: nominationTargetName,
-      reasonText: evidenceContract.spokenText || evidenceContract.text,
-      shortReason: shortReasonText(evidenceContract.spokenText || evidenceContract.text),
-      nominationLabel,
-    },
-    () => 0.37,
-    [`${nominationLabel}：${nominationTargetName} 这边需要正面回应，理由是 ${evidenceContract.spokenText || evidenceContract.text}。`],
-    { audience: "public" }
-  );
-  const rawProposalReason = statementReason
-    ? `${nominationLabel}：${statementReason}。`
+  const strategyIntent = nominationIntentForCandidate(strategyContext, {
+    targetId: candidate.player.id,
+    candidateScore: candidate.score,
+    evidenceCount,
+    support: expectedSupport,
+    highConfidence,
+    forcePressure: options.forcePressure,
+    framing,
+  });
+  const proposalReasonBase = statementReason
+    ? `我提 ${statementTargetLabel(state, candidate.player.id)}。${statementReason}。`
     : ensureEvidenceContractInText(
       highConfidence
       ? evidenceSummary
-        ? nominationAct
-        : `${nominationLabel}：${nominationTargetName} 这边需要正面回应，${evidenceContract.text}。`
+        ? nominationReasonLine(state, aiPlayer, candidate.player, evidenceContract, { highConfidence, framing })
+        : nominationReasonLine(state, aiPlayer, candidate.player, evidenceContract, { highConfidence, framing })
       : evidenceSummary
-      ? nominationAct
-      : pressureReasonFor(aiPlayer, candidate.player, support, evidenceCount, threshold, evidenceSummary),
+      ? nominationReasonLine(state, aiPlayer, candidate.player, evidenceContract, { highConfidence, forcePressure: options.forcePressure, framing })
+      : nominationReasonLine(state, aiPlayer, candidate.player, evidenceContract, { forcePressure: true, framing }),
     evidenceContract
   );
+  const strategicLead = strategyContext.evilPlanContextLine && aiPlayer.team === "evil"
+    ? strategyContext.evilPlanContextLine
+    : "";
+  const rawProposalReason = strategicLead
+    ? joinSpeechFragments([strategicLead, proposalReasonBase])
+    : proposalReasonBase;
   const proposalReason = applySpeechBudget(polishConversationalText(rawProposalReason), { audience: "nomination" });
   return {
     nominatorId: aiPlayer.id,
     nomineeId: candidate.player.id,
     confidence: candidate.score,
     support,
+    expectedSupport,
+    coalition,
     evidenceCount,
     pressure: !highConfidence,
     threshold,
@@ -3698,6 +3818,12 @@ function buildNominationProposal(state, aiPlayer, candidate, threshold, rankInde
     evidenceContract,
     statementMemoryFocus: !!statementReason,
     framing,
+    strategyIntent,
+    gameWindow: strategyContext.window,
+    strategyContext: serializeStrategyContext(strategyContext),
+    worldCandidates: strategyContext.worldCandidates,
+    evilPlanContextLine: strategyContext.evilPlanContextLine,
+    evilWorldPlan: strategyContext.evilWorldPlan,
     thoughtFrame,
     thoughtFrameFocus: thoughtFrame.primaryConcernId === candidate.player.id,
     reason: proposalReason,
@@ -3718,8 +3844,10 @@ function sortNominationProposals(proposals) {
     if (!!a.thoughtFrameFocus !== !!b.thoughtFrameFocus) {
       return a.thoughtFrameFocus ? -1 : 1;
     }
-    if (b.support !== a.support) {
-      return b.support - a.support;
+    const supportA = a.expectedSupport ?? a.support;
+    const supportB = b.expectedSupport ?? b.support;
+    if (supportB !== supportA) {
+      return supportB - supportA;
     }
     if (b.evidenceCount !== a.evidenceCount) {
       return b.evidenceCount - a.evidenceCount;
@@ -3730,7 +3858,7 @@ function sortNominationProposals(proposals) {
 }
 
 function choosePressureFallbackNomination(state, candidates, threshold) {
-  const aliveCount = getAlivePlayers(state).length;
+  const aliveCount = getPubliclyAlivePlayers(state).length;
   const day = state.day ?? 1;
   const publicRounds = state.dayStageMeta?.publicRounds ?? 0;
   const shouldForcePressure = day <= 1 || publicRounds >= 1 || aliveCount <= 5;
@@ -3739,6 +3867,11 @@ function choosePressureFallbackNomination(state, candidates, threshold) {
 
   candidates.forEach((aiPlayer) => {
     const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+    const strategyContext = buildAIStrategyContext(state, aiPlayer, {
+      agentView,
+      audience: "public",
+      stage: "nomination",
+    });
     const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
       agentView,
       audience: "public",
@@ -3746,10 +3879,11 @@ function choosePressureFallbackNomination(state, candidates, threshold) {
     });
     const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
     const frameShift = thoughtFrame.nominationReadiness >= 0.68 ? -0.06 : thoughtFrame.nominationReadiness >= 0.55 ? -0.03 : 0;
-    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift, 0.28, 0.62);
+    const goodDayShift = -(strategyContext.goodDayStrategy?.nominationBias ?? 0);
+    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift + goodDayShift, 0.28, 0.62);
     const candidate = rankTargets(aiPlayer, state, state.players.length)
-      .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
-      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player))
+      .filter((entry) => registersAsAlive(state, entry.player) && !entry.player.beenNominatedToday)
+      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player) || strategyContext.evilWorldPlan?.sacrificeAllyId === entry.player.id)
       .find((entry) => shouldForcePressure || entry.score >= fallbackFloor);
 
     if (!candidate || (!shouldForcePressure && candidate.score < fallbackFloor)) {
@@ -3759,6 +3893,12 @@ function choosePressureFallbackNomination(state, candidates, threshold) {
     fallbackProposals.push(
       buildNominationProposal(state, aiPlayer, candidate, Math.min(effectiveThreshold, fallbackFloor), 0, {
         agentView,
+        strategyContext: buildAIStrategyContext(state, aiPlayer, {
+          agentView,
+          audience: "public",
+          stage: "nomination",
+          targetId: candidate.player.id,
+        }),
         thoughtFrame,
         forcePressure: true,
       })
@@ -3779,11 +3919,16 @@ export function chooseAINomination(state) {
 
   refreshAIBeliefs(state);
   const threshold = nominationThreshold(state);
-  const candidates = state.players.filter((entry) => entry.alive && !entry.isHuman && !entry.nominatedToday);
+  const candidates = state.players.filter((entry) => registersAsAlive(state, entry) && !entry.isHuman && !entry.nominatedToday);
   const proposals = [];
 
   candidates.forEach((aiPlayer) => {
     const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+    const strategyContext = buildAIStrategyContext(state, aiPlayer, {
+      agentView,
+      audience: "public",
+      stage: "nomination",
+    });
     const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
       agentView,
       audience: "public",
@@ -3791,10 +3936,11 @@ export function chooseAINomination(state) {
     });
     const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
     const frameShift = thoughtFrame.nominationReadiness >= 0.68 ? -0.06 : thoughtFrame.nominationReadiness >= 0.55 ? -0.03 : 0;
-    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift, 0.28, 0.62);
+    const goodDayShift = -(strategyContext.goodDayStrategy?.nominationBias ?? 0);
+    const effectiveThreshold = clamp(threshold + personaStrategyProfile(persona).nominationShift + frameShift + goodDayShift, 0.28, 0.62);
     const rankedTargets = rankTargets(aiPlayer, state, state.players.length)
-      .filter((entry) => entry.player.alive && !entry.player.beenNominatedToday)
-      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player));
+      .filter((entry) => registersAsAlive(state, entry.player) && !entry.player.beenNominatedToday)
+      .filter((entry) => !areKnownAllies(state, aiPlayer, entry.player) || strategyContext.evilWorldPlan?.sacrificeAllyId === entry.player.id);
     const publicMemory = currentPublicStatementMemory(state, aiPlayer.id);
     const primaryTargets = rankedTargets.slice(0, 3);
     const memoryTarget = rankedTargets.find((entry) => entry.player.id === publicMemory?.focusId);
@@ -3808,7 +3954,9 @@ export function chooseAINomination(state) {
     }
 
     targetsToConsider.forEach((candidate, rankIndex) => {
-        const evidenceCount = countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
+        const evidenceCount = agentView
+          ? agentView.evidenceCountForTarget(candidate.player.id, { publicOnly: true, includePrivate: false })
+          : countAgentEvidence(getAIAgent(state, aiPlayer), candidate.player.id);
         const support = expectedSupportFor(state, candidate.player.id);
         const hasEvidence = evidenceCount > 0 || support > 0;
         const hasPublicMemory =
@@ -3816,12 +3964,21 @@ export function chooseAINomination(state) {
           publicStatementMemoryPressure(publicMemory) > 0;
         const highConfidence = candidate.score >= 0.56;
         const pressureEligible =
-          (candidate.score >= effectiveThreshold && (hasEvidence || state.day <= 1 || getAlivePlayers(state).length <= 5)) ||
+          (candidate.score >= effectiveThreshold && (hasEvidence || state.day <= 1 || getPubliclyAlivePlayers(state).length <= 5)) ||
       (hasPublicMemory && candidate.score >= Math.max(0.24, effectiveThreshold - 0.24));
         if (!highConfidence && !pressureEligible) {
           return;
         }
-        proposals.push(buildNominationProposal(state, aiPlayer, candidate, effectiveThreshold, rankIndex, { agentView, thoughtFrame }));
+        proposals.push(buildNominationProposal(state, aiPlayer, candidate, effectiveThreshold, rankIndex, {
+          agentView,
+          strategyContext: buildAIStrategyContext(state, aiPlayer, {
+            agentView,
+            audience: "public",
+            stage: "nomination",
+            targetId: candidate.player.id,
+          }),
+          thoughtFrame,
+        }));
       });
   });
 
@@ -3889,7 +4046,7 @@ export function createNominationDebate(state, { nominatorId, nomineeId, reason =
   if (!nominator || !nominee) {
     return { ok: false, reason: "提名者或被提名者不存在。" };
   }
-  if (!nominator.alive) {
+  if (!registersAsAlive(state, nominator)) {
     return { ok: false, reason: "死亡玩家无法发起提名。" };
   }
   if (nominator.nominatedToday) {

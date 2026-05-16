@@ -510,7 +510,33 @@ namespace BotcSolo.UnityPrototype
 
         private bool PendingActionTimedOut()
         {
-            return HasPendingAction() && PendingActionElapsed() >= BridgeTimeoutSeconds;
+            return HasPendingAction() && PendingActionElapsed() >= BridgeSlowWarningSeconds;
+        }
+
+
+        private bool PendingActionExpired()
+        {
+            return HasPendingAction() && PendingActionElapsed() >= BridgeStaleActionSeconds;
+        }
+
+
+        private void ShowPendingActionBusyMessage(string nextType)
+        {
+            var currentLabel = ActionTypeLabel(pendingActionType);
+            var nextLabel = ActionTypeLabel(nextType);
+            var elapsed = PendingActionElapsed();
+            if (dialogueTitle != null) dialogueTitle.text = "同步中";
+            if (dialogueBody != null)
+            {
+                dialogueBody.text = ClampTextBlock(
+                    $"正在等待上一条{currentLabel}完成（{elapsed:0.0}s）。本地语言模型可能还在润色对话；完成前先不发送新的{nextLabel}，避免私聊、公聊或阶段推进串在一起。",
+                    4,
+                    48
+                );
+            }
+            privateChatStatus = $"等待上一条{currentLabel}完成；请稍后再发送新的{nextLabel}。";
+            UpdatePrivateChatPanelText();
+            UpdateSyncStatusText();
         }
 
 
@@ -575,11 +601,20 @@ namespace BotcSolo.UnityPrototype
                 var nextPrivateInfoKey = PrivateInfoNarrationKey(loaded);
                 var previousNightActionKey = lastNightActionNarrationKey;
                 var nextNightActionKey = NightActionNarrationKey(loaded);
+                var previousNominationDebateKey = lastNominationDebateNarrationKey;
+                var nextNominationDebateKey = NominationDebateNarrationKey(loaded);
+                var previousVoteCeremonyKey = lastVoteCeremonyNarrationKey;
+                var nextVoteCeremonyKey = VoteCeremonyNarrationKey(loaded);
+                var previousActionStatusKey = lastActionStatusNarrationKey;
+                var nextActionStatusKey = ActionStatusNarrationKey(loaded);
                 vm = loaded;
                 lastPhaseTransitionKey = nextPhaseKey;
                 lastTimelineNarrationKey = nextTimelineKey;
                 lastPrivateInfoNarrationKey = nextPrivateInfoKey;
                 lastNightActionNarrationKey = nextNightActionKey;
+                lastNominationDebateNarrationKey = nextNominationDebateKey;
+                lastVoteCeremonyNarrationKey = nextVoteCeremonyKey;
+                lastActionStatusNarrationKey = nextActionStatusKey;
                 if (vm.action != null && !string.IsNullOrWhiteSpace(vm.action.selectedPlayerId))
                 {
                     selectedPlayerId = vm.action.selectedPlayerId;
@@ -619,6 +654,9 @@ namespace BotcSolo.UnityPrototype
                     MaybeQueueNightStorytellerNarration(previousPrivateInfoKey, nextPrivateInfoKey, previousNightActionKey, nextNightActionKey);
                     MaybeQueueTimelineNarration(previousTimelineKey, nextTimelineKey);
                 }
+                MaybeQueueNominationDebateNarration(previousNominationDebateKey, nextNominationDebateKey);
+                MaybeQueueVoteCeremonyNarration(previousVoteCeremonyKey, nextVoteCeremonyKey);
+                MaybeQueueActionStatusNarration(previousActionStatusKey, nextActionStatusKey);
             }
             catch (Exception ex)
             {
@@ -627,11 +665,23 @@ namespace BotcSolo.UnityPrototype
         }
 
 
-        private void SendUnityAction(string type, string playerId = "", string stage = "", string text = "", string intent = "", string reminder = "", string roleId = "", string claimRoleId = "", string nightInfo = "", bool askSecret = false, string mode = "", IEnumerable<string> targetIds = null, string guessPlayerId = "", string guessRoleId = "", bool trackPending = true, string scriptId = "", int playerCount = 0, string offerId = "")
+        private bool SendUnityAction(string type, string playerId = "", string stage = "", string text = "", string intent = "", string reminder = "", string roleId = "", string claimRoleId = "", string nightInfo = "", bool askSecret = false, string mode = "", IEnumerable<string> targetIds = null, string guessPlayerId = "", string guessRoleId = "", bool trackPending = true, string scriptId = "", int playerCount = 0, string offerId = "")
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(actionPath)) ConfigureBridgePaths();
+                if (HasPendingAction())
+                {
+                    if (PendingActionExpired())
+                    {
+                        ClearPendingAction();
+                    }
+                    else if (trackPending)
+                    {
+                        ShowPendingActionBusyMessage(type);
+                        return false;
+                    }
+                }
                 var directory = Path.GetDirectoryName(actionPath);
                 if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
                 var id = $"unity-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{UnityEngine.Random.Range(1000, 9999)}";
@@ -676,9 +726,10 @@ namespace BotcSolo.UnityPrototype
                 }
                 else
                 {
-                    if (PendingActionTimedOut()) ClearPendingAction();
+                    if (PendingActionExpired()) ClearPendingAction();
                     UpdateSyncStatusText();
                 }
+                return true;
             }
             catch (Exception ex)
             {
@@ -691,6 +742,7 @@ namespace BotcSolo.UnityPrototype
                 UpdatePrivateChatPanelText();
                 UpdateSyncStatusText();
                 Debug.LogWarning($"Failed to write Unity action: {ex.Message}");
+                return false;
             }
         }
 
@@ -731,7 +783,20 @@ namespace BotcSolo.UnityPrototype
             }
             else if (completedType == "resolve-nomination-vote")
             {
-                if (ok && vm?.voteCeremony != null) OpenVotePanel();
+                if (ok && vm?.voteCeremony != null) RestartVoteAnimation();
+            }
+            else if (completedType == "day-action")
+            {
+                if (ok && vm.action.publicAction)
+                {
+                    dialogueTitle.text = vm.action.resolvedImmediately ? "公开发动已结算" : "公开发动已记录";
+                    dialogueBody.text = FirstNonEmpty(message, "公开时间线已更新。");
+                }
+                else if (!ok)
+                {
+                    dialogueTitle.text = "公开发动失败";
+                    dialogueBody.text = message;
+                }
             }
             else if (completedType == "decline-proactive-whisper")
             {

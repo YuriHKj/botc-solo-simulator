@@ -386,6 +386,7 @@ function hydrateLoadedState(loadedState) {
       poCharged: false,
       zombuulRevived: false,
       zombuulHiddenDead: false,
+      zombuulHiddenDeadPlayerId: null,
       shabalothLastTargets: [],
       grandmotherChildById: {},
       godfatherOutsiderIds: [],
@@ -423,6 +424,7 @@ function hydrateLoadedState(loadedState) {
       philosopherCopiedById: {},
       evilTwinPair: null,
       fangGuJumpUsed: false,
+      snakeCharmerPoisonedIds: [],
       vigormortisEmpoweredMinionIds: [],
       vigormortisPoisonedIds: [],
       noDashiiPoisonedIds: [],
@@ -438,6 +440,7 @@ function hydrateLoadedState(loadedState) {
       savantDayByPlayerId: {},
       barberDiedToday: false,
       dayDeathsByRoleId: {},
+      pitHagDemonBalancePending: false,
     };
     loadedState.snv = loadedState.snv ?? {
       ...snvDefaults,
@@ -837,7 +840,7 @@ function setNightAction(plan) {
 function setDayAction(plan) {
   try {
     ensureState();
-    const result = setHumanDayActionPlan(state, plan);
+    const result = setHumanDayActionPlan(state, plan, rng);
     if (!result.ok) {
       showToast(result.reason);
       refresh();

@@ -304,6 +304,7 @@ export function runSectsAndVioletsNight(ctx) {
     applyVigormortisNeighborPoison,
     chooseOne,
     consumeHumanNightPlan,
+    enqueueStorytellerAction,
     getAliveDemons,
     getAlivePlayers,
     getAllRoles,
@@ -317,7 +318,9 @@ export function runSectsAndVioletsNight(ctx) {
     pickNightTargets,
     processNightDeath,
     sample,
+    setPhilosopherAbility,
     setRole,
+    shouldCountAbilityFailureForMathematician,
     swapRolesByRoleId,
   } = ctx;
   if (!state.snv) {
@@ -430,7 +433,13 @@ export function runSectsAndVioletsNight(ctx) {
         return;
       }
       const beforeRole = target.roleName;
-      setRole(target, nextRole);
+      setRole(target, nextRole, {
+        preserveTeam: true,
+        state,
+        resetEntryState: true,
+        deliverEntryInfo: true,
+        rng,
+      });
       snv.pitHagTransforms.push({ night: state.night, playerId: target.id, from: beforeRole, to: target.roleName });
       addLog(state, "night-effect", "Pit-Hag 改变了一名玩家身份。", { by: pitHag.id, targetId: target.id });
     });
@@ -438,22 +447,63 @@ export function runSectsAndVioletsNight(ctx) {
   const aliveDemonsAfterTransform = getAliveDemons(state);
   if (aliveDemonsAfterTransform.length > 1) {
     const survivor = chooseOne(aliveDemonsAfterTransform, rng);
-    aliveDemonsAfterTransform
-      .filter((entry) => survivor && entry.id !== survivor.id)
-      .forEach((extraDemon) => {
-        processNightDeath(
-          state,
-          extraDemon,
-          "pit-hag-demon-overflow",
-          { survivorId: survivor?.id ?? null },
-          rng,
-          { unstoppable: true }
-        );
-      });
-    addLog(state, "night-effect", "Pit-Hag 造成多恶魔后，系统仅保留 1 名恶魔存活。", {
+    const defaultTargets = aliveDemonsAfterTransform.filter((entry) => survivor && entry.id !== survivor.id);
+    snv.pitHagDemonBalancePending = true;
+    enqueueStorytellerAction?.(state, {
+      type: "pit-hag-demon-balance",
+      roleId: SNV.PIT_HAG,
+      roleName: "Pit-Hag",
+      inputType: "player-target",
+      balanceMode: "extra-demons",
+      targetCount: defaultTargets.length,
+      minTargetCount: defaultTargets.length,
+      maxTargetCount: defaultTargets.length,
+      selectedTargetIds: defaultTargets.map((entry) => entry.id),
+      options: aliveDemonsAfterTransform.map((entry) => ({
+        id: entry.id,
+        label: `${entry.seatIndex + 1}号${entry.isHuman ? "（你）" : ""}`,
+        alive: entry.alive,
+        team: entry.team,
+        category: entry.category,
+      })),
+      prompt: "Pit-Hag 造成多恶魔。请选择要死亡的额外恶魔，留下 1 名恶魔存活。",
+      interaction: {
+        title: "Pit-Hag 多恶魔平衡",
+        subtitle: "选择要被移除的额外恶魔。",
+        badge: "Pit-Hag",
+        confirmText: "确认死亡",
+        skipText: "使用默认",
+      },
+      logText: "Pit-Hag 造成多恶魔，等待 Storyteller 选择平衡死亡。",
+    });
+    addLog(state, "night-effect", "Pit-Hag 造成多恶魔，已交给 Storyteller 选择平衡死亡。", {
       survivorId: survivor?.id ?? null,
       demonIds: aliveDemonsAfterTransform.map((entry) => entry.id),
     });
+  } else if (aliveDemonsAfterTransform.length === 0) {
+    snv.pitHagDemonBalancePending = true;
+    enqueueStorytellerAction?.(state, {
+      type: "pit-hag-demon-balance",
+      roleId: SNV.PIT_HAG,
+      roleName: "Pit-Hag",
+      inputType: "info",
+      balanceMode: "no-demon",
+      targetCount: 0,
+      minTargetCount: 0,
+      maxTargetCount: 0,
+      options: [],
+      prompt: "Pit-Hag 导致场上没有恶魔。确认后会继续进行胜利判定。",
+      informationText: "Pit-Hag 导致场上没有恶魔。确认后通常会触发善良胜利，除非其他特殊规则先介入。",
+      interaction: {
+        title: "Pit-Hag 无恶魔状态",
+        subtitle: "确认该状态并继续胜利判定。",
+        badge: "Pit-Hag",
+        confirmText: "确认",
+        skipText: "确认",
+      },
+      logText: "Pit-Hag 导致场上没有恶魔，等待 Storyteller 确认。",
+    });
+    addLog(state, "night-effect", "Pit-Hag 导致场上没有恶魔，胜利判定暂缓至 Storyteller 确认后。", {});
   }
 
   state.players
@@ -461,8 +511,7 @@ export function runSectsAndVioletsNight(ctx) {
       (entry) =>
         entry.alive &&
         getEffectiveRoleId(entry) === SNV.SNAKE_CHARMER &&
-        isRoleNightWindowOpen(state, SNV.SNAKE_CHARMER, state.night) &&
-        !isAbilityBlocked(entry, state)
+        isRoleNightWindowOpen(state, SNV.SNAKE_CHARMER, state.night)
     )
     .forEach((charmer) => {
       const target = pickNightTargets(
@@ -472,13 +521,28 @@ export function runSectsAndVioletsNight(ctx) {
         { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== charmer.id) },
         rng
       )[0];
-      if (!target || target.category !== "demon") {
+      if (!target) {
         return;
       }
-      if (swapRolesByRoleId(state, charmer, target)) {
+      if (isAbilityBlocked(charmer, state)) {
+        if (target.category === "demon" && shouldCountAbilityFailureForMathematician?.(charmer)) {
+          addAbilityInterference(state, 1);
+        }
+        return;
+      }
+      if (target.category !== "demon") {
+        return;
+      }
+      if (swapRolesByRoleId(state, charmer, target, { resetEntryState: true, rng })) {
+        if (!snv.snakeCharmerPoisonedIds.includes(target.id)) {
+          snv.snakeCharmerPoisonedIds.push(target.id);
+        }
+        target.poisoned = true;
+        target.poisonedTomorrowDay = true;
         addLog(state, "night-effect", "Snake Charmer 命中恶魔，双方身份已交换。", {
           charmerId: charmer.id,
           demonId: target.id,
+          poisonedId: target.id,
         });
         if (charmer.isHuman) {
           addPrivateInfo(
@@ -524,13 +588,12 @@ export function runSectsAndVioletsNight(ctx) {
         return;
       }
       snv.philosopherCopiedById[philosopher.id] = role.id;
-      setRole(philosopher, role);
+      setPhilosopherAbility(philosopher, role);
 
       const inPlayCarrier = state.players.find((entry) => entry.id !== philosopher.id && entry.roleId === role.id);
       if (inPlayCarrier) {
         inPlayCarrier.poisoned = true;
         inPlayCarrier.poisonedTomorrowDay = true;
-        addAbilityInterference(state, 1);
       }
 
       addLog(state, "night-effect", "Philosopher 获得了新的角色能力。", {
@@ -559,7 +622,6 @@ export function runSectsAndVioletsNight(ctx) {
           if (!snv.noDashiiPoisonedIds.includes(neighbor.id)) {
             snv.noDashiiPoisonedIds.push(neighbor.id);
           }
-          addAbilityInterference(state, 1);
         });
     });
 
@@ -567,11 +629,19 @@ export function runSectsAndVioletsNight(ctx) {
     const demon = getAliveDemons(state)[0];
     if (demon) {
       const swapTargets = sample(
-        state.players.filter((entry) => entry.alive && entry.id !== demon.id),
-        Math.min(2, Math.max(0, getAlivePlayers(state).length - 1)),
+        state.players.filter((entry) => entry.alive && entry.category !== "demon"),
+        Math.min(2, state.players.filter((entry) => entry.alive && entry.category !== "demon").length),
         rng
       );
-      if (swapTargets.length === 2 && swapRolesByRoleId(state, swapTargets[0], swapTargets[1])) {
+      if (
+        swapTargets.length === 2 &&
+        swapRolesByRoleId(state, swapTargets[0], swapTargets[1], {
+          preserveTeams: true,
+          resetEntryState: true,
+          deliverEntryInfo: true,
+          rng,
+        })
+      ) {
         addLog(state, "night-effect", "Barber 死亡后，恶魔交换了两名玩家身份。", {
           demonId: demon.id,
           a: swapTargets[0].id,
@@ -606,7 +676,7 @@ function onSetup(ctx) {
 }
 
 function triggerSweetheartDrunk(ctx, victim) {
-  const { state, addAbilityInterference, addLog, chooseRandomAliveExcluding } = ctx;
+  const { state, addLog, chooseRandomAliveExcluding } = ctx;
   if (!state.snv || victim.roleId !== SNV.SWEETHEART) {
     return;
   }
@@ -617,7 +687,6 @@ function triggerSweetheartDrunk(ctx, victim) {
   state.snv.sweetheartDrunkId = target.id;
   target.poisoned = true;
   target.poisonedTomorrowDay = true;
-  addAbilityInterference(state, 1);
   addLog(state, "death-trigger", `${victim.name} 的 Sweetheart 效果触发，${target.name} 变为醉酒。`, {
     victimId: victim.id,
     targetId: target.id,
@@ -909,12 +978,12 @@ function onRegisterClaim(ctx, { player, roleId }) {
 }
 
 function onNomination(ctx, { nominator, nominee }) {
-  const { state, addLog, checkWin, processExecutionDeath, rng } = ctx;
+  const { state, addLog, checkWin, processDayDeath, rng } = ctx;
   if (state.snv?.witchCurses?.[nominator.id] !== state.day) {
     return { blocked: false };
   }
   delete state.snv.witchCurses[nominator.id];
-  processExecutionDeath(state, nominator, "witch-curse", { nomineeId: nominee.id }, rng);
+  processDayDeath(state, nominator, "witch-curse", { nomineeId: nominee.id }, rng);
   addLog(state, "day-skill", "Witch 诅咒触发：提名者因行动而死亡。", {
     nominatorId: nominator.id,
     nomineeId: nominee.id,

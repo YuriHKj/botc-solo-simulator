@@ -14,12 +14,16 @@ import {
   applyHumanSpeechCadence,
   applySpeechBudget,
   acceptAIProactiveWhisper,
+  buildAgentStrategyView,
+  buildAIStrategyContext,
   buildAIThoughtFrame,
   chooseAINomination,
   claimDisclosurePlanner,
   createNominationDebate,
   declineAIProactiveWhisper,
   decideAIVote,
+  evaluateGameWindow,
+  evaluateGoodDayStrategy,
   getAIScriptPressureProfile,
   getClaimDisclosureState,
   getAIInsightRows,
@@ -30,6 +34,7 @@ import {
   runAIToAIPrivateWhispers,
   runAIProactiveWhispers,
   runPrivateWhisper,
+  simulateCoalitionVote,
 } from "../scripts/ai.js";
 import {
   addAgentObservation,
@@ -52,6 +57,9 @@ import {
   layeredCorpusPaths,
   pickLayeredSpeech,
 } from "../scripts/ai_speech_renderer.js";
+import {
+  evilWorldPlanTargetBias,
+} from "../scripts/ai_strategy.js";
 
 function fixedRng(seed = 987654321) {
   let state = seed >>> 0;
@@ -243,6 +251,36 @@ function testConversationClockStepUsesSoftClock() {
     state.events.speeches.some((entry) => !entry.private && entry.playerId === step.speakerId),
     "conversation step should emit one public speech"
   );
+}
+
+function testPublicQuestionRoutesNextAIStepToAddressedTarget() {
+  const state = makeTBState();
+  const result = advanceDayStage(state, "public");
+  assert.equal(result.ok, true, result.reason);
+  const human = state.players.find((player) => player.isHuman);
+  const target = state.players.find((player) => !player.isHuman && player.alive);
+  assert.ok(human && target, "fixture should have human and target AI");
+
+  state.events.speeches.push({
+    day: state.day,
+    playerId: human.id,
+    line: `${target.name}，你昨天那条信息能公开说清楚吗？`,
+    focusId: target.id,
+    private: false,
+  });
+  state.dayStageMeta.publicConversation = {
+    active: true,
+    step: 1,
+    clock: "response",
+    pendingResponseSpeakerId: target.id,
+    pendingResponseFocusId: target.id,
+    pendingQuestionText: "public question fixture",
+  };
+
+  const step = runAIConversationStep(state, fixedRng(2026051601));
+  assert.equal(step.ok, true, step.reason);
+  assert.equal(step.speakerId, target.id, "addressed AI should answer the next public step");
+  assert.equal(state.dayStageMeta.publicConversation.pendingResponseSpeakerId, null, "pending response should be consumed");
 }
 
 function testNominationDebateIsCreatedBeforeVote() {
@@ -466,6 +504,24 @@ function testScriptPressureProfileRecognizesOutsiderIncentives() {
   assert.equal(getAIScriptPressureProfile(snv).outsiderBluffsValuable, true, "SnV should account for Fang Gu outsider bluff value");
 }
 
+function testGoodDayStrategyRecognizesExecutionIncentives() {
+  const state = createNewGame({ scriptId: "snv", playerCount: 9, preferredHumanRoleId: "clockmaker" }, fixedRng());
+  initializeAI(state);
+  state.phase = "day";
+  state.dayStage = "public";
+  const goodAI = state.players.find((player) => !player.isHuman && player.team === "good");
+  assert.ok(goodAI, "fixture should include a good AI");
+
+  const strategy = evaluateGoodDayStrategy(state, goodAI, { stage: "public" });
+  assert.equal(strategy.active, true, "good AI should receive good day strategy context");
+  assert.ok(strategy.noExecutionRisk >= 0.36, "SnV/Vortox script should raise no-execution risk");
+  assert.ok(strategy.nominationBias > 0, "execution incentives should lower nomination reluctance");
+  assert.ok(
+    strategy.reasons.includes("vortox-script-punishes-no-execution"),
+    "strategy should explain the Vortox execution incentive"
+  );
+}
+
 function testLunaticAgentUsesPerceivedDemonKnowledge() {
   const state = createNewGame({ scriptId: "bmr", playerCount: 9, preferredHumanRoleId: "grandmother" }, fixedRng());
   const lunatic = state.players.find((player) => !player.isHuman);
@@ -683,6 +739,46 @@ function testAIProactiveWhisperCanBeQueuedAcceptedOrDeclined() {
   }
 }
 
+function testCrossDaySharedInfoMemorySuppressesRepeatedProactiveWhisper() {
+  const state = makeTBState();
+  const human = state.players.find((player) => player.isHuman);
+  const chef = state.players.find((player) => !player.isHuman && player.team === "good");
+  assert.ok(human && chef, "fixture should have human and AI");
+
+  chef.roleId = "chef";
+  chef.category = "townsfolk";
+  chef.privateNotes = ["[第1夜] 你得知：场上有 1 对相邻邪恶玩家。"];
+  state.events.infoPings.push({
+    night: 1,
+    actorId: chef.id,
+    type: "chef",
+    truth: 1,
+    shown: 1,
+    polluted: false,
+    text: chef.privateNotes[0],
+  });
+
+  const first = runPrivateWhisper(
+    state,
+    { targetId: chef.id, humanLine: "你昨晚得到了什么信息？", intentHint: "night" },
+    fixedRng(2026051602)
+  );
+  assert.equal(first.ok, true, first.reason);
+  const key = `${chef.id}::${human.id}`;
+  assert.ok(state.aiDialogue.statementMemory.sharedInfoByPairKey[key], "private answer should record shared info summary");
+
+  state.day = 2;
+  state.phase = "day";
+  state.dayStage = "private";
+  state.aiDialogue.pendingProactiveWhispers = [];
+  const offers = runAIProactiveWhispers(state, fixedRng(2026051603), { queueOnly: true });
+  assert.equal(
+    offers.some((offer) => offer.playerId === chef.id),
+    false,
+    "same first-night info should not make the same AI proactively whisper every day"
+  );
+}
+
 function testPrivateChatFollowUpsDoNotConsumeDailySlots() {
   const state = makeTBState();
   const target = state.players.find((player) => !player.isHuman);
@@ -896,6 +992,35 @@ function testNominationAndVoteBecomePublicObservations() {
     });
 }
 
+function testAINominatorVotesForOwnNomination() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  markPublicDiscussionRound(state);
+  advanceDayStage(state, "nomination");
+
+  const nominator = state.players.find((player) => !player.isHuman && player.alive);
+  const nominee = state.players.find((player) => player.alive && player.id !== nominator.id && player.roleId !== "virgin");
+  assert.ok(nominator, "expected AI nominator");
+  assert.ok(nominee, "expected nominee");
+
+  const result = resolveNominationAndVote(
+    state,
+    {
+      nominatorId: nominator.id,
+      nomineeId: nominee.id,
+      humanVoteYes: false,
+      decideAIVote: () => false,
+    },
+    fixedRng(20260515)
+  );
+  assert.equal(result.accepted, true, result.reason);
+  assert.equal(
+    result.votes.find((entry) => entry.voterId === nominator.id)?.vote,
+    true,
+    "AI should visibly vote for the nomination it just made"
+  );
+}
+
 function testAINominationCanPressureNominateWithLowEvidence() {
   const state = makeTBState();
   advanceDayStage(state, "public");
@@ -919,6 +1044,8 @@ function testAINominationCanPressureNominateWithLowEvidence() {
   const proposal = chooseAINomination(state);
   assert.ok(proposal, "AI should produce a pressure nomination on day one instead of always passing");
   assert.equal(proposal.pressure, true, "low-evidence nomination should be marked as pressure");
+  assert.equal(proposal.strategyIntent, "pressure-test", "low-evidence fallback should be labelled as pressure-test strategy");
+  assert.ok(proposal.gameWindow?.pressureNominationAllowed, "nomination proposal should carry game-window pressure metadata");
   assert.match(proposal.reason, /先提|放上台|正面回应/, "pressure nomination should explain its intent");
 
   const nominee = state.players.find((player) => player.id === proposal.nomineeId);
@@ -993,6 +1120,49 @@ function testStrategyPersonaChangesVoteBehavior() {
     decideAIVote(steadyVoter, nominee, state, () => 0.99),
     false,
     "steady persona should wait at the same suspicion without evidence"
+  );
+}
+
+function testStrategyGameWindowChangesVoteRisk() {
+  const state = makeTBState();
+  const voter = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+  const nominee = state.players.find((player) => !player.isHuman && player.id !== voter.id && player.alive);
+  assert.ok(voter, "expected good AI voter");
+  assert.ok(nominee, "expected nominee");
+
+  voter.aiPersona = "steady";
+  voter.suspicion[nominee.id] = 0.56;
+  assert.equal(
+    decideAIVote(voter, nominee, state, () => 0.99),
+    false,
+    "early steady voter should not execute on medium suspicion without evidence"
+  );
+
+  state.players
+    .filter((player) => !player.isHuman && player.id !== voter.id && player.id !== nominee.id)
+    .slice(0, 4)
+    .forEach((player) => {
+      player.alive = false;
+    });
+  addAgentObservation(state, voter.id, {
+    kind: "public-speech",
+    source: "public-chat",
+    private: false,
+    text: `${nominee.name} dodged a public claim under late-game pressure.`,
+    payload: {
+      speakerId: nominee.id,
+      focusId: nominee.id,
+      polarity: "accuse",
+    },
+  });
+
+  const window = evaluateGameWindow(state, voter, { stage: "nomination" });
+  assert.equal(window.mustExecute, true, "five alive should become a must-execute window");
+  assert.equal(window.voteThreshold, 3, "five alive vote threshold should be three");
+  assert.equal(
+    decideAIVote(voter, nominee, state, () => 0.99),
+    true,
+    "late-game evidence should lower vote hesitation without changing vote rules"
   );
 }
 
@@ -1714,6 +1884,59 @@ function testConversationalPolishRemovesDebugLikePhrases() {
   );
   assert.doesNotMatch(publicLeadIn, /接前面一句|我接一下前面的发言/, "public polish should not invent a prior-speaker lead-in");
   assert.match(publicLeadIn, /如果今天提 7号/, "public polish should keep the actual vote condition");
+
+  const disclosureStack = applyHumanSpeechCadence(
+    state,
+    aiPlayer,
+    "我手里有一条信息，先私下给你听。手上大家能验证的部分是：身份直接摊：厨师。昨晚信息：夜里拿到的相邻邪恶数是 0。",
+    fixedRng(20260610),
+    { audience: "private", intent: "night", force: true, maxChars: 240 }
+  );
+  assert.doesNotMatch(disclosureStack, /：[^。！？；]*：/, "polish should collapse nested label colons");
+  assert.doesNotMatch(disclosureStack, /身份直接摊|手上大家能验证的部分是/, "polish should remove label-like disclosure fragments");
+  assert.match(disclosureStack, /厨师|相邻邪恶数是 0/, "polish should preserve role and night info facts");
+
+  const emotionalLine = applyHumanSpeechCadence(
+    state,
+    aiPlayer,
+    "7号这边我放不下，先听他说完再看票。",
+    fixedRng(20260611),
+    { audience: "private", intent: "reason", force: true, emotionalTexture: "force", maxChars: 180 }
+  );
+  assert.match(
+    emotionalLine,
+    /嗯|说实话|先别急|我有点|我直说|别拖|我先留个心眼|我不太放心/,
+    "human cadence should be able to add light emotional texture"
+  );
+
+  aiPlayer.beenNominatedToday = true;
+  const onBlockLine = applyHumanSpeechCadence(
+    state,
+    aiPlayer,
+    "现在先听我把身份讲清楚，再决定票。",
+    fixedRng(20260612),
+    { audience: "nomination", intent: "vote", emotionalTexture: "force", maxChars: 180 }
+  );
+  assert.match(onBlockLine, /先别急|我得防一下|这票先别锁/, "on-block speech should sound defensive before votes");
+
+  aiPlayer.beenNominatedToday = false;
+  const contaminatedLine = applyHumanSpeechCadence(
+    state,
+    aiPlayer,
+    "这条信息可能被影响，我先听听你怎么看。",
+    fixedRng(20260613),
+    { audience: "private", intent: "night", emotionalTexture: "force", maxChars: 180 }
+  );
+  assert.match(contaminatedLine, /先打折听|别当铁证|不敢说死/, "polluted information should be framed with uncertainty");
+
+  const lowEvidenceLine = applyHumanSpeechCadence(
+    state,
+    aiPlayer,
+    "公开信息还不够，等他回应。",
+    fixedRng(20260614),
+    { audience: "public", intent: "suspect", emotionalTexture: "force", maxChars: 180 }
+  );
+  assert.match(lowEvidenceLine, /先不定死|先别急着定|这条还轻/, "weak evidence should not sound like a hard solve");
 }
 
 function testSpeechBudgetLimitsLongDialogueText() {
@@ -2257,6 +2480,224 @@ function testEvilAIUsesKnowledgeGraphForFramingNomination() {
   );
 }
 
+function testEvilWorldPlanFramesNonAllyWhileProtectingAllies() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  const evilAI = state.players.find((player) => !player.isHuman && player.team === "evil" && player.alive);
+  const allyId = getAIAgent(state, evilAI)?.knownAllyIds?.find((id) => id !== evilAI.id);
+  const ally = state.players.find((player) => player.id === allyId);
+  const target = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+
+  assert.ok(evilAI, "expected evil AI");
+  assert.ok(ally, "expected known evil ally");
+  assert.ok(target, "expected good framing target");
+
+  ally.beenNominatedToday = true;
+  evilAI.suspicion[target.id] = 0.64;
+  const context = buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "nomination",
+    targetId: target.id,
+  });
+
+  assert.equal(context.evilWorldPlan?.mode, "protect-ally", "evil plan should notice an ally under public pressure");
+  assert.equal(context.evilWorldPlan?.version, 2, "evil world plan should use the flexible context schema");
+  assert.ok(context.evilWorldPlan?.protectAllyIds.includes(ally.id), "evil plan should record pressured allies");
+  assert.equal(context.evilWorldPlan?.framingTargetId, target.id, "evil plan should frame a non-ally target");
+  assert.ok(
+    context.evilWorldPlan?.narrativeAnchors?.some((anchor) => anchor.type === "protect-ally"),
+    "evil plan should expose a structured ally-protection anchor for maintenance"
+  );
+  assert.ok(
+    evilWorldPlanTargetBias(context.evilWorldPlan, ally.id, { isKnownAlly: true }) < 0,
+    "protected allies should receive negative target bias"
+  );
+  assert.ok(
+    evilWorldPlanTargetBias(context.evilWorldPlan, target.id, { isKnownAlly: false }) > 0,
+    "framing target should receive positive target bias"
+  );
+  assert.equal(context.target.isKnownAlly, false, "strategy target should not be a known ally");
+}
+
+function testEvilWorldPlanMaintainsSoftContinuityAcrossDays() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  const evilAI = state.players.find((player) => !player.isHuman && player.team === "evil" && player.alive);
+  const targets = state.players.filter((player) => !player.isHuman && player.team === "good" && player.alive);
+  const firstTarget = targets[0];
+  const secondTarget = targets[1];
+
+  assert.ok(evilAI, "expected evil AI");
+  assert.ok(firstTarget && secondTarget, "expected two good targets");
+
+  state.players.forEach((player) => {
+    evilAI.suspicion[player.id] = player.id === evilAI.id ? 0.01 : 0.2;
+  });
+  evilAI.suspicion[firstTarget.id] = 0.66;
+  evilAI.suspicion[secondTarget.id] = 0.48;
+
+  const first = buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "public",
+    targetId: firstTarget.id,
+  });
+  assert.equal(first.evilWorldPlan?.framingTargetId, firstTarget.id, "initial evil plan should pick the strongest frame target");
+
+  state.day += 1;
+  evilAI.suspicion[firstTarget.id] = 0.61;
+  evilAI.suspicion[secondTarget.id] = 0.66;
+  const second = buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "public",
+    targetId: firstTarget.id,
+  });
+
+  assert.equal(second.evilWorldPlan?.framingTargetId, firstTarget.id, "evil plan should keep a close previous target");
+  assert.equal(second.evilWorldPlan?.continuity, "hold", "soft continuity should be explicit instead of silently recalculating");
+  assert.ok(second.evilWorldPlan?.commitment > (first.evilWorldPlan?.commitment ?? 0), "commitment should rise when holding a line");
+  assert.ok(second.evilWorldPlan?.history?.length >= 1, "evil plan should keep bounded maintenance history");
+}
+
+function testEvilWorldPlanCanPivotWhenPressureClearlyChanges() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  const evilAI = state.players.find((player) => !player.isHuman && player.team === "evil" && player.alive);
+  const targets = state.players.filter((player) => !player.isHuman && player.team === "good" && player.alive);
+  const firstTarget = targets[0];
+  const secondTarget = targets[1];
+
+  assert.ok(evilAI, "expected evil AI");
+  assert.ok(firstTarget && secondTarget, "expected two good targets");
+
+  state.players.forEach((player) => {
+    evilAI.suspicion[player.id] = player.id === evilAI.id ? 0.01 : 0.2;
+  });
+  evilAI.suspicion[firstTarget.id] = 0.66;
+  evilAI.suspicion[secondTarget.id] = 0.46;
+  buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "public",
+    targetId: firstTarget.id,
+  });
+
+  state.day = 3;
+  evilAI.suspicion[firstTarget.id] = 0.42;
+  evilAI.suspicion[secondTarget.id] = 0.9;
+  const pivot = buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "nomination",
+    targetId: secondTarget.id,
+  });
+
+  assert.equal(pivot.evilWorldPlan?.framingTargetId, secondTarget.id, "evil plan should pivot when a new target is clearly better");
+  assert.equal(pivot.evilWorldPlan?.previousFramingTargetId, firstTarget.id, "pivot should retain the previous frame for maintenance context");
+  assert.match(pivot.evilWorldPlan?.pivotReason ?? "", /new-public-pressure|late-window/, "pivot should have a readable reason");
+  assert.equal(pivot.evilWorldPlan?.continuity, "soft-pivot", "pivot should be flexible rather than a hard reset");
+}
+
+function testAgentStrategyViewExposesLightweightWorldCandidates() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  const aiPlayer = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+  const target = state.players.find((player) => !player.isHuman && player.id !== aiPlayer.id && player.alive);
+
+  assert.ok(aiPlayer, "expected good AI");
+  assert.ok(target, "expected target");
+
+  state.players.forEach((player) => {
+    aiPlayer.suspicion[player.id] = player.id === target.id ? 0.74 : 0.2;
+  });
+
+  const view = buildAgentStrategyView(state, aiPlayer, {
+    audience: "public",
+    stage: "public",
+    targetId: target.id,
+  });
+
+  assert.equal(view.kind, "agent-strategy-view", "new compatibility layer should expose the requested name");
+  assert.equal(view.baseKind, "ai-strategy-context", "agentStrategyView should remain backward compatible");
+  assert.equal(view.visibility.usesAgentView, true, "strategy view should be explicit about agent-view visibility");
+  assert.ok(Array.isArray(view.worldCandidates?.candidates), "strategy view should expose lightweight world candidates");
+  assert.equal(view.worldCandidates.candidates[0]?.targetId, target.id, "highest visible suspicion should drive the first candidate");
+  assert.equal(view.evilWorldPlan, null, "good strategy view should not receive an evil world plan");
+}
+
+function testCoalitionVoteSimulationTracksLikelyVotes() {
+  const state = makeTBState();
+  advanceDayStage(state, "nomination");
+  const actor = state.players.find((player) => !player.isHuman && player.alive);
+  const nominee = state.players.find((player) => !player.isHuman && player.id !== actor.id && player.team === "good" && player.alive);
+
+  assert.ok(actor, "expected AI actor");
+  assert.ok(nominee, "expected nominee");
+
+  state.players.forEach((voter) => {
+    voter.suspicion[nominee.id] = 0.86;
+  });
+
+  const coalition = simulateCoalitionVote(state, actor, nominee);
+  assert.equal(coalition.kind, "coalition-vote-simulation");
+  assert.equal(coalition.nomineeId, nominee.id);
+  assert.ok(coalition.expectedYesVotes >= coalition.threshold, "high shared suspicion should project enough yes votes");
+  assert.equal(coalition.likelyPasses, true);
+  assert.ok(coalition.voterEstimates.some((entry) => entry.voterId === actor.id), "simulation should keep per-voter estimates");
+}
+
+function testNominationProposalCarriesStrategyWorldAndCoalitionMetadata() {
+  const state = makeTBState();
+  advanceDayStage(state, "nomination");
+  const aiPlayer = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+  const target = state.players.find((player) => !player.isHuman && player.id !== aiPlayer.id && player.alive);
+
+  assert.ok(aiPlayer, "expected nominator");
+  assert.ok(target, "expected target");
+
+  state.players.forEach((player) => {
+    if (!player.isHuman && player.id !== aiPlayer.id && player.id !== target.id) {
+      player.nominatedToday = true;
+    }
+    if (player.id !== aiPlayer.id && player.id !== target.id) {
+      player.beenNominatedToday = true;
+    }
+    aiPlayer.suspicion[player.id] = player.id === target.id ? 0.82 : 0.2;
+  });
+  target.nominatedToday = false;
+  target.beenNominatedToday = false;
+
+  const proposal = chooseAINomination(state);
+  assert.ok(proposal, "expected a nomination proposal");
+  assert.equal(proposal.nominatorId, aiPlayer.id, "fixture should leave only one AI nominator");
+  assert.equal(proposal.nomineeId, target.id, "proposal should follow the strategy target");
+  assert.equal(proposal.coalition?.kind, "coalition-vote-simulation", "proposal should carry coalition estimate metadata");
+  assert.ok(Array.isArray(proposal.worldCandidates?.candidates), "proposal should carry strategy world candidates");
+  assert.ok(
+    proposal.strategyContext?.worldCandidates?.candidates?.some((entry) => entry.targetId === target.id),
+    "strategy context should include the nominated target in its candidate worlds"
+  );
+}
+
+function testEvilWorldPlanFeedsExpressionContextLine() {
+  const state = makeTBState();
+  advanceDayStage(state, "public");
+  const evilAI = state.players.find((player) => !player.isHuman && player.team === "evil" && player.alive);
+  const target = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+
+  assert.ok(evilAI, "expected evil AI");
+  assert.ok(target, "expected good target");
+
+  state.players.forEach((player) => {
+    evilAI.suspicion[player.id] = player.id === target.id ? 0.76 : 0.2;
+  });
+
+  const context = buildAIStrategyContext(state, evilAI, {
+    audience: "public",
+    stage: "public",
+    targetId: target.id,
+  });
+  assert.match(context.evilPlanContextLine ?? "", new RegExp(target.name), "evil plan should provide a target-specific expression anchor");
+  assert.equal(context.worldCandidates?.topCandidateId, target.id, "world candidates should align with the framing target");
+}
+
 function testKnowledgeGraphContaminatedNightInfoHasLimitedPressure() {
   const state = makeTBState();
   const human = state.players.find((player) => player.isHuman);
@@ -2578,6 +3019,40 @@ function testNominationDoesNotUseOtherAgentPrivateNightInfo() {
     JSON.stringify(proposal),
     new RegExp(secretMarker),
     "nomination proposal should not quote another AI's private night info"
+  );
+}
+
+function testPublicAgentViewEvidenceCountDoesNotCountPrivateInfo() {
+  const state = makeTBState();
+  const viewer = state.players.find((player) => !player.isHuman && player.team === "good" && player.alive);
+  const target = state.players.find((player) => !player.isHuman && player.alive && player.id !== viewer?.id);
+  assert.ok(viewer, "expected good AI viewer");
+  assert.ok(target, "expected target");
+
+  const agent = getAIAgent(state, viewer);
+  agent.evidenceBook = [];
+  agent.observations = [];
+  const marker = "HUMAN_ONLY_STYLE_PRIVATE_MARKER";
+  recordPrivateInfoForAgent(state, viewer, `${marker}: ${target.name} looks evil`, {
+    sourceRoleId: "empath",
+    payload: { targetId: target.id },
+  });
+
+  const publicView = buildAgentView(state, viewer, { audience: "public", targetId: target.id });
+  const privateView = buildAgentView(state, viewer, { audience: "private", targetId: target.id });
+  assert.equal(
+    publicView.evidenceCountForTarget(target.id),
+    0,
+    "public agent view should not count private-only evidence as public nomination support"
+  );
+  assert.ok(
+    privateView.evidenceCountForTarget(target.id) > 0,
+    "private agent view should still count the viewer's own private evidence"
+  );
+  assert.doesNotMatch(
+    JSON.stringify(publicView.summariesForTarget(target.id)),
+    new RegExp(marker),
+    "public summaries should not quote private-only information"
   );
 }
 
@@ -3218,6 +3693,7 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testNightInfoBecomesPrivateObservation,
   testPublicDiscussionBecomesPublicObservations,
   testConversationClockStepUsesSoftClock,
+  testPublicQuestionRoutesNextAIStepToAddressedTarget,
   testNominationDebateIsCreatedBeforeVote,
   testDayOnePublicDiscussionDoesNotMassClaim,
   testDayOnePublicDiscussionHasAtLeastOneVisibleHardClaim,
@@ -3228,6 +3704,7 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testPrivateTrustQuestionUsesActRenderer,
   testPrivateCompareQuestionUsesActRenderer,
   testScriptPressureProfileRecognizesOutsiderIncentives,
+  testGoodDayStrategyRecognizesExecutionIncentives,
   testLunaticAgentUsesPerceivedDemonKnowledge,
   testPrivateWhisperBecomesPrivateObservationOnlyForParticipant,
   testEvilAllyClaimQuestionRevealsRealAndBluffIdentity,
@@ -3236,14 +3713,17 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testDeadAICanStillJoinPublicDiscussion,
   testAIProactivelyWhispersWithoutConsumingHumanLimit,
   testAIProactiveWhisperCanBeQueuedAcceptedOrDeclined,
+  testCrossDaySharedInfoMemorySuppressesRepeatedProactiveWhisper,
   testPrivateChatFollowUpsDoNotConsumeDailySlots,
   testDayStanceMemoryPersistsWithinDay,
   testAIToAIPrivateWhisperWritesParticipantObservationsOnly,
   testDeadAIPublicDiscussionClaimsAggressively,
   testNominationAndVoteBecomePublicObservations,
+  testAINominatorVotesForOwnNomination,
   testAINominationCanPressureNominateWithLowEvidence,
   testPublicStatementMemoryLowersVoteThresholdForOwnFocus,
   testStrategyPersonaChangesVoteBehavior,
+  testStrategyGameWindowChangesVoteRisk,
   testPublicStatementMemoryCanDriveNominationProposal,
   testObservationWritesEvidenceBook,
   testBeliefRefreshConsumesAgentObservations,
@@ -3277,6 +3757,13 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testKnowledgeGraphPublicDefenseOfHotTargetAddsPressure,
   testKnowledgeGraphPressureCanDriveNominationFocus,
   testEvilAIUsesKnowledgeGraphForFramingNomination,
+  testEvilWorldPlanFramesNonAllyWhileProtectingAllies,
+  testEvilWorldPlanMaintainsSoftContinuityAcrossDays,
+  testEvilWorldPlanCanPivotWhenPressureClearlyChanges,
+  testAgentStrategyViewExposesLightweightWorldCandidates,
+  testCoalitionVoteSimulationTracksLikelyVotes,
+  testNominationProposalCarriesStrategyWorldAndCoalitionMetadata,
+  testEvilWorldPlanFeedsExpressionContextLine,
   testKnowledgeGraphContaminatedNightInfoHasLimitedPressure,
   testNightInfoContaminationMetadata,
   testFalseClaimLowersDynamicSourceTrust,
@@ -3285,6 +3772,7 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testDialogueEvidenceOrderingAndNominationReason,
   testNominationUsesUnifiedEvidenceContract,
   testNominationDoesNotUseOtherAgentPrivateNightInfo,
+  testPublicAgentViewEvidenceCountDoesNotCountPrivateInfo,
   testPublicDiscussionAddsTableTalkCadence,
   testFirstPublicDiscussionDoesNotInventPreviousLine,
   testPublicDiscussionUsesUnifiedEvidenceContract,

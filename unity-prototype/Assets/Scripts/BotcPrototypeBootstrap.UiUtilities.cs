@@ -304,6 +304,7 @@ namespace BotcSolo.UnityPrototype
 
         private static void ApplyButtonStyle(Button button)
         {
+            if (button == null) return;
             var colors = button.colors;
             colors.normalColor = Color.white;
             colors.highlightedColor = new Color(1f, 0.94f, 0.70f, 1f);
@@ -312,6 +313,10 @@ namespace BotcSolo.UnityPrototype
             colors.disabledColor = new Color(0.25f, 0.23f, 0.22f, 0.55f);
             colors.fadeDuration = 0.12f;
             button.colors = colors;
+            if (button.GetComponent<BotcButtonMotionFeedback>() == null)
+            {
+                button.gameObject.AddComponent<BotcButtonMotionFeedback>();
+            }
         }
 
         private bool UiMotionDisabled()

@@ -2,6 +2,17 @@ import assert from "node:assert/strict";
 
 import { getRoleById } from "../scripts/data.js";
 import {
+  canRegisterAsCategory,
+  chooseFalseRoleForInfo,
+  chooseFortuneTellerRedHerring,
+  chooseRegisteredAdjacentTeamPairs,
+  chooseRegisteredTeamCount,
+  chooseSituationAwareFalseRoleForInfo,
+  chooseSituationAwareRegisteredAdjacentTeamPairs,
+  chooseSituationAwareRegisteredTeamCount,
+  scoreTwoPlayerFalseToken,
+} from "../scripts/info_reasonableness.js";
+import {
   advanceDayStage,
   createNewGame,
   getPendingStorytellerActionState,
@@ -100,6 +111,202 @@ function assertStorytellerQueue(state, expectedType) {
   assert.equal(form.available, true);
   assert.equal(form.inputType, action.inputType);
   return action;
+}
+
+function playerById(state, playerId) {
+  const player = state.players.find((entry) => entry.id === playerId);
+  assert.ok(player, `expected player ${playerId}`);
+  return player;
+}
+
+function applyRolesInSeatOrder(state, roleIds) {
+  state.players
+    .filter((entry) => !entry.isHuman)
+    .forEach((player, idx) => {
+      applyRole(state, player, roleIds[idx]);
+    });
+}
+
+function latestHumanInfoPing(state, type) {
+  const actor = human(state);
+  const ping = state.events.infoPings.findLast?.((entry) => entry.actorId === actor.id && entry.type === type);
+  assert.ok(ping, `expected a ${type} info ping`);
+  return ping;
+}
+
+function testTbTwoPlayerInfoUsesReasonableFalseTokens() {
+  const washerwomanState = startGame("tb", "washerwoman", 121);
+  applyRolesInSeatOrder(washerwomanState, [
+    "fortune-teller",
+    "saint",
+    "empath",
+    "virgin",
+    "soldier",
+    "butler",
+    "baron",
+    "imp",
+  ]);
+  runNight(washerwomanState, rng(122));
+  const washerwomanPing = latestHumanInfoPing(washerwomanState, "washerwoman");
+  const washerwomanFalse = playerById(washerwomanState, washerwomanPing.falseTokenId);
+  assert.equal(washerwomanPing.selectionProfile, "reasonable-two-player-info:v1");
+  assert.equal(washerwomanPing.targetIds.includes(human(washerwomanState).id), false, "Washerwoman info should avoid self when alternatives exist");
+  assert.notEqual(washerwomanFalse.roleId, "saint", "Washerwoman false token should avoid a hard outsider confirmation when townsfolk alternatives exist");
+  assert.equal(
+    washerwomanFalse.apparentCategory ?? washerwomanFalse.category,
+    "townsfolk",
+    "Washerwoman false token should prefer a player who can plausibly sit in a townsfolk pair"
+  );
+
+  const librarianState = startGame("tb", "librarian", 131);
+  applyRolesInSeatOrder(librarianState, [
+    "saint",
+    "butler",
+    "fortune-teller",
+    "chef",
+    "empath",
+    "baron",
+    "imp",
+    "soldier",
+  ]);
+  runNight(librarianState, rng(132));
+  const librarianPing = latestHumanInfoPing(librarianState, "librarian");
+  const librarianFalse = playerById(librarianState, librarianPing.falseTokenId);
+  assert.equal(librarianPing.selectionProfile, "reasonable-two-player-info:v1");
+  assert.equal(librarianFalse.category, "outsider", "Librarian false token should prefer another outsider when one is available");
+
+  const investigatorState = startGame("tb", "investigator", 141);
+  applyRolesInSeatOrder(investigatorState, [
+    "baron",
+    "imp",
+    "saint",
+    "empath",
+    "soldier",
+    "virgin",
+    "butler",
+    "ravenkeeper",
+  ]);
+  runNight(investigatorState, rng(142));
+  const investigatorPing = latestHumanInfoPing(investigatorState, "investigator");
+  const investigatorFalse = playerById(investigatorState, investigatorPing.falseTokenId);
+  assert.equal(investigatorPing.selectionProfile, "reasonable-two-player-info:v1");
+  assert.equal(investigatorPing.shownRoleId, "baron");
+  assert.equal(investigatorFalse.team, "good", "Investigator false token should prefer a good scapegoat over another evil player");
+}
+
+function testRoleBoundMisregistrationAffectsInformationWeights() {
+  const spy = { roleId: "spy", category: "minion", team: "evil", tags: ["intel", "misregister"] };
+  const baron = { roleId: "baron", category: "minion", team: "evil", tags: ["setupShift"] };
+  const saint = { roleId: "saint", category: "outsider", team: "good", tags: ["outsider", "risk"] };
+  const recluse = { roleId: "recluse", category: "outsider", team: "good", tags: ["outsider", "misregister"] };
+
+  assert.equal(canRegisterAsCategory(spy, "townsfolk"), true, "Spy should carry townsfolk misregistration outside TB-specific code");
+  assert.equal(canRegisterAsCategory(spy, "outsider"), true, "Spy should carry outsider misregistration outside TB-specific code");
+  assert.equal(canRegisterAsCategory(recluse, "minion"), true, "Recluse should carry minion misregistration outside TB-specific code");
+
+  assert.ok(
+    scoreTwoPlayerFalseToken("outsider-role", spy) > scoreTwoPlayerFalseToken("outsider-role", baron),
+    "Spy should be a more plausible false token than a normal minion for outsider information"
+  );
+  assert.ok(
+    scoreTwoPlayerFalseToken("townsfolk-role", spy) > scoreTwoPlayerFalseToken("townsfolk-role", saint),
+    "Spy's good registration should matter for townsfolk information even when it is objectively a minion"
+  );
+  assert.ok(
+    scoreTwoPlayerFalseToken("minion-role", recluse) > scoreTwoPlayerFalseToken("minion-role", saint),
+    "Recluse should be weighted as a stronger investigator false token than a normal outsider"
+  );
+}
+
+function testTbOtherInfoRolesUseRoleBoundReasonableness() {
+  const recluse = { id: "recluse", roleId: "recluse", category: "outsider", team: "good", seatIndex: 0, tags: ["outsider", "misregister"] };
+  const spy = { id: "spy", roleId: "spy", category: "minion", team: "evil", seatIndex: 1, tags: ["intel", "misregister"] };
+  const imp = { id: "imp", roleId: "imp", category: "demon", team: "evil", seatIndex: 2, tags: ["demon"] };
+  const saint = { id: "saint", roleId: "saint", category: "outsider", team: "good", seatIndex: 3, tags: ["outsider", "risk"] };
+  const fortuneTeller = { id: "ft", roleId: "fortune-teller", category: "townsfolk", team: "good", seatIndex: 4, tags: ["info"] };
+
+  assert.equal(
+    chooseRegisteredTeamCount([recluse, saint], "evil", { mode: "mislead-high", max: 2 }),
+    1,
+    "Empath-style counts should be able to treat Recluse as evil when that is the chosen registration"
+  );
+  assert.equal(
+    chooseRegisteredAdjacentTeamPairs([recluse, spy, imp, saint, fortuneTeller], "evil", { mode: "mislead-high" }),
+    2,
+    "Chef-style counts should include role-bound false registration options"
+  );
+  assert.equal(
+    chooseFortuneTellerRedHerring([saint, recluse, fortuneTeller], (options) => options[0])?.roleId,
+    "recluse",
+    "Fortune Teller red herring should prefer a good player who can register demon"
+  );
+
+  const roles = [
+    { id: "saint", category: "outsider", team: "good", tags: ["outsider", "risk"] },
+    { id: "baron", category: "minion", team: "evil", tags: ["setupShift"] },
+    { id: "imp", category: "demon", team: "evil", tags: ["demon"] },
+    { id: "butler", category: "outsider", team: "good", tags: ["outsider"] },
+  ];
+  assert.equal(
+    chooseFalseRoleForInfo(roles, "saint", "identity-check", (options) => options[0])?.team,
+    "evil",
+    "Blocked Undertaker/Ravenkeeper identity checks should prefer harmful but plausible false teams"
+  );
+}
+
+function testSituationAwareInformationChoosesMisleadDirection() {
+  const recluse = { id: "recluse", roleId: "recluse", category: "outsider", team: "good", seatIndex: 0, alive: true, tags: ["outsider", "misregister"] };
+  const saint = { id: "saint", roleId: "saint", category: "outsider", team: "good", seatIndex: 1, alive: true, tags: ["outsider", "risk"] };
+  const imp = { id: "imp", roleId: "imp", category: "demon", team: "evil", seatIndex: 2, alive: true, tags: ["demon"] };
+  const deadGoodA = { id: "dead-good-a", roleId: "soldier", category: "townsfolk", team: "good", seatIndex: 3, alive: false, tags: ["defense"] };
+  const deadGoodB = { id: "dead-good-b", roleId: "virgin", category: "townsfolk", team: "good", seatIndex: 4, alive: false, tags: ["social"] };
+  const goodUnderPressure = { day: 2, players: [recluse, saint, imp, deadGoodA, deadGoodB] };
+  const empathDecision = chooseSituationAwareRegisteredTeamCount([recluse, saint], "evil", goodUnderPressure, { max: 2 });
+  assert.equal(empathDecision.value, 1, "Good-under-pressure misinformation should frame a plausible good neighbor when actual evil count is low");
+  assert.equal(empathDecision.strategy, "frame-good-pressure");
+
+  const spy = { id: "spy", roleId: "spy", category: "minion", team: "evil", seatIndex: 0, alive: true, tags: ["intel", "misregister"] };
+  const aliveImp = { ...imp, seatIndex: 1 };
+  const aliveSaint = { ...saint, seatIndex: 2 };
+  const deadBaron = { id: "dead-baron", roleId: "baron", category: "minion", team: "evil", seatIndex: 3, alive: false, tags: ["setupShift"] };
+  const evilUnderPressure = { day: 3, players: [spy, aliveImp, aliveSaint, deadBaron] };
+  const chefDecision = chooseSituationAwareRegisteredAdjacentTeamPairs([spy, aliveImp, aliveSaint], "evil", evilUnderPressure);
+  assert.equal(chefDecision.value, 0, "Evil-under-pressure misinformation should hide a real adjacent evil line when Spy can register good");
+  assert.equal(chefDecision.strategy, "hide-evil-pressure");
+
+  const roles = [
+    { id: "baron", category: "minion", team: "evil", tags: ["setupShift"] },
+    { id: "imp", category: "demon", team: "evil", tags: ["demon"] },
+    { id: "soldier", category: "townsfolk", team: "good", tags: ["defense"] },
+    { id: "saint", category: "outsider", team: "good", tags: ["outsider", "risk"] },
+  ];
+  const falseRole = chooseSituationAwareFalseRoleForInfo(roles, "baron", evilUnderPressure, "identity-check", (options) => options[0]);
+  assert.equal(falseRole.role.team, "good", "When evil is under pressure, false identity checks should hide confirmed evil");
+  assert.equal(falseRole.strategy, "hide-confirmed-evil");
+}
+
+function testLibrarianCanSeeSpyAsRegisteredDrunk() {
+  const state = startGame("tb", "librarian", 151);
+  applyRolesInSeatOrder(state, [
+    "spy",
+    "saint",
+    "fortune-teller",
+    "chef",
+    "empath",
+    "baron",
+    "imp",
+    "soldier",
+  ]);
+  runNight(state, rng(152));
+
+  const ping = latestHumanInfoPing(state, "librarian");
+  const spy = state.players.find((entry) => entry.roleId === "spy");
+  assert.ok(spy, "fixture should include a Spy");
+  assert.equal(ping.registeredHolderId, spy.id, "Librarian should be able to use Spy as the registered outsider holder");
+  assert.equal(ping.truthHolderId, null, "Registered Spy-as-outsider information should not be marked as an actual outsider holder");
+  assert.equal(ping.shownRoleId, "drunk", "Spy should be able to register as the Drunk for disruptive Librarian information");
+  assert.equal(ping.situationStrategy, "registered-drunk-pressure");
+  assert.ok(ping.targetIds.includes(spy.id), "Librarian pair should include the Spy registered as Drunk");
 }
 
 function testPassiveInfoWritesTypedDataForUnity() {
@@ -223,6 +430,11 @@ function testBarberQueuesForHumanDemonAndSwapsRoles() {
 }
 
 [
+  testTbTwoPlayerInfoUsesReasonableFalseTokens,
+  testRoleBoundMisregistrationAffectsInformationWeights,
+  testTbOtherInfoRolesUseRoleBoundReasonableness,
+  testSituationAwareInformationChoosesMisleadDirection,
+  testLibrarianCanSeeSpyAsRegisteredDrunk,
   testPassiveInfoWritesTypedDataForUnity,
   testOnDeathInfoRoleDoesNotReceiveGenericPassiveClue,
   testRavenkeeperQueuesAndResolvesNightDeathInfo,

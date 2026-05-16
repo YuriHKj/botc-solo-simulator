@@ -6,6 +6,8 @@ import {
   getPendingStorytellerActionState,
   getPerceivedRoleId,
   publicRoleLabel,
+  registersAsAlive,
+  registersAsDead,
 } from "./engine.js";
 import { getOfficialRoleReference } from "./grimoire_reference.js";
 import { buildUnityPhaseAdvance } from "./unity_phase_guard.mjs";
@@ -108,6 +110,9 @@ function buildActionStatus(state) {
     lastActionType: bridge.lastActionType ?? "",
     status: bridge.status ?? "idle",
     message: bridge.message ?? "",
+    resolvedImmediately: !!bridge.resolvedImmediately,
+    publicAction: !!bridge.publicAction,
+    speechId: bridge.speechId ?? "",
     updatedAt: bridge.updatedAt ?? "",
     selectedPlayerId: bridge.selectedPlayerId ?? "",
     selectedPlayerName: selected ? `${(selected.seatIndex ?? 0) + 1}号${selected.isHuman ? "（你）" : ""}` : "",
@@ -253,6 +258,9 @@ function visibleRoleNameForUnity(state, player, roleId, note) {
 
 function playerRemindersForUnity(state, player, note) {
   const reminders = [...safeArray(note?.reminders)];
+  if (registersAsDead(state, player)) {
+    reminders.push("登记死亡");
+  }
   if (state?.grimoireView) {
     if (player.poisoned) reminders.push("中毒");
     if (player.drunk) reminders.push("醉酒");
@@ -270,6 +278,7 @@ function buildPlayers(state, aiInsights) {
       const roleId = visibleRoleIdForUnity(state, player, note);
       const roleName = visibleRoleNameForUnity(state, player, roleId, note);
       const seat = (player.seatIndex ?? 0) + 1;
+      const publicAlive = registersAsAlive(state, player);
       return {
         id: player.id,
         seat,
@@ -281,7 +290,9 @@ function buildPlayers(state, aiInsights) {
         markedRoleId: note?.markedRoleId ?? "",
         markedRoleName: note?.markedRoleId ? getRoleById(state.scriptId, note.markedRoleId)?.name ?? note.markedRoleId : "",
         revealed: !!roleId,
-        alive: !!player.alive,
+        alive: publicAlive,
+        actualAlive: !!player.alive,
+        registersAsDead: registersAsDead(state, player),
         human: !!player.isHuman,
         ghostVoteAvailable: !!player.ghostVoteAvailable,
         suspicion: suspicion[player.id] ?? 0,
@@ -336,7 +347,7 @@ function describeRoleAction(action, availableLabel, unavailableLabel) {
 function buildNominationText(state) {
   if (state?.phase !== "day") return "当前不在白天，不能提名。";
   if (state?.gameOver) return "对局已结束，不能继续提名。";
-  const alive = safeArray(state?.players).filter((player) => player.alive);
+  const alive = safeArray(state?.players).filter((player) => registersAsAlive(state, player));
   const human = alive.find((player) => player.isHuman);
   const nomineeCount = alive.filter((player) => !player.isHuman).length;
   if (state?.dayStage !== "nomination") {
@@ -582,6 +593,9 @@ function buildVoteCeremony(state) {
   if (!vote) {
     return null;
   }
+  if (vote.day !== (state?.day ?? 0) || state?.phase !== "day" || state?.dayStage !== "nomination") {
+    return null;
+  }
   const playerById = new Map(safeArray(state?.players).map((player) => [player.id, player]));
   const nominee = playerById.get(vote.nomineeId);
   const nominator = playerById.get(vote.nominatorId);
@@ -601,8 +615,8 @@ function buildVoteCeremony(state) {
         voterId: entry.voterId ?? "",
         voterName: voter?.name ?? entry.voterId ?? "",
         seat: (voter?.seatIndex ?? -1) + 1,
-        alive: !!voter?.alive,
-        ghostVote: !voter?.alive && !!entry.vote,
+        alive: registersAsAlive(state, voter),
+        ghostVote: !registersAsAlive(state, voter) && !!entry.vote,
         vote: !!entry.vote,
         abstain: !!entry.abstain,
       };
@@ -634,6 +648,7 @@ function buildActionForms({ nightAction, dayAction, storytellerAction }) {
       roleOptions: safeArray(action.roleOptions),
       modes: safeArray(action.modes),
       selectedTargetIds: safeArray(action.selectedTargetIds),
+      interaction: action.interaction ?? null,
     };
   });
 }
@@ -763,6 +778,8 @@ function buildTimeline(state, limit = 48) {
       intent: entry.intent ?? "",
       evidenceSummary: cleanText(entry.evidenceSummary ?? ""),
       evidenceKind: entry.evidenceKind ?? "",
+      abilityRoleId: entry.abilityRoleId ?? "",
+      abilityKind: entry.abilityKind ?? "",
       questionToAsk: cleanText(entry.questionToAsk ?? ""),
       followUpPrompts: safeArray(entry.followUpPrompts).map((prompt) => cleanText(prompt)).filter(Boolean).slice(0, 4),
       text: cleanText(entry.text),
@@ -790,8 +807,9 @@ function buildGameOutcome(state) {
   const winnerLabel = teamLabel(winner);
   const reason = cleanText(state?.winnerReason ?? "");
   const players = safeArray(state?.players);
-  const alive = players.filter((player) => player?.alive).length;
+  const alive = players.filter((player) => registersAsAlive(state, player)).length;
   const dead = players.filter((player) => !player?.alive).length;
+  const registeredDead = players.filter((player) => registersAsDead(state, player)).length;
   const finalEvents = exportedLogs(state, 8);
 
   return {
@@ -801,10 +819,10 @@ function buildGameOutcome(state) {
     title: gameOver ? `${winnerLabel || "本局"}胜利` : "",
     reason,
     summary: gameOver
-      ? cleanText(`${reason || "胜负已结算。"} 存活 ${alive}，死亡 ${dead}。`)
+      ? cleanText(`${reason || "胜负已结算。"} 存活 ${alive}，死亡 ${dead + registeredDead}。`)
       : "",
     alive,
-    dead,
+    dead: dead + registeredDead,
     finalEvents,
   };
 }
@@ -837,8 +855,8 @@ export function buildUnityViewModel(state, { aiInsights = [], generatedAt = new 
     outcome,
     day: state.day ?? 0,
     night: state.night ?? 0,
-    alive: safeArray(state.players).filter((player) => player.alive).length,
-    dead: safeArray(state.players).filter((player) => !player.alive).length,
+    alive: safeArray(state.players).filter((player) => registersAsAlive(state, player)).length,
+    dead: safeArray(state.players).filter((player) => !player.alive || registersAsDead(state, player)).length,
     setup: categorySetupText(state.setupCounts),
     grimoireView: !!state.grimoireView,
     bluffs: buildBluffs(state),

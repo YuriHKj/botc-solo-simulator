@@ -238,6 +238,8 @@ function testUnityAIProactiveWhisperOfferAcceptDecline() {
     "queued offer should not reveal the private message before acceptance"
   );
 
+  const beforeAcceptState = readState();
+  const beforeAcceptUsed = beforeAcceptState.dayStageMeta.privateUsed ?? 0;
   const acceptAction = writeAction("accept-proactive-whisper", { offerId: offer.id });
   processed = process();
   assert.equal(processed.result.ok, true, processed.result.reason);
@@ -251,8 +253,13 @@ function testUnityAIProactiveWhisperOfferAcceptDecline() {
     offer.playerId,
     "accepted proactive offer should keep the visiting AI selected for Unity private chat"
   );
-
   state = readState();
+  assert.equal(
+    state.dayStageMeta.privateUsed,
+    beforeAcceptUsed + 1,
+    "accepted proactive offers should consume a human private-chat slot"
+  );
+
   const otherAI = state.players.find((player) => !player.isHuman && player.id !== offer.playerId);
   if (otherAI) {
     otherAI.privateNotes = otherAI.privateNotes ?? [];
@@ -297,12 +304,115 @@ function testUnityAIPrivateWhispersStayOutOfHumanLogs() {
 }
 
 function testUnityPublicDiscussionMutatesTimeline() {
-  const action = writeAction("public-discussion");
-  const { result, viewModel } = process();
+  const newGameAction = writeAction("new-game", { scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman", seed: 424242 });
+  let processed = process();
+  assert.equal(processed.result.ok, true, newGameAction.id);
+  resolveFirstNightIfNeeded();
+
+  const action = writeAction("public-discussion", { mode: "confirm" });
+  processed = process();
+  const { result, viewModel } = processed;
   assert.equal(result.ok, true);
   assert.equal(viewModel.dayStage, "public");
   assert.ok(viewModel.timeline.some((entry) => entry.mode === "public"), "public action should add public timeline entries");
-  assert.ok(viewModel.action.revision >= 4);
+  assert.ok(
+    viewModel.timeline.some((entry) => entry.mode === "public" && entry.speakerId === viewModel.players.find((player) => player.human)?.id),
+    "entering public discussion should give the human a public table claim before AI pressure"
+  );
+  assert.equal(
+    viewModel.timeline.filter((entry) => entry.mode === "public" && !viewModel.players.find((player) => player.id === entry.speakerId)?.human).length,
+    1,
+    "public-discussion should advance one conversation-clock AI speaker, not a full AI round"
+  );
+  const state = readState();
+  const human = state.players.find((player) => player.isHuman);
+  assert.ok(
+    state.events.claims.some((entry) => entry.playerId === human.id && !entry.private),
+    "human public opening should register a public claim for AI context"
+  );
+}
+
+function testUnityHumanPublicSpeechMutatesTimeline() {
+  const newGameAction = writeAction("new-game", { scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman", seed: 515151 });
+  let processed = process();
+  assert.equal(processed.result.ok, true, newGameAction.id);
+  resolveFirstNightIfNeeded();
+
+  writeAction("public-discussion", { mode: "confirm" });
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  const human = processed.viewModel.players.find((player) => player.human);
+  const focus = processed.viewModel.players.find((player) => !player.human);
+  assert.ok(human && focus, "human public speech test needs human and AI players");
+
+  const line = "我公开补充：我的身份口径先按洗衣妇记，今晚信息后面再对。";
+  const action = writeAction("human-public-speech", { text: line, focusId: focus.id, intent: "human-public" });
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.viewModel.action.lastActionId, action.id);
+  assert.ok(
+    processed.viewModel.timeline.some((entry) => entry.mode === "public" && entry.speakerId === human.id && entry.text === line),
+    "human public speech should be exported as a public timeline entry"
+  );
+
+  const state = readState();
+  assert.ok(
+    state.events.speeches.some((entry) => !entry.private && entry.playerId === human.id && entry.line === line),
+    "human public speech should enter the public speech event stream"
+  );
+  assert.equal(
+    state.dayStageMeta?.publicConversation?.pendingResponseSpeakerId,
+    focus.id,
+    "human public speech should queue the addressed AI for the next public response"
+  );
+  assert.ok(
+    Object.values(state.aiAgents ?? {}).some((agent) =>
+      (agent.observations ?? []).some((entry) => entry.kind === "public-speech" && entry.payload?.speakerId === human.id)
+    ),
+    "human public speech should be visible to AI agents"
+  );
+
+  const stepAction = writeAction("ai-public-step");
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.viewModel.action.lastActionId, stepAction.id);
+  assert.equal(processed.result.speakerId, focus.id, "addressed AI should answer the next Unity public step");
+  assert.equal(
+    readState().dayStageMeta?.publicConversation?.pendingResponseSpeakerId,
+    null,
+    "addressed public response should consume the pending response"
+  );
+}
+
+function testUnityEnteringPublicClearsPendingProactiveWhispers() {
+  const newGameAction = writeAction("new-game", { scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman", seed: 616161 });
+  let processed = process();
+  assert.equal(processed.result.ok, true, newGameAction.id);
+  resolveFirstNightIfNeeded();
+
+  let state = readState();
+  const ai = state.players.find((player) => !player.isHuman);
+  assert.ok(ai, "test needs an AI player");
+  ai.privateNotes = ai.privateNotes ?? [];
+  ai.privateNotes.push("[第1天] 你得知：进入公聊前的主动私聊测试信息。");
+  writeState(state);
+
+  writeAction("ai-proactive-whispers");
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.ok(processed.viewModel.pendingProactiveWhispers.length > 0, "fixture should queue proactive whispers");
+
+  writeAction("public-discussion", { mode: "confirm" });
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.viewModel.dayStage, "public");
+  assert.equal(processed.viewModel.pendingProactiveWhispers.length, 0, "public stage should not expose stale private offers");
+  state = readState();
+  assert.equal(
+    (state.aiDialogue?.pendingProactiveWhispers ?? []).filter((entry) => entry.day === state.day).length,
+    0,
+    "entering public should clear same-day queued proactive whispers"
+  );
 }
 
 function testUnityConversationClockStep() {
@@ -356,6 +466,58 @@ function testUnityNominationWindowDebateAndVote() {
   assert.equal(processed.viewModel.nominationDebate.active, false);
   assert.ok(processed.viewModel.voteCeremony, "resolved debate should export vote ceremony");
   assert.equal(processed.viewModel.voteCeremony.nomineeId, target.id);
+}
+
+function testUnityAINominationStepCanResolveVote() {
+  const action = writeAction("new-game", { scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman", seed: 314159 });
+  let processed = process();
+  assert.equal(processed.result.ok, true, action.id);
+  resolveFirstNightIfNeeded();
+
+  writeAction("ai-public-step");
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+
+  writeAction("open-nomination-window", { ticks: 3 });
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+
+  const state = readState();
+  const nominator = state.players.find((player) => !player.isHuman && player.alive);
+  const nominee = state.players.find((player) => !player.isHuman && player.alive && player.id !== nominator?.id);
+  assert.ok(nominator, "expected AI nominator");
+  assert.ok(nominee, "expected AI nominee");
+  state.players.forEach((player) => {
+    player.beenNominatedToday = player.id !== nominee.id;
+  });
+  state.players
+    .filter((player) => !player.isHuman)
+    .forEach((player) => {
+      player.nominatedToday = player.id !== nominator.id;
+      state.players.forEach((target) => {
+        player.suspicion[target.id] = target.id === nominee.id ? 0.92 : 0.05;
+      });
+    });
+  writeState(state);
+
+  writeAction("ai-nomination-step");
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.viewModel.nominationDebate.active, true, "AI nomination should enter debate before vote");
+  assert.equal(processed.viewModel.nominationDebate.nominatorId, nominator.id);
+  assert.equal(processed.viewModel.nominationDebate.nomineeId, nominee.id);
+  assert.equal(processed.viewModel.voteCeremony, null, "AI nomination vote should wait for resolve action");
+
+  writeAction("resolve-nomination-vote", { humanVoteYes: true });
+  processed = process();
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.viewModel.nominationDebate.active, false);
+  assert.equal(processed.viewModel.voteCeremony.nomineeId, nominee.id);
+  assert.equal(
+    processed.viewModel.voteCeremony.voters.find((entry) => entry.voterId === nominator.id)?.vote,
+    true,
+    "AI nominator should visibly vote yes after debate resolution"
+  );
 }
 
 function testUnityNominationDebateAcceptsHumanResponse() {
@@ -531,9 +693,62 @@ function testUnityDayActionWritesPlan() {
   const dayAction = writeAction("day-action", { targetId: target.id });
   processed = process();
   assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.result.resolvedImmediately, true, "Slayer public day action should resolve immediately");
+  assert.equal(processed.result.public, true, "Slayer public day action should be marked public");
   const state = readState();
-  assert.equal(state.humanDayPlan.targetIds[0], target.id);
-  assert.equal(readViewModel().action.lastActionId, dayAction.id);
+  assert.equal(state.humanDayPlan ?? null, null, "resolved public day actions should not linger as a pending day plan");
+  assert.ok(
+    state.events.dayDeaths.some((entry) => entry.reason === "slayer-shot" && entry.playerId === target.id) ||
+      state.events.speeches.some((entry) => entry.publicAbility && entry.abilityRoleId === "slayer"),
+    "Unity day-action should resolve or at least publicly record the Slayer shot immediately"
+  );
+  const vm = readViewModel();
+  assert.equal(vm.action.lastActionId, dayAction.id);
+  assert.equal(vm.action.resolvedImmediately, true);
+  assert.equal(vm.action.publicAction, true);
+  assert.ok(vm.action.speechId, "Unity action status should expose the public ability speech id");
+  assert.ok(
+    vm.timeline.some((entry) => entry.intent === "public-ability" && entry.abilityRoleId === "slayer"),
+    "Unity timeline should expose the public Slayer ability entry"
+  );
+}
+
+function testUnityGossipPublicStatementWritesTimeline() {
+  const action = writeAction("new-game", { scriptId: "bmr", playerCount: 9, preferredHumanRoleId: "gossip", seed: 4512 });
+  let processed = process({ scriptId: "bmr", preferredHumanRoleId: "gossip" });
+  assert.equal(processed.result.ok, true, action.id);
+  resolveFirstNightIfNeeded();
+
+  const phaseAction = writeAction("public-discussion");
+  processed = process({ scriptId: "bmr", preferredHumanRoleId: "gossip" });
+  assert.equal(processed.result.ok, true, phaseAction.id);
+
+  const before = readViewModel();
+  assert.equal(before.humanDayAction.available, true, before.humanDayAction.reason);
+  assert.equal(before.humanDayAction.roleId, "gossip");
+  assert.equal(before.humanDayAction.interaction.confirmText, "公开声明");
+  const statement = "我公开声明：今天至少有一名外来者在场。";
+  const dayAction = writeAction("day-action", { text: statement });
+  processed = process({ scriptId: "bmr", preferredHumanRoleId: "gossip" });
+  assert.equal(processed.result.ok, true, processed.result.reason);
+  assert.equal(processed.result.resolvedImmediately, true);
+  assert.equal(processed.result.public, true);
+
+  const state = readState();
+  assert.equal(state.humanDayPlan ?? null, null, "Gossip public statement should not linger as a pending day plan");
+  assert.ok(
+    state.events.speeches.some((entry) => entry.publicAbility && entry.abilityRoleId === "gossip" && entry.line.includes(statement)),
+    "Gossip statement should be recorded as a public ability speech"
+  );
+  const vm = readViewModel();
+  assert.equal(vm.action.lastActionId, dayAction.id);
+  assert.equal(vm.action.resolvedImmediately, true);
+  assert.equal(vm.action.publicAction, true);
+  assert.ok(vm.action.speechId, "Gossip public statement should expose a speech id");
+  assert.ok(
+    vm.timeline.some((entry) => entry.intent === "public-ability" && entry.abilityRoleId === "gossip" && entry.text.includes(statement)),
+    "Unity timeline should expose the public Gossip statement"
+  );
 }
 
 function testUnityStorytellerActionClearsQueue() {
@@ -638,6 +853,47 @@ async function testUnityBridgeExperimentalLLMPostprocess() {
   );
 }
 
+async function testUnityBridgeLLMPostprocessCapsVisibleLines() {
+  const action = writeAction("new-game", { scriptId: "tb", playerCount: 9, preferredHumanRoleId: "washerwoman", seed: 616161 });
+  let processed = await processUnityActionFileAsync({
+    statePath,
+    viewModelPath,
+    actionPath,
+    resultPath,
+    scriptId: "tb",
+    playerCount: 9,
+    preferredHumanRoleId: "washerwoman",
+    seed: 20260506,
+  });
+  assert.equal(processed.result.ok, true, action.id);
+  resolveFirstNightIfNeeded();
+
+  const publicAction = writeAction("public-discussion");
+  processed = await processUnityActionFileAsync({
+    statePath,
+    viewModelPath,
+    actionPath,
+    resultPath,
+    scriptId: "tb",
+    playerCount: 9,
+    preferredHumanRoleId: "washerwoman",
+    seed: 20260506,
+    llmRenderer: true,
+    llmProvider: "mock",
+    llmTimeoutMs: 1200,
+    llmMaxLines: 0,
+  });
+  assert.equal(processed.result.ok, true, publicAction.id);
+  assert.equal(processed.result.llmRenderer.maxLines, 0);
+  assert.equal(processed.result.llmRenderer.touched, 0, "bridge LLM postprocess should respect per-action line cap");
+  assert.ok(processed.state.unityBridge.llmRenderer.skipped >= 1, "capped public discussion should skip visible lines instead of blocking bridge");
+  assert.equal(
+    processed.state.aiDialogue.timeline.filter((entry) => entry.mode === "public" && entry.llmRender?.source === "mock").length,
+    0,
+    "no player-visible timeline entries should be LLM-rendered when the cap is zero"
+  );
+}
+
 testUnityActionLoopCreatesStateAndViewModel();
 testUnityNewGameRoleIdPayloadControlsHumanRole();
 testUnitySelectTokenRoundTrip();
@@ -649,8 +905,11 @@ testUnityPrivateDeceptionPayloadMutatesTimeline();
 testUnityAIProactiveWhisperOfferAcceptDecline();
 testUnityAIPrivateWhispersStayOutOfHumanLogs();
 testUnityPublicDiscussionMutatesTimeline();
+testUnityHumanPublicSpeechMutatesTimeline();
+testUnityEnteringPublicClearsPendingProactiveWhispers();
 testUnityConversationClockStep();
 testUnityNominationWindowDebateAndVote();
+testUnityAINominationStepCanResolveVote();
 testUnityNominationDebateAcceptsHumanResponse();
 testUnityNominationWindowCanPassToNight();
 testUnityPhaseGuardBlocksSkippingToNomination();
@@ -658,7 +917,9 @@ testUnityNominationExportsVoteCeremony();
 testUnityNightActionWritesPlan();
 testUnityNightActionDoesNotLeakIntoDayFlow();
 testUnityDayActionWritesPlan();
+testUnityGossipPublicStatementWritesTimeline();
 testUnityStorytellerActionClearsQueue();
 testUnityReminderAndHandbookActions();
 await testUnityBridgeExperimentalLLMPostprocess();
+await testUnityBridgeLLMPostprocessCapsVisibleLines();
 console.log("unity action bridge contracts ok");

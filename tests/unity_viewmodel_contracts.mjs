@@ -2,7 +2,7 @@
 import fs from "node:fs";
 
 import { getAIInsightRows, initializeAI } from "../scripts/ai.js";
-import { checkWin, createNewGame, runNight, withSeededRandom } from "../scripts/engine.js";
+import { beginNightPhase, checkWin, createNewGame, processNightDeath, runNight, withSeededRandom } from "../scripts/engine.js";
 import { buildUnityViewModel } from "../scripts/unity_viewmodel.js";
 
 function fixedRng() {
@@ -394,6 +394,29 @@ function testUnityViewModelExportsVoteCeremony() {
   assert.equal(vm.voteCeremony.resultText.includes("未通过"), true);
 }
 
+function testUnityViewModelHidesStaleVoteCeremonyAfterDayEnds() {
+  const state = makeState();
+  state.phase = "night";
+  state.dayStage = "private";
+  const [nominator, nominee, voter] = state.players;
+  state.events.votes.push({
+    day: state.day,
+    nominatorId: nominator.id,
+    nomineeId: nominee.id,
+    yesVotes: 2,
+    threshold: 5,
+    passed: false,
+    votes: [
+      { voterId: nominator.id, vote: true, abstain: false },
+      { voterId: nominee.id, vote: false, abstain: false },
+      { voterId: voter.id, vote: true, abstain: false },
+    ],
+  });
+
+  const vm = buildUnityViewModel(state, { aiInsights: getAIInsightRows(state) });
+  assert.equal(vm.voteCeremony, null, "Unity should not keep old nomination/vote token markers after day ends");
+}
+
 function testUnityViewModelExportsAiRecapDetails() {
   const state = makeState();
   const aiInsights = getAIInsightRows(state);
@@ -404,6 +427,25 @@ function testUnityViewModelExportsAiRecapDetails() {
     vm.aiRecapDetails[0].targets.every((target) => Array.isArray(target.trail)),
     "AI recap targets should expose trail arrays for Unity detail UI"
   );
+}
+
+function testUnityViewModelShowsHiddenDeadZombuulAsDead() {
+  const rng = fixedRng();
+  const state = createNewGame({ scriptId: "bmr", playerCount: 9, preferredHumanRoleId: "zombuul" }, rng);
+  beginNightPhase(state);
+  const zombuul = state.players.find((player) => player.isHuman);
+  processNightDeath(state, zombuul, "contract-zombuul-first-death", {}, rng);
+
+  const vm = buildUnityViewModel(state, { aiInsights: [] });
+  const token = vm.players.find((player) => player.id === zombuul.id);
+
+  assert.equal(zombuul.alive, true, "fixture Zombuul should remain actually alive");
+  assert.equal(token.alive, false, "Unity should render hidden-dead Zombuul as publicly dead");
+  assert.equal(token.actualAlive, true, "Unity should preserve actual-alive state for grimoire/debug consumers");
+  assert.equal(token.registersAsDead, true);
+  assert.ok(token.reminders.includes("登记死亡"));
+  assert.equal(vm.alive, state.players.length - 1);
+  assert.equal(vm.dead, 1);
 }
 
 function testLiveExportFileIfPresent() {
@@ -425,6 +467,8 @@ testUnityViewModelPhaseAdvanceGuardMatrix();
 testUnityViewModelExportsGameOutcome();
 testUnityViewModelConsumesInteractiveFields();
 testUnityViewModelExportsVoteCeremony();
+testUnityViewModelHidesStaleVoteCeremonyAfterDayEnds();
 testUnityViewModelExportsAiRecapDetails();
+testUnityViewModelShowsHiddenDeadZombuulAsDead();
 testLiveExportFileIfPresent();
 console.log("unity viewmodel contracts ok");

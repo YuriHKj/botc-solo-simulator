@@ -1,5 +1,84 @@
 ﻿# CHANGE REQUESTS
 
+## CR-2026-05-16-01
+- 请求人：用户
+- 时间：2026-05-16
+- 变更内容：
+  1. 将上一轮策略上下文继续推进为明确的 `agentStrategyView` 接口，先覆盖公聊、私聊、提名和投票相关入口，逐步减少裸 `state/player` 决策读取。
+  2. 邪恶 AI 的 `evilWorldPlan` 不只影响目标排序和提名元数据，也要影响公聊、主动私聊、AI-AI 私聊和提名理由中的内部表达提示，但不得把邪恶意图暴露给玩家。
+  3. 增加轻量世界候选，不做完整多世界穷举；候选只基于该 AI 可见信息、公开证据、私有可见线索和自身合法阵营知识。
+  4. 将投票从单纯阈值模型扩展为可测试的联盟票数估计，用于提名意图和 proposal 元数据；规则结算仍只由既有投票流程决定。
+  5. 保持柔性策略：世界候选和联盟估计只能影响注意力、提问、提名、投票倾向和解释，不硬锁死 AI 行为。
+- 处理策略：
+  - 在 `scripts/ai_strategy.js` 新增 `buildAgentStrategyView(...)` 兼容层、`buildLightweightWorldCandidates(...)` 和 `simulateCoalitionVote(...)`。
+  - `buildAIStrategyContext(...)` 保持向后兼容，同时附带 `worldCandidates`，便于旧调用点逐步迁移。
+  - `composePublicLine(...)`、主动私聊和 AI-AI 私聊接收策略上下文提示；邪恶计划提示只作为内部话术锚点，不输出“邪恶/嫁祸/保护队友”等元信息。
+  - `chooseAINomination(...)` / `buildNominationProposal(...)` 在 proposal 上带 `coalition` 和 `worldCandidates` 摘要，测试可验证但 UI 不需要直接展示。
+  - 同步 Unity StreamingAssets 与当前 `unity-build` JS Core。
+- 状态：已完成（agentStrategyView + lightweight worlds pass）。
+
+## CR-2026-05-16-02
+- 请求人：用户
+- 时间：2026-05-16
+- 变更内容：
+  1. 修复 AI 主动私聊跨天重复同一条首夜信息的问题：AI 应记得昨天已经向同一玩家说过的身份口径和夜间信息摘要，不应每天无变化地重复“厨师开 1”之类内容。
+  2. 让公聊接口从“记录玩家发言”升级为“可触发 AI 实质回应”：玩家公开点名某 AI 或围绕某目标提问后，下一步公聊时钟应优先让相关 AI 回应。
+  3. 增加善良玩家白天收益策略：当剧本中存在送葬者、贞洁者、Vortox 等使白天处决/公开验证有收益或空过有风险的角色时，低信息或可验证角色可以更主动地公开身份、撞贞洁或支持白天出人。
+- 处理策略：
+  - 扩展 `state.aiDialogue.statementMemory`，增加跨天 `sharedInfoByPairKey` 摘要账本，只记录结构化摘要，不复制私聊原文到公共记忆。
+  - 主动私聊打分读取该账本：同一 AI 对同一玩家、同一身份/信息摘要已分享且无新增内容时降权；如果仍需私聊，改成“补变化/确认昨天那条”而不是重复完整首夜信息。
+  - `human-public-speech` 记录后设置 public conversation 的 pending response；下一次 `ai-public-step` 优先让被点名 AI 或所选 focus 回应。
+  - 在 `ai_strategy.js` 增加 `evaluateGoodDayStrategy(...)`，输出处决收益、空过风险、可验证公开/撞贞洁倾向，并接入 thought frame、公开 claim、提名意图。
+  - 同步 Unity StreamingAssets 与当前 `unity-build` JS Core。
+- 状态：已完成（cross-day memory + public response + good day strategy pass）。
+
+## CR-2026-05-15-03
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 对 AI 策略做一轮瀑布式开发，让 AI 不只按当前最高怀疑度行动，而能结合局势窗口、票数压力、社交风险和阵营目标。
+  2. 新增可测试的策略上下文，覆盖当前天数、存活人数、投票阈值、是否接近终局、是否适合压力提名、提名/投票的风险修正。
+  3. 将策略上下文接入 AI 投票和提名：区分求处决、压力测试、公开信息施压、邪恶嫁祸/保护性转移等策略意图。
+  4. 给邪恶 AI 增加轻量 `evilWorldPlan`：维护公开伪装、选择公开可嫁祸目标、记录需要保护的队友，在高压残局保留牺牲队友的可能性。
+  5. 保持公平性：策略层只能使用 AI 自己合法可见的信息、公开局势和自身阵营知识；不得让好人读到恶魔 bluff、邪恶互认或未参与私聊原文。
+- 处理策略：
+  - 新增 `scripts/ai_strategy.js` 承载策略上下文、局势窗口和邪恶计划，不继续膨胀 `scripts/ai.js`。
+  - `decideAIVote(...)` 只接入阈值修正，不改变 `resolveNominationAndVote(...)` 规则结算。
+  - `chooseAINomination(...)` 与 `buildNominationProposal(...)` 增加 `strategyIntent` / `gameWindow` / `evilWorldPlan` 元数据，供测试、复盘和 Unity 后续展示使用。
+  - 补 AI contract 测试，验证局势窗口、投票阈值、提名策略意图和邪恶计划不选择已知队友作为常规嫁祸目标。
+  - 同步 Unity StreamingAssets 与当前 `unity-build` JS Core。
+- 状态：已完成（AI strategy context + game window pass）。
+
+## CR-2026-05-15-04
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 在上一轮 `evilWorldPlan` 基础上继续扩展上下文，使邪恶 AI 的伪装、嫁祸和保护队友更容易维护。
+  2. 计划必须是柔性的：允许延续前一天世界观，也允许在目标死亡、台面压力变化、保护队友或残局窗口出现时合理转向。
+  3. 计划上下文应产出可测试、可复盘的字段，例如当前嫁祸目标、备选压力位、保护队友、转向理由、叙事锚点和历史摘要。
+  4. 该计划只能影响邪恶 AI 的注意力、提名/投票倾向和后续表达提示，不改变规则结算，不让好人读取隐藏信息。
+- 处理策略：
+  - 将 `evilWorldPlan` 升级为 version 2：新增 `secondaryFrameTargetId`、`previousFramingTargetId`、`continuity`、`pivotReason`、`commitment`、`narrativeAnchors[]`、`history[]`。
+  - 使用软惯性：当旧嫁祸目标仍然合理且没有被处理时保持；当新公开压力明显更强或队友需要保护时软转向。
+  - 新增 `evilWorldPlanTargetBias(...)`，集中管理嫁祸目标、备选目标、保护队友和牺牲窗口的排序修正。
+  - 补契约测试，确保计划能延续、能转向、能保护队友，同时不硬锁死在单一目标。
+- 状态：已完成（flexible evil world plan context pass）。
+
+## CR-2026-05-15-02
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 本线程只继续 Unity UI 方向，不重写 JS Core 规则或 AI 内部逻辑。
+  2. 优先把 Storyteller 信息、公聊/私聊、提名互辩、投票结果和关键 action 反馈统一进入底部正式对话队列，避免多条信息瞬间刷日志或被面板遮住。
+  3. 投票继续向魔典中心仪式化表达推进，投票结果也应反馈到 token/底部对话，而不是只依赖弹窗。
+  4. 角色标记/reminder 继续向官方魔典视觉靠拢：角色标记显示为 token 内角色图标，死亡 shroud 覆盖角色 token，role-specific reminder 尽量带来源角色图标。
+  5. Information 需要成为明确入口，只记录身份声称、报出的信息和玩家自身确认信息，不混入普通聊天全文。
+- 处理策略：
+  - 仅修改 Unity UI 展示层和文档；JS Core 规则、AI 决策和 bridge action schema 保持不变。
+  - 扩展 Unity 本地 narration keys，避免 viewmodel 刷新时重复播同一条底部对话。
+  - 复用现有 `voteCeremony`、`nominationDebate`、`timeline`、`privateInfo` 和 `action` viewmodel 字段，不新增规则字段。
+- 状态：进行中（Unity bottom dialogue / grimoire feedback pass）。
+
 ## CR-2026-05-15-01
 - 请求人：用户
 - 时间：2026-05-15
@@ -1219,3 +1298,145 @@
   - 公聊入口改为 `ai-public-step`，提名入口改为窗口/互辩/投票的分段流程。
   - 新增 `proactive-whisper`、`nomination-debate` UI smoke 状态。
 - 状态：已完成（AI social UI and nomination flow pass）。
+
+## CR-2026-05-15-03
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 最终 Unity AI-polished 发行包预期大小约 2-3GB。
+  2. 在现有内置 LLM 发行方案上规划空间使用，并继续增加语言模型体量。
+  3. 尝试建立微调路径，让后续 AI 发言质量能通过 replay 数据和小模型 LoRA 继续改善。
+- 约束：
+  - LLM 仍只做语言润色，不接管规则、视角、提名、投票或隐藏信息判断。
+  - 发行模型必须优先选择许可证明确、可随包分发的来源。
+  - 本机硬件为 32GB RAM、RTX 4060 Laptop 约 4GB VRAM；本地 4B 推理可试，本地 4B 微调不作为默认目标。
+- 处理策略：
+  - 新增 2-3GB 包体空间预算与模型档位设计。
+  - 新增 `premium` 模型档，面向 2-3GB 发行包，优先使用 Apache-2.0 的 Qwen3-4B GGUF Q4_K_M。
+  - 保留 `premium-max` 作为 Q5_K_M 试验档，接近 3GB 上限。
+  - 新增 SFT 数据集导出脚本，先从 demo replay / LLM eval payload 生成结构化训练样本与人工复核报告。
+  - 微调默认路线为 1.5B/1.7B LoRA 试训；4B 微调需外部或更大显存环境。
+- 当前效果：
+  - `premium` 4B Q4 模型已准备并通过 live smoke。
+  - 已生成 `BOTC-Solo-Unity-AI-Premium-20260515-r2.zip`，大小约 2.35GiB。
+  - Qwen3 renderer 增加 `/no_think`，避免 thinking mode 导致空输出。
+  - 大包 zip 改用 `tar.exe`，绕过 PowerShell `Compress-Archive` 约 2GB 限制。
+  - SFT 数据集导出命令可生成 JSONL 和 review report。
+- 状态：已完成（premium package and SFT dataset scaffold pass）。
+
+## CR-2026-05-15-04
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 检查 AI 侧近期改动，并同步到 Unity UI 侧内置脚本。
+  2. 修复试玩发现的 AI 提名后不举票问题。
+  3. 收束 AI 提名理由，避免“公式提玩家”和对人类玩家使用“你”这类不自然称呼。
+  4. 修复一天结束后魔典仍保留举票和提名标记的问题。
+- 约束：
+  - UI 线程只在契约需要时小改 JS Core，不改写 AI 内部策略大结构。
+  - Root `scripts/` 与 Unity embedded `StreamingAssets/BotcJsCore/scripts/` 必须同步。
+  - 不 reset、不清理未提交改动。
+- 处理策略：
+  - `resolveNominationAndVote` 中 AI 提名者会公开投赞成票，避免“提出处决但自己不举手”的 UI/行为断裂。
+  - AI 提名理由只在当前公开发言记忆确实有压力时复用 statement-memory nomination 文案，否则回到证据契约/压力理由。
+  - AI 提名目标对人类玩家使用座位号显示，避免“我先提 你”。
+  - Unity viewmodel 的 `voteCeremony` 只导出当前天、白天、提名阶段的投票仪式；进入夜晚或其他 day stage 后返回 `null`，魔典不再保留旧提名/举票标记。
+  - 同步 `ai.js`、`engine.js`、`unity_viewmodel.js` 到 Unity embedded scripts。
+- 当前效果：
+  - AI 主动提名后，提名者自己的 vote token 会显示为赞成。
+  - 旧投票仪式不会跨阶段残留到夜晚或下一天。
+  - 新增契约覆盖 AI 提名者投票和 Unity 隐藏过期投票仪式。
+- 状态：已完成（AI nomination/vote UI sync pass）。
+
+## CR-2026-05-15-05
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 试玩中私聊、公聊流程显得混乱。
+  2. bridge 有时显示超时。
+  3. 和 AI 私聊后有时不能推进到公聊。
+  4. 怀疑原因是后端接入语言模型后，对话生成有延迟，Unity 仍按旧的短同步时序处理。
+- 约束：
+  - 不移除 LLM 润色路径。
+  - 不改写 AI 策略和规则，只修 bridge/UI 时序契约。
+  - Root JS 与 Unity embedded JS 继续同步。
+- 处理策略：
+  - Unity pending action 从 3 秒“超时失败感”改为 8 秒慢处理提示、75 秒陈旧保护。
+  - 当已有流程 action 正在等待 bridge 返回时，新的私聊、公聊、提名、阶段推进等 track-pending action 不再覆盖 `unity_action.json`，而是提示等待上一条完成。
+  - 私聊 pending 气泡改为“语言模型润色中/仍在等待”，避免误导玩家以为 bridge 已失败。
+  - JS bridge 的 LLM 后处理只润色玩家可见 timeline，并把同一文本同步回对应 speech event，避免 `events.speeches` 与 `aiDialogue.timeline` 双份重复润色。
+  - JS bridge 增加每个 action 的 LLM 润色行数上限，默认 3，可通过 `--llm-max-lines` 或 `BOTC_LLM_MAX_LINES_PER_ACTION` 调整。
+  - 同步 `scripts/unity_action_bridge.mjs` 到 Unity embedded scripts。
+- 当前效果：
+  - LLM 慢时 Unity 保持等待态，不会把下一条公聊/私聊/阶段推进写进 action 文件抢跑。
+  - 公聊整轮不会因为多条 AI 发言逐条润色而长期阻塞 bridge。
+  - 新增契约覆盖 LLM postprocess line cap。
+- 状态：已完成（bridge LLM timing and pending action serialization pass）。
+
+## CR-2026-05-15-06
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 查看当前 Unity build 运行态日志，解释为什么公聊几乎全是“压力主视角”。
+  2. 判断是否因为主视角没有公聊发言入口导致 AI 一直追问玩家。
+  3. 修正进入公聊时的旧式整轮 AI 发言和主视角沉默问题。
+- 发现：
+  - build 运行态 `unity_viewmodel.json` 显示 D1 公聊中多名 AI 的 `focusId` 都是 `p1/你`，且 `questionToAsk` 都在要求你讲身份和昨晚信息。
+  - 右侧“开始公聊”走的是旧 `public-discussion` / `phase public` 路径，一次性调用完整 AI round，而不是新的 conversation clock 单步。
+  - Unity 侧没有先给主视角落公开口径，AI 在公开上下文里只看到玩家没有公开身份，因此容易把“你”当作共同追问入口。
+- 处理策略：
+  - `public-discussion` / 进入 public 阶段时，先为主视角自动注册一条公开身份口径，优先使用玩家视角身份 `apparentRoleId`，避免泄漏醉酒等真实隐藏信息。
+  - 进入公聊后只推进 `runAIConversationStep` 一步，不再跑完整 `runAIDiscussion` 全 AI round。
+  - 从私聊直接开提名窗口时，如需补足公聊，也只补一个 conversation-clock AI speaker。
+  - 新增契约确认：进入公聊会有 human public claim，且 AI 公聊只出现一位 speaker。
+- 当前效果：
+  - 日志会先出现主视角公开身份，再出现一位 AI 接话。
+  - “开始公聊”不再刷出全桌 AI 压力发言。
+- 状态：已完成（public entry human voice and conversation-clock pass）。
+
+## CR-2026-05-15-07
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 先做主视角能在公聊中主动说话的 UI/bridge 接口，AI 优化后续再继续。
+  2. 修复点击进入公聊时偶尔又弹出新私聊邀请并卡住的阶段切换时序。
+  3. 主动接受的 AI 私聊也要计入当日私聊次数。
+- 约束：
+  - 保持 UI 契约小改，不重写规则或 AI 主体架构。
+  - Root JS 与 Unity embedded JS 必须同步。
+  - 不 reset、不清理未提交改动。
+- 处理策略：
+  - 新增 `human-public-speech` bridge action，写入公开 timeline、`events.speeches` 和 AI agent public-speech 观察；可选 `focusId/targetId` 指向当前公开发言焦点。
+  - Unity 公聊时钟面板增加主视角公聊输入框和“你发言”按钮；“AI 接话”继续只推进一位 AI speaker。
+  - 进入 public 阶段时清理同日未处理的 proactive private whisper 队列，并在 Unity 侧阶段切换 pending/确认期间隐藏主动私聊卡片，避免切公聊时弹出私聊。
+  - `acceptAIProactiveWhisper` 接受邀请前调用 `consumePrivateChat`，额度不足则不移除邀请、不提交私聊。
+  - 小幅加强公开发言记忆对投票阈值的影响，修复 AI 明明公开压过目标但投票仍过度保守的契约失败。
+- 当前效果：
+  - 玩家可以在公聊阶段手动输入并发送主视角公开发言。
+  - 切入公聊不会再展示同日主动私聊邀请。
+  - 主动接受私聊会占用当日私聊额度。
+- 状态：已完成（public speech interface and private timing contract pass）。
+
+## CR-2026-05-15-08
+- 请求人：用户
+- 时间：2026-05-15
+- 变更内容：
+  1. 猎手、造谣者等公开声称/公开发动类角色，不要藏在“预设行动”语义里。
+  2. Unity UI 提供“公开发动”组件：猎手选择目标后“公开开枪”，造谣者输入文本后“公开声明”。
+  3. 公开技能按钮只在 public / nomination 阶段可用。
+  4. 提交后必须写入公开时间线，而不是只弹 toast。
+  5. Unity 继续统一发送 `day-action`，后端返回 `resolvedImmediately: true/false`，UI 据此刷新。
+- 约束：
+  - 继续保持 root `scripts/` 与 Unity embedded scripts 同步。
+  - JS Core 只做 UI 契约需要的小改。
+- 处理策略：
+  - Unity action form 识别带 `interaction` 的 `day-action` 为公开发动；Gossip 使用输入表单，Slayer 使用底部魔典目标条。
+  - 隐藏公开发动的“自动合法”按钮，并使用角色交互文案：`公开开枪` / `公开声明`。
+  - Bridge/viewmodel 导出 `resolvedImmediately`、`publicAction`、`speechId`，并导出 timeline 的 `abilityRoleId/abilityKind`。
+  - Unity pending action 完成后读取即时结算状态；人类发出的 `public-ability` timeline 允许进入底部对话队列。
+  - Slayer 即时结算返回对应公开 speech id；修复 BMR 默认阻断和第一夜错误 EOD 触发，避免 AI 侧新改动导致 role-action 合同失败。
+- 当前效果：
+  - 猎手公开开枪和造谣者公开声明都会立即结算/记录，并出现在公开 timeline。
+  - Unity 可根据返回字段刷新底部反馈和状态。
+  - 新增 Unity bridge 合同覆盖 Slayer/Gossip 公开发动路径。
+- 状态：已完成（public day-action UI contract pass）。

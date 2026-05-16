@@ -6,11 +6,13 @@ import {
   recordNominationForAgents,
   recordPrivateInfoForAgent,
   recordPublicClaimForAgents,
+  recordPublicSpeechForAgents,
   recordVoteForAgents,
 } from "./ai_agents.js";
 import { getOfficialNightOrderNames } from "./grimoire_reference.js";
 import { createEmptyUtteranceArchive } from "./dialogue_schema.js";
 import { getNightRunner, getScriptRoleActionRules, getScriptRoleDayActionRules, getScriptRuleHandlers } from "./roles/index.js";
+import { chooseSituationAwareFalseRoleForInfo, registrationForRole } from "./info_reasonableness.js";
 
 const HUMAN_NAME = "\u4f60";
 
@@ -190,7 +192,8 @@ function makePlayerBase(playerId, name, seatIndex, isHuman) {
   };
 }
 
-function setRole(player, roleEntry) {
+function setRole(player, roleEntry, options = {}) {
+  const previousTeam = player.team;
   player.roleId = roleEntry.id;
   player.roleName = roleEntry.name;
   player.roleIcon = roleEntry.icon ?? null;
@@ -198,10 +201,21 @@ function setRole(player, roleEntry) {
   player.apparentRoleName = roleEntry.name;
   player.apparentRoleIcon = roleEntry.icon ?? null;
   player.apparentCategory = roleEntry.category;
-  player.apparentTeam = roleEntry.team;
+  player.apparentTeam = options.preserveTeam ? previousTeam : roleEntry.team;
   player.category = roleEntry.category;
-  player.team = roleEntry.team;
+  player.team = options.preserveTeam ? previousTeam : roleEntry.team;
   player.tags = [...roleEntry.tags];
+  player.philosopherAbilityRoleId = null;
+  player.philosopherAbilityRoleName = null;
+  player.philosopherAbilityRoleIcon = null;
+  if (options.state) {
+    if (options.resetEntryState) {
+      resetRoleEntryState(options.state, player, roleEntry.id);
+    }
+    if (options.deliverEntryInfo) {
+      deliverRoleEntryInfo(options.state, player, roleEntry, options.rng ?? Math.random);
+    }
+  }
 }
 
 function chooseOne(list, rng = Math.random) {
@@ -307,14 +321,14 @@ function ensureStorytellerActionQueue(state) {
 function playerChoiceOptions(state, { actorId = "", allowSelf = false, allowDead = false, excludeIds = [], filter = null } = {}) {
   const excluded = new Set(excludeIds.filter(Boolean));
   return state.players
-    .filter((player) => (allowDead ? true : player.alive))
+    .filter((player) => (allowDead ? true : registersAsAlive(state, player)))
     .filter((player) => (allowSelf ? true : player.id !== actorId))
     .filter((player) => !excluded.has(player.id))
     .filter((player) => (typeof filter === "function" ? filter(player) : true))
     .map((player) => ({
       id: player.id,
       label: `${player.seatIndex + 1}号${player.isHuman ? "（你）" : ""}`,
-      alive: player.alive,
+      alive: registersAsAlive(state, player),
       team: player.team,
       category: player.category,
     }));
@@ -413,7 +427,11 @@ function resolveRavenkeeperAction(state, action, targetIds) {
   if (!actor || !target) {
     return { ok: false, reason: "守鸦人目标无效。" };
   }
-  const shownRoleId = isAbilityBlocked(actor, state) ? chooseOne(getAllRoles(state.scriptId))?.id ?? target.roleId : target.roleId;
+  const blocked = isAbilityBlocked(actor, state);
+  const falseDecision = blocked
+    ? chooseSituationAwareFalseRoleForInfo(getAllRoles(state.scriptId), target.roleId, state, "identity-check", (options) => chooseOne(options))
+    : null;
+  const shownRoleId = falseDecision?.role?.id ?? target.roleId;
   const text = `[第${action.createdNight}夜] 你临终查验 ${target.name}，其身份为 ${getRoleNameById(state, shownRoleId)}。`;
   addPrivateInfo(state, actor, text);
   state.events.infoPings.push({
@@ -422,6 +440,10 @@ function resolveRavenkeeperAction(state, action, targetIds) {
     type: "ravenkeeper",
     targetId: target.id,
     shownRoleId,
+    polluted: blocked,
+    selectionProfile: blocked ? "situation-aware-false-role:v1" : "identity-check:v1",
+    situationStrategy: falseDecision?.strategy ?? "truthful-identity-check",
+    situationPressure: falseDecision?.pressure ?? null,
     text,
   });
   return { ok: true, message: `守鸦人查验了 ${target.name}。` };
@@ -470,7 +492,11 @@ function resolveBarberAction(state, action, targetIds) {
   if (!a || !b || a.id === b.id) {
     return { ok: false, reason: "请选择两名不同玩家。" };
   }
-  const swapped = swapRolesByRoleId(state, a, b);
+  const swapped = swapRolesByRoleId(state, a, b, {
+    preserveTeams: true,
+    resetEntryState: true,
+    deliverEntryInfo: true,
+  });
   if (!swapped) {
     return { ok: false, reason: "角色交换失败。" };
   }
@@ -480,6 +506,43 @@ function resolveBarberAction(state, action, targetIds) {
     targetIds,
   });
   return { ok: true, message: `已交换 ${a.name} 与 ${b.name} 的角色。` };
+}
+
+function resolvePitHagDemonBalanceAction(state, action, targetIds) {
+  if (!state.snv) {
+    return { ok: false, reason: "当前没有 Pit-Hag 平衡状态。" };
+  }
+  const mode = action.balanceMode ?? "extra-demons";
+  if (mode === "no-demon") {
+    state.snv.pitHagDemonBalancePending = false;
+    addLog(state, "night-effect", "Pit-Hag 导致场上没有恶魔，Storyteller 已确认该状态。", {
+      actionId: action.id,
+    });
+    return { ok: true, message: "已确认 Pit-Hag 无恶魔状态。" };
+  }
+
+  const targets = targetIds.map((targetId) => getPlayerById(state, targetId)).filter(Boolean);
+  if (targets.length === 0) {
+    return { ok: false, reason: "请选择至少一名需要死亡的额外恶魔。" };
+  }
+  targets.forEach((target) => {
+    if (target.alive && target.category === "demon") {
+      processNightDeath(
+        state,
+        target,
+        "pit-hag-demon-balance",
+        { actionId: action.id, balanceMode: mode },
+        Math.random,
+        { unstoppable: true }
+      );
+    }
+  });
+  state.snv.pitHagDemonBalancePending = false;
+  addLog(state, "night-effect", "Pit-Hag 多恶魔平衡由 Storyteller 处理。", {
+    actionId: action.id,
+    targetIds,
+  });
+  return { ok: true, message: "已处理 Pit-Hag 多恶魔平衡。" };
 }
 
 function resolveSageInfoAction(state, action) {
@@ -514,6 +577,7 @@ export function resolvePendingStorytellerAction(state, input = {}) {
     "moonchild-choice": resolveMoonchildAction,
     "klutz-choice": resolveKlutzAction,
     "barber-swap": resolveBarberAction,
+    "pit-hag-demon-balance": resolvePitHagDemonBalanceAction,
     "sage-info": resolveSageInfoAction,
   };
   const handler = handlers[action.type];
@@ -590,6 +654,32 @@ export function getAlivePlayers(state) {
   return state.players.filter((player) => player.alive);
 }
 
+function hiddenDeadZombuulId(state) {
+  const stored = state?.bmr?.zombuulHiddenDeadPlayerId;
+  if (stored) {
+    return stored;
+  }
+  if (!state?.bmr?.zombuulHiddenDead) {
+    return null;
+  }
+  return state.players.find((player) => player.alive && getEffectiveRoleId(player) === BMR.ZOMBUUL)?.id ?? null;
+}
+
+export function registersAsDead(state, player) {
+  if (!player) {
+    return false;
+  }
+  return player.alive && !!hiddenDeadZombuulId(state) && hiddenDeadZombuulId(state) === player.id;
+}
+
+export function registersAsAlive(state, player) {
+  return !!player?.alive && !registersAsDead(state, player);
+}
+
+export function getPubliclyAlivePlayers(state) {
+  return state.players.filter((player) => registersAsAlive(state, player));
+}
+
 export function getAliveDemons(state) {
   return state.players.filter((player) => player.alive && player.category === "demon");
 }
@@ -601,6 +691,9 @@ export function getPlayerById(state, playerId) {
 export function getEffectiveRoleId(player) {
   if (!player) {
     return null;
+  }
+  if (player.roleId === SNV.PHILOSOPHER && player.philosopherAbilityRoleId) {
+    return player.philosopherAbilityRoleId;
   }
   return player.roleId === TB.DRUNK ? player.apparentRoleId : player.roleId;
 }
@@ -615,6 +708,9 @@ export function getPerceivedRoleId(player) {
 export function getEffectiveRoleName(player) {
   if (!player) {
     return null;
+  }
+  if (player.roleId === SNV.PHILOSOPHER && player.philosopherAbilityRoleName) {
+    return player.philosopherAbilityRoleName;
   }
   return player.roleId === TB.DRUNK ? player.apparentRoleName : player.roleName;
 }
@@ -631,6 +727,9 @@ export function getPerceivedRoleName(player) {
 function getEffectiveRoleIcon(player) {
   if (!player) {
     return null;
+  }
+  if (player.roleId === SNV.PHILOSOPHER && player.philosopherAbilityRoleIcon) {
+    return player.philosopherAbilityRoleIcon;
   }
   return player.roleId === TB.DRUNK ? player.apparentRoleIcon : player.roleIcon;
 }
@@ -918,15 +1017,30 @@ function humanActionUsageKey(state, roleId, rule, actionKind) {
   return roleId;
 }
 
+function actionRuleAvailableForState(state, actor, roleId, rule, actionKind, actionKey) {
+  if (typeof rule?.available !== "function") {
+    return true;
+  }
+  return rule.available({ state, actor, roleId, actionKind, actionKey }) !== false;
+}
+
+function actionTargetAllowedByRule(state, actor, rule, target) {
+  if (typeof rule?.targetFilter !== "function") {
+    return true;
+  }
+  return rule.targetFilter({ state, actor, target, rule }) !== false;
+}
+
 function playerTargetOptions(state, human, rule) {
   return state.players
-    .filter((entry) => (rule.allowDead || entry.alive) && (rule.allowSelf || entry.id !== human.id))
-    .filter((entry) => (!rule.requireDead ? true : !entry.alive))
+    .filter((entry) => (rule.allowDead || registersAsAlive(state, entry)) && (rule.allowSelf || entry.id !== human.id))
+    .filter((entry) => (!rule.requireDead ? true : !registersAsAlive(state, entry)))
+    .filter((entry) => actionTargetAllowedByRule(state, human, rule, entry))
     .map((entry) => ({
       id: entry.id,
-      label: `${entry.seatIndex + 1}号${entry.isHuman ? "（你）" : ""}${entry.alive ? "" : "（死亡）"}`,
+      label: `${entry.seatIndex + 1}号${entry.isHuman ? "（你）" : ""}${registersAsAlive(state, entry) ? "" : "（死亡）"}`,
       seat: entry.seatIndex + 1,
-      alive: entry.alive,
+      alive: registersAsAlive(state, entry),
       isHuman: entry.isHuman,
     }));
 }
@@ -1046,6 +1160,9 @@ export function getHumanNightActionState(state) {
   if (!rule) {
     return { available: false, reason: `第${nightNumber}夜你没有可选的主动夜间操作。` };
   }
+  if (!actionRuleAvailableForState(state, human, roleId, rule, "night", nightNumber)) {
+    return { available: false, reason: `第${nightNumber}夜你没有可选的主动夜间操作。` };
+  }
   const usageKey = humanActionUsageKey(state, roleId, rule, "night");
   const usedCount = getHumanAbilityUsageCount(state, usageKey);
   const maxUses = Number.isFinite(rule.maxUses) ? rule.maxUses : null;
@@ -1094,6 +1211,9 @@ export function getHumanDayActionState(state) {
   if (!rule) {
     return { available: false, reason: "你的角色当前没有白天主动技能。" };
   }
+  if (!actionRuleAvailableForState(state, human, roleId, rule, "day", state.day)) {
+    return { available: false, reason: "你的角色当前没有白天主动技能。" };
+  }
   const allowedStages = rule.allowedStages ?? ["private", "public", "nomination"];
   if (!allowedStages.includes(state.dayStage)) {
     return { available: false, reason: "当前阶段不能发动该白天技能。" };
@@ -1138,6 +1258,7 @@ function createBMRState() {
     poCharged: false,
     zombuulRevived: false,
     zombuulHiddenDead: false,
+    zombuulHiddenDeadPlayerId: null,
     shabalothLastTargets: [],
     grandmotherChildById: {},
     godfatherOutsiderIds: [],
@@ -1176,6 +1297,7 @@ function createSNVState() {
     philosopherCopiedById: {},
     evilTwinPair: null,
     fangGuJumpUsed: false,
+    snakeCharmerPoisonedIds: [],
     vigormortisEmpoweredMinionIds: [],
     vigormortisPoisonedIds: [],
     noDashiiPoisonedIds: [],
@@ -1191,7 +1313,75 @@ function createSNVState() {
     savantDayByPlayerId: {},
     barberDiedToday: false,
     dayDeathsByRoleId: {},
+    pitHagDemonBalancePending: false,
   };
+}
+
+function resetRoleEntryState(state, player, roleId, options = {}) {
+  if (!state || !player || !roleId) {
+    return;
+  }
+  if (state.snv) {
+    if (!options.preservePhilosopherUse) {
+      state.snv.philosopherUsedByIds = (state.snv.philosopherUsedByIds ?? []).filter((entry) => entry !== player.id);
+    }
+    state.snv.seamstressUsedByIds = (state.snv.seamstressUsedByIds ?? []).filter((entry) => entry !== player.id);
+    state.snv.artistUsedByIds = (state.snv.artistUsedByIds ?? []).filter((entry) => entry !== player.id);
+    if (!options.preservePhilosopherCopy && state.snv.philosopherCopiedById) {
+      delete state.snv.philosopherCopiedById[player.id];
+    }
+    if (state.snv.jugglerGuessesByDay) {
+      delete state.snv.jugglerGuessesByDay[player.id];
+    }
+  }
+  if (player.isHuman && state.humanAbilityUsage) {
+    state.humanAbilityUsage[roleId] = 0;
+  }
+}
+
+function setPhilosopherAbility(state, philosopher, roleEntry, rng = Math.random) {
+  if (!state || !philosopher || !roleEntry) {
+    return false;
+  }
+  philosopher.philosopherAbilityRoleId = roleEntry.id;
+  philosopher.philosopherAbilityRoleName = roleEntry.name;
+  philosopher.philosopherAbilityRoleIcon = roleEntry.icon ?? null;
+  philosopher.apparentRoleId = roleEntry.id;
+  philosopher.apparentRoleName = roleEntry.name;
+  philosopher.apparentRoleIcon = roleEntry.icon ?? null;
+  philosopher.apparentCategory = roleEntry.category;
+  philosopher.apparentTeam = philosopher.team;
+  philosopher.category = roleEntry.category;
+  philosopher.tags = [...roleEntry.tags];
+  resetRoleEntryState(state, philosopher, roleEntry.id, {
+    preservePhilosopherUse: true,
+    preservePhilosopherCopy: true,
+  });
+  return true;
+}
+
+function isFirstNightInfoRole(roleEntry) {
+  if (!roleEntry?.id) {
+    return false;
+  }
+  return roleEntry.id === SNV.CLOCKMAKER;
+}
+
+function deliverRoleEntryInfo(state, player, roleEntry, rng = Math.random) {
+  if (state.scriptId !== "snv" || !player?.alive || !isFirstNightInfoRole(roleEntry) || roleEntry.tags?.includes("onDeath")) {
+    return null;
+  }
+  const clue = generateInfoClueSimplified(state, player, null, rng, null);
+  if (!clue) {
+    return null;
+  }
+  if (shouldCountAbnormalInfoForMathematician(state, player, clue)) {
+    addAbilityInterference(state, 1);
+    clue.countedByMathematician = true;
+  }
+  state.events.infoPings.push({ ...clue, type: clue.type ?? roleEntry.id, night: state.night, roleEntry: true });
+  addPrivateInfo(state, player, `[第${state.night}夜/重新入场] ${clue.text}`);
+  return clue;
 }
 
 function uniqueStrings(list) {
@@ -1357,6 +1547,73 @@ function describeActionPlan(state, action, plan) {
   return targetNames || "无目标";
 }
 
+function recordPublicDayAbility(state, actor, { roleId, abilityKind, text, targetIds = [], statementText = "" } = {}) {
+  if (!state || !actor) {
+    return null;
+  }
+  const line = `${text ?? statementText ?? ""}`.trim();
+  if (!line) {
+    return null;
+  }
+  const safeTargetIds = uniqueStrings(targetIds);
+  const focusId = safeTargetIds[0] ?? "";
+  const roleName = roleId ? getRoleNameById(state, roleId) : actor.roleName;
+  const speech = {
+    id: `public-ability-${state.day ?? 0}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    day: state.day,
+    playerId: actor.id,
+    line,
+    focusId,
+    targetIds: safeTargetIds,
+    private: false,
+    publicAbility: true,
+    abilityRoleId: roleId ?? "",
+    abilityKind: abilityKind ?? roleId ?? "",
+    statementText,
+  };
+  state.events.speeches = state.events.speeches ?? [];
+  state.events.speeches.push(speech);
+  recordPublicSpeechForAgents(state, {
+    speakerId: actor.id,
+    text: line,
+    focusId,
+    polarity: "human-public-ability",
+  });
+
+  state.aiDialogue = state.aiDialogue ?? {};
+  state.aiDialogue.timeline = Array.isArray(state.aiDialogue.timeline) ? state.aiDialogue.timeline : [];
+  const record = {
+    id: speech.id,
+    timestamp: Date.now(),
+    day: state.day,
+    night: state.night,
+    mode: "public",
+    roundInDay: Math.max(1, state.dayStageMeta?.publicRounds ?? 1),
+    orderIndex: -1,
+    speakerId: actor.id,
+    targetId: focusId,
+    focusId,
+    text: line,
+    intent: "public-ability",
+    abilityRoleId: roleId ?? "",
+    abilityKind: abilityKind ?? roleId ?? "",
+  };
+  state.aiDialogue.timeline.push(record);
+  if (state.aiDialogue.timeline.length > 80) {
+    state.aiDialogue.timeline.splice(0, state.aiDialogue.timeline.length - 80);
+  }
+  state.aiDialogue.activeSpeech = record;
+  addLog(state, "speech", `${actor.name}公开发动${roleName}：${line}`, {
+    private: false,
+    playerId: actor.id,
+    targetIds: safeTargetIds,
+    abilityRoleId: roleId ?? "",
+    abilityKind: abilityKind ?? roleId ?? "",
+    speechId: speech.id,
+  });
+  return speech;
+}
+
 export function setHumanNightActionPlan(state, input = {}) {
   const action = getHumanNightActionState(state);
   if (!action.available) {
@@ -1401,7 +1658,7 @@ export function setHumanNightActionPlan(state, input = {}) {
   };
 }
 
-export function setHumanDayActionPlan(state, input = {}) {
+export function setHumanDayActionPlan(state, input = {}, rng = Math.random) {
   const action = getHumanDayActionState(state);
   if (!action.available) {
     return { ok: false, reason: action.reason };
@@ -1411,13 +1668,31 @@ export function setHumanDayActionPlan(state, input = {}) {
     return normalized;
   }
   const plan = normalized.plan;
+  const human = getHumanPlayer(state);
+  const summary = describeActionPlan(state, action, plan);
+
+  if (state.scriptId === "tb" && action.roleId === TB.SLAYER) {
+    const result = useSlayerAbility(state, { shooterId: human?.id, targetId: plan.targetIds?.[0] }, rng);
+    return result.ok
+      ? {
+          ...result,
+          dayNumber: action.dayNumber,
+          roleName: action.roleName,
+          targetIds: plan.targetIds,
+          plan,
+          targetNames: summary,
+          resolvedImmediately: true,
+          public: true,
+        }
+      : result;
+  }
+
   state.humanDayPlan = {
     day: action.dayNumber,
     ...plan,
     roleId: action.roleId,
     selectedRoleId: plan.roleId,
   };
-  const human = getHumanPlayer(state);
   if (state.scriptId === "snv" && action.roleId === SNV.JUGGLER) {
     state.snv = state.snv ?? createSNVState();
     state.snv.jugglerGuessesByDay[human.id] = {
@@ -1430,14 +1705,32 @@ export function setHumanDayActionPlan(state, input = {}) {
     state.bmr = state.bmr ?? createBMRState();
     state.bmr.gossipStatementsByDay = state.bmr.gossipStatementsByDay ?? {};
     state.bmr.gossipStatementsByDay[action.dayNumber] = state.bmr.gossipStatementsByDay[action.dayNumber] ?? {};
+    const speech = recordPublicDayAbility(state, human, {
+      roleId: BMR.GOSSIP,
+      abilityKind: "gossip-statement",
+      text: plan.question,
+      statementText: plan.question,
+    });
     state.bmr.gossipStatementsByDay[action.dayNumber][human.id] = {
       day: action.dayNumber,
       text: plan.question,
+      sourceSpeechId: speech?.id ?? "",
       resolved: false,
     };
     markHumanAbilityUsed(state, action.usageKey ?? action.roleId);
+    state.humanDayPlan = null;
+    return {
+      ok: true,
+      dayNumber: action.dayNumber,
+      roleName: action.roleName,
+      targetIds: plan.targetIds,
+      plan,
+      targetNames: summary,
+      speechId: speech?.id ?? "",
+      resolvedImmediately: true,
+      public: true,
+    };
   }
-  const summary = describeActionPlan(state, action, plan);
   addLog(state, "day-plan", `[白天行动] 第${action.dayNumber}天 ${action.roleName} -> ${summary}`, {
     private: true,
     playerId: human?.id,
@@ -1557,13 +1850,18 @@ function consumeHumanNightPlan(state, actor, { allowSelf = false, allowDead = fa
     if (!allowSelf && entry.id === actor.id) {
       return false;
     }
-    if (!allowDead && !entry.alive) {
+    if (!allowDead && !registersAsAlive(state, entry)) {
       return false;
     }
     return true;
   });
 
   if (!valid) {
+    return null;
+  }
+
+  const rule = normalizeActionRuleForState(state, plan.roleId, getHumanNightRule(state, plan.roleId, state.night));
+  if (rule && !resolved.every((entry) => actionTargetAllowedByRule(state, actor, rule, entry))) {
     return null;
   }
 
@@ -1594,13 +1892,17 @@ function isAbilityBlocked(player, state = null) {
   if (player.roleId === TB.DRUNK || player.poisoned) {
     return true;
   }
+  if (state?.snv?.snakeCharmerPoisonedIds?.includes(player.id)) {
+    return true;
+  }
   if (state?.bmr) {
     const roleId = getEffectiveRoleId(player);
     const untilNight = Number(state.bmr.suppressedByRoleId?.[roleId] ?? 0);
-    if (untilNight >= state.night) {
+    if (untilNight > 0 && untilNight >= state.night) {
       return true;
     }
-    if (player.alive && state.bmr.minstrelAoeDrunkUntilNight >= state.night && roleId !== BMR.MINSTREL) {
+    const minstrelUntilNight = Number(state.bmr.minstrelAoeDrunkUntilNight ?? 0);
+    if (player.alive && minstrelUntilNight > 0 && minstrelUntilNight >= state.night && roleId !== BMR.MINSTREL) {
       return true;
     }
   }
@@ -1612,22 +1914,7 @@ function getSortedBySeat(players) {
 }
 
 function registrationFor(target, rng = Math.random) {
-  const result = {
-    team: target.team,
-    category: target.category,
-  };
-
-  if (target.roleId === TB.RECLUSE && rng() < 0.58) {
-    result.team = "evil";
-    result.category = rng() < 0.5 ? "minion" : "demon";
-  }
-
-  if (target.roleId === TB.SPY && rng() < 0.58) {
-    result.team = "good";
-    result.category = rng() < 0.5 ? "townsfolk" : "outsider";
-  }
-
-  return result;
+  return registrationForRole(target, rng);
 }
 
 function registersAsTeam(target, team, rng = Math.random) {
@@ -1816,6 +2103,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       claims: [],
       votes: [],
       executions: [],
+      dayDeaths: [],
       nightDeaths: [],
       infoPings: [],
       speeches: [],
@@ -1931,6 +2219,10 @@ export function checkWin(state) {
   const alive = getAlivePlayers(state);
   const aliveDemons = alive.filter((entry) => entry.category === "demon");
 
+  if (state.snv?.pitHagDemonBalancePending) {
+    return null;
+  }
+
   if (state.bmr?.mastermindPendingDay) {
     if (state.day < state.bmr.mastermindPendingDay) {
       return null;
@@ -1966,6 +2258,7 @@ function markNightDeath(state, victim, reason, payload = {}) {
   if (!victim.alive) {
     return false;
   }
+  state.events.nightDeaths = state.events.nightDeaths ?? [];
   victim.alive = false;
   state.events.nightDeaths.push({
     day: state.day,
@@ -1986,14 +2279,15 @@ function markNightDeath(state, victim, reason, payload = {}) {
   return true;
 }
 
-function markExecutionDeath(state, victim, reason, payload = {}) {
+function markDayDeath(state, victim, reason, payload = {}) {
   if (!victim.alive) {
     return false;
   }
+  state.events.dayDeaths = state.events.dayDeaths ?? [];
   victim.alive = false;
-  state.events.executions.push({
+  state.events.dayDeaths.push({
     day: state.day,
-    nomineeId: victim.id,
+    playerId: victim.id,
     roleId: victim.roleId,
     reason,
     ...payload,
@@ -2005,7 +2299,40 @@ function markExecutionDeath(state, victim, reason, payload = {}) {
     phase: "day",
     payload,
   });
-  addLog(state, "execution", `${victim.name} 被处决。`, { nomineeId: victim.id, reason });
+  addLog(state, "death", `${victim.name} 在白天死亡。`, { victimId: victim.id, reason });
+  return true;
+}
+
+function markExecutionDeath(state, victim, reason, payload = {}, { died = true } = {}) {
+  if (!victim.alive) {
+    return false;
+  }
+  state.events.executions = state.events.executions ?? [];
+  if (died) {
+    victim.alive = false;
+  }
+  state.events.executions.push({
+    day: state.day,
+    nomineeId: victim.id,
+    roleId: victim.roleId,
+    reason,
+    died,
+    ...payload,
+  });
+  if (died) {
+    recordDeathForAgents(state, {
+      playerId: victim.id,
+      roleId: victim.roleId,
+      reason,
+      phase: "day",
+      payload,
+    });
+  }
+  addLog(state, "execution", `${victim.name} 被处决${died ? "并死亡" : "但没有死亡"}。`, {
+    nomineeId: victim.id,
+    reason,
+    died,
+  });
   if (state.tb) {
     state.tb.executionOccurredToday = true;
     state.tb.executionRoleByDay[state.day] = victim.roleId;
@@ -2029,7 +2356,7 @@ function maybeTriggerSaintLoss(state, player) {
 
 function chooseRandomAliveExcluding(state, excludedIds, rng = Math.random) {
   const blocked = new Set(Array.isArray(excludedIds) ? excludedIds : []);
-  const pool = getAlivePlayers(state).filter((entry) => !blocked.has(entry.id));
+  const pool = getPubliclyAlivePlayers(state).filter((entry) => !blocked.has(entry.id));
   return chooseOne(pool, rng);
 }
 
@@ -2039,28 +2366,57 @@ function processExecutionDeath(state, victim, reason, payload = {}, rng = Math.r
     reason,
     payload,
   });
+  const died = !bmrPrevention?.prevented;
+  if (!markExecutionDeath(state, victim, reason, payload, { died })) {
+    return false;
+  }
+
+  if (died) {
+    getScriptRuleHandlers("bmr").onAfterExecutionDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload });
+    getScriptRuleHandlers("snv").onAfterExecutionDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload });
+
+    if (victim.category === "demon") {
+      handleDemonDeath(state, victim, reason, rng);
+    }
+    getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "day" });
+    getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "day" });
+    maybeTriggerSaintLoss(state, victim);
+  }
+  getScriptRuleHandlers("bmr").onAfterExecutionOutcome?.(createBMRRoleContext(state, rng), {
+    victim,
+    reason,
+    payload,
+    died,
+  });
+  getScriptRuleHandlers("snv").onAfterExecutionOutcome?.(createSNVRoleContext(state, rng), { victim, reason, payload });
+  return died;
+}
+
+export function processDayDeath(state, victim, reason, payload = {}, rng = Math.random) {
+  const bmrPrevention = getScriptRuleHandlers("bmr").onBeforeDayDeath?.(createBMRRoleContext(state, rng), {
+    victim,
+    reason,
+    payload,
+  });
   if (bmrPrevention?.prevented) {
     return false;
   }
 
-  if (!markExecutionDeath(state, victim, reason, payload)) {
+  if (!markDayDeath(state, victim, reason, payload)) {
     return false;
   }
 
-  getScriptRuleHandlers("bmr").onAfterExecutionDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload });
-  getScriptRuleHandlers("snv").onAfterExecutionDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload });
-
+  getScriptRuleHandlers("bmr").onAfterDayDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload });
+  getScriptRuleHandlers("snv").onAfterDayDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload });
+  getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "day" });
+  getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "day" });
   if (victim.category === "demon") {
     handleDemonDeath(state, victim, reason, rng);
   }
-  getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "day" });
-  getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "day" });
-  getScriptRuleHandlers("snv").onAfterExecutionOutcome?.(createSNVRoleContext(state, rng), { victim, reason, payload });
-  maybeTriggerSaintLoss(state, victim);
   return true;
 }
 
-function processNightDeath(state, victim, reason, payload = {}, rng = Math.random, options = {}) {
+export function processNightDeath(state, victim, reason, payload = {}, rng = Math.random, options = {}) {
   const unstoppable = !!options.unstoppable;
   const bmrPrevention = getScriptRuleHandlers("bmr").onBeforeNightDeath?.(createBMRRoleContext(state, rng), {
     victim,
@@ -2140,7 +2496,6 @@ function startNightPhase(state) {
     state.snv.pitHagTransforms = [];
     state.snv.vigormortisPoisonedIds = [];
     state.snv.noDashiiPoisonedIds = [];
-    state.snv.abilityInterferenceCountLastNight = 0;
   }
 }
 
@@ -2183,6 +2538,9 @@ function emitSavantInfoForDay(state, rng = Math.random) {
     .filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.SAVANT)
     .forEach((savant) => {
       if (isAbilityBlocked(savant, state)) {
+        if (isAbilityBlockedByOtherForMathematician(state, savant)) {
+          addAbilityInterference(state, 1);
+        }
         return;
       }
       const aliveGood = state.players.filter((entry) => entry.alive && entry.team === "good").length;
@@ -2203,7 +2561,18 @@ function emitSavantInfoForDay(state, rng = Math.random) {
           text: idx === 0 ? `当前存活善良人数是 ${aliveGood + 1}。` : `当前存活邪恶人数是 ${Math.max(0, aliveEvil - 1)}。`,
           truth: false,
         }));
+        addAbilityInterference(state, 1);
       }
+      state.events.infoPings.push({
+        day: state.day,
+        actorId: savant.id,
+        type: "savant",
+        truth: pair.map((entry) => entry.truth),
+        reported: pair.map((entry) => entry.text),
+        polluted: vortoxAlive,
+        abnormal: pair.every((entry) => entry.truth === false),
+        text: `${pair[0].text} / ${pair[1].text}`,
+      });
       addPrivateInfo(
         state,
         savant,
@@ -2225,6 +2594,9 @@ function transitionToDayPhase(state) {
   resetDayFlags(state);
   initDayStage(state);
   addLog(state, "day-start", state.narration);
+  if (state.snv) {
+    state.snv.abilityInterferenceCountLastNight = 0;
+  }
   emitSavantInfoForDay(state);
   if (state.snv) {
     state.snv.lastDayHadDemonVote = false;
@@ -2392,7 +2764,7 @@ export function closeNominationWindow(state, { status = "closed", actorId = null
 }
 
 function aliveNeighbors(state, player) {
-  const alive = getSortedBySeat(getAlivePlayers(state));
+  const alive = getSortedBySeat(getPubliclyAlivePlayers(state));
   if (alive.length <= 1) {
     return [];
   }
@@ -2406,7 +2778,7 @@ function aliveNeighbors(state, player) {
 }
 
 function seatNeighbors(state, player, aliveOnly = false) {
-  const pool = aliveOnly ? getAlivePlayers(state) : state.players;
+  const pool = aliveOnly ? getPubliclyAlivePlayers(state) : state.players;
   const sorted = getSortedBySeat(pool);
   if (sorted.length <= 1) {
     return [];
@@ -2456,7 +2828,6 @@ function applyVigormortisNeighborPoison(state, minion, demonId = null) {
     if (!state.snv.vigormortisPoisonedIds.includes(neighbor.id)) {
       state.snv.vigormortisPoisonedIds.push(neighbor.id);
     }
-    addAbilityInterference(state, 1);
   });
   if (neighbors.length > 0) {
     addLog(state, "night-effect", "Vigormortis 使被击杀爪牙的邻近镇民中毒。", {
@@ -2534,6 +2905,7 @@ function createTBRoleContext(state, rng = Math.random) {
     getSortedBySeat,
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
     processExecutionDeath,
+    processDayDeath,
     processNightDeath,
     randomInt: (min, max) => randomInt(min, max, rng),
     registersAsDemonForFortuneTeller: (gameState, fortuneTeller, target) =>
@@ -2575,6 +2947,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     markWokeTonight,
     pickNightTargets: (gameState, actor, targetCount, options = {}) =>
       pickNightTargets(gameState, actor, targetCount, options, rng),
+    processDayDeath,
     processNightDeath,
     sample: (list, amount) => sample(list, amount, rng),
   };
@@ -2608,9 +2981,12 @@ function createSNVRoleContext(state, rng = Math.random) {
     pickNightTargets: (gameState, actor, targetCount, options = {}) =>
       pickNightTargets(gameState, actor, targetCount, options, rng),
     processExecutionDeath,
+    processDayDeath,
     processNightDeath,
     sample: (list, amount) => sample(list, amount, rng),
+    setPhilosopherAbility: (player, roleEntry) => setPhilosopherAbility(state, player, roleEntry, rng),
     setRole,
+    shouldCountAbilityFailureForMathematician: (player) => isAbilityBlockedByOtherForMathematician(state, player),
     shuffle: (list) => shuffle(list, rng),
     swapRolesByRoleId,
   };
@@ -2674,8 +3050,8 @@ function pickNightTargets(
   }
 
   const basePool = Array.isArray(preferredPool)
-    ? preferredPool
-    : state.players.filter((entry) => (allowDead || entry.alive) && (allowSelf || entry.id !== actor.id));
+    ? preferredPool.filter((entry) => (allowDead || registersAsAlive(state, entry)) && (allowSelf || entry.id !== actor.id))
+    : state.players.filter((entry) => (allowDead || registersAsAlive(state, entry)) && (allowSelf || entry.id !== actor.id));
   if (basePool.length === 0) {
     return [];
   }
@@ -2692,7 +3068,7 @@ function runBMRNightActionsSimplified(state, rng = Math.random) {
   runner(createBMRRoleContext(state, rng));
 }
 
-function swapRolesByRoleId(state, a, b) {
+function swapRolesByRoleId(state, a, b, options = {}) {
   if (!a || !b) {
     return false;
   }
@@ -2701,8 +3077,20 @@ function swapRolesByRoleId(state, a, b) {
   if (!roleA || !roleB) {
     return false;
   }
-  setRole(a, roleB);
-  setRole(b, roleA);
+  setRole(a, roleB, {
+    preserveTeam: !!options.preserveTeams,
+    state: options.state ?? state,
+    resetEntryState: !!options.resetEntryState,
+    deliverEntryInfo: !!options.deliverEntryInfo,
+    rng: options.rng,
+  });
+  setRole(b, roleA, {
+    preserveTeam: !!options.preserveTeams,
+    state: options.state ?? state,
+    resetEntryState: !!options.resetEntryState,
+    deliverEntryInfo: !!options.deliverEntryInfo,
+    rng: options.rng,
+  });
   return true;
 }
 
@@ -2824,6 +3212,51 @@ function distortNumericInfo(truth, min, max, shouldDistort, rng = Math.random) {
   return chooseOne(choices, rng) ?? boundedTruth;
 }
 
+function sameInfoValue(a, b) {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return a === b;
+}
+
+function isVortoxInfoActiveForActor(state, actor) {
+  return (
+    state.scriptId === "snv" &&
+    actor?.category === "townsfolk" &&
+    state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX)
+  );
+}
+
+function isAbilityBlockedByOtherForMathematician(state, actor) {
+  if (!actor || !isAbilityBlocked(actor, state)) {
+    return false;
+  }
+  if (actor.roleId === TB.DRUNK) {
+    return false;
+  }
+  if (state?.snv?.snakeCharmerPoisonedIds?.includes(actor.id)) {
+    return false;
+  }
+  return !!actor.poisoned;
+}
+
+function clueIsAbnormal(clue) {
+  if (!clue) {
+    return false;
+  }
+  if (typeof clue.abnormal === "boolean") {
+    return clue.abnormal;
+  }
+  return !sameInfoValue(clue.truth, clue.reported);
+}
+
+function shouldCountAbnormalInfoForMathematician(state, actor, clue) {
+  if (!state.snv || !actor || getEffectiveRoleId(actor) === SNV.MATHEMATICIAN || !clueIsAbnormal(clue)) {
+    return false;
+  }
+  return isVortoxInfoActiveForActor(state, actor) || isAbilityBlockedByOtherForMathematician(state, actor);
+}
+
 function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Math.random, forcedPlan = null) {
   const candidates = state.players.filter((entry) => entry.id !== actor.id);
   if (candidates.length === 0) {
@@ -2838,9 +3271,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
 
   const blocked = isAbilityBlocked(actor, state);
   const roleId = getEffectiveRoleId(actor);
-  const vortoxActive =
-    state.scriptId === "snv" &&
-    state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX);
+  const vortoxActive = isVortoxInfoActiveForActor(state, actor);
 
   if (state.scriptId === "bmr" && (roleId === BMR.GRANDMOTHER || roleId === BMR.CHAMBERMAID)) {
     return null;
@@ -2945,9 +3376,8 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
 
   if (state.scriptId === "snv" && roleId === SNV.DREAMER) {
     const truthRole = getRoleNameById(state, target.roleId);
-    const oppositePool = getAllRoles(state.scriptId).filter((entry) =>
-      target.team === "evil" ? entry.team === "good" : entry.team === "evil"
-    );
+    const wrongPool = getAllRoles(state.scriptId).filter((entry) => entry.id !== target.roleId);
+    const oppositePool = wrongPool;
     const fakeRole = chooseOne(oppositePool, rng)?.name ?? "未知";
     const pair = shuffle([truthRole, fakeRole], rng);
     let left = pair[0];
@@ -2957,6 +3387,10 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       const noisyB = chooseOne(getAllRoles(state.scriptId), rng)?.name ?? right;
       left = noisyA;
       right = noisyB;
+      const falsePool = wrongPool.length > 0 ? wrongPool : getAllRoles(state.scriptId);
+      const noisy = sample(falsePool, Math.min(2, falsePool.length), rng);
+      left = noisy[0]?.name ?? left;
+      right = noisy[1]?.name ?? chooseOne(falsePool, rng)?.name ?? right;
     }
     return {
       actorId: actor.id,
@@ -2964,6 +3398,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       truth: truthRole,
       reported: `${left}/${right}`,
       polluted: blocked || vortoxActive,
+      abnormal: left !== truthRole && right !== truthRole,
       text: `${target.name} 在你的梦境中对应两个身份：${left} / ${right}。`,
     };
   }
@@ -3003,7 +3438,7 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
     } else if (/(邪恶|evil|坏人)/i.test(question)) {
       truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.team === "evil");
     } else if (/(存活|活着|alive)/i.test(question)) {
-      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && entry.alive);
+      truth = state.players.some((entry) => lowerQuestion.includes(`${entry.seatIndex + 1}`) && registersAsAlive(state, entry));
     }
     let report = truth;
     if (blocked || vortoxActive) {
@@ -3025,8 +3460,8 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
   if (targets.length >= 2) {
     const truth = targets[0].team === targets[1].team;
     let report = blocked ? (rng() < 0.72 ? !truth : truth) : (rng() < 0.86 ? truth : !truth);
-    if (vortoxActive && actor.team === "good") {
-      report = !report;
+    if (vortoxActive) {
+      report = !truth;
     }
     return {
       actorId: actor.id,
@@ -3034,29 +3469,29 @@ function generateInfoClueSimplified(state, actor, forcedTargets = null, rng = Ma
       targetIds: targets.map((entry) => entry.id),
       truth,
       reported: report,
-      polluted: blocked,
+      polluted: blocked || vortoxActive,
       text: `${targets[0].name} 与 ${targets[1].name} 在你的视角中看起来${report ? "同阵营" : "不同阵营"}。`,
     };
   }
 
   const truth = target.team === "evil";
   let report = blocked ? (rng() < 0.75 ? !truth : truth) : (rng() < 0.85 ? truth : !truth);
-  if (vortoxActive && actor.team === "good") {
-    report = !report;
+  if (vortoxActive) {
+    report = !truth;
   }
   return {
     actorId: actor.id,
     targetId: target.id,
     truth,
     reported: report,
-    polluted: blocked,
+    polluted: blocked || vortoxActive,
     text: `${target.name} 在你的视角中看起来更像${report ? "邪恶" : "善良"}。`,
   };
 }
 
 function runPassiveInfoActorsSimplified(state, rng = Math.random) {
   const infoActors = state.players
-    .filter((entry) => entry.alive && entry.tags.includes("info") && !entry.tags.includes("onDeath") && entry.team === "good")
+    .filter((entry) => entry.alive && entry.tags.includes("info") && !entry.tags.includes("onDeath"))
     .sort((a, b) => {
       const aRole = getEffectiveRoleId(a);
       const bRole = getEffectiveRoleId(b);
@@ -3127,6 +3562,10 @@ function runPassiveInfoActorsSimplified(state, rng = Math.random) {
       return;
     }
 
+    if (shouldCountAbnormalInfoForMathematician(state, actor, clue)) {
+      addAbilityInterference(state, 1);
+      clue.countedByMathematician = true;
+    }
     state.events.infoPings.push({ ...clue, type: clue.type ?? roleId, night: state.night });
     addPrivateInfo(state, actor, `[第${state.night}夜] ${clue.text}`);
   });
@@ -3145,8 +3584,14 @@ function runNightSimplified(state, rng = Math.random) {
     return;
   }
 
-  resolveEndOfDayBMRTriggers(state, rng);
-  resolveEndOfDaySnVPenalties(state, rng);
+  if (state.phase === "day" && state.day > 0) {
+    resolveEndOfDayBMRTriggers(state, rng);
+    resolveEndOfDaySnVPenalties(state, rng);
+    const executionToday = (state.events.executions ?? []).some((entry) => entry.day === state.day);
+    if (!executionToday && !state.gameOver) {
+      evaluateNoExecutionOutcomes(state);
+    }
+  }
   checkWin(state);
   if (state.gameOver) {
     return;
@@ -3158,6 +3603,13 @@ function runNightSimplified(state, rng = Math.random) {
   runPassiveInfoActorsSimplified(state, rng);
   choosePoisonTargetsSimplified(state, rng);
   const deathsBeforeDemon = state.events.nightDeaths.length;
+
+  if (state.snv?.pitHagDemonBalancePending) {
+    addLog(state, "night-effect", "Pit-Hag 改变恶魔数量，今晚常规恶魔击杀暂停，等待 Storyteller 平衡。", {});
+    transitionToDayPhase(state);
+    checkWin(state);
+    return;
+  }
 
   const { demon, victims } = chooseDemonVictimsSimplified(state, rng);
   const demonRole = demon ? getEffectiveRoleId(demon) : null;
@@ -3291,6 +3743,9 @@ export function resolveNominationAndVote(
   if (state.dayStage && state.dayStage !== "nomination") {
     return { accepted: false, reason: "当前尚未进入提名阶段，请先完成私聊与公聊。" };
   }
+  if ((state.events.executions ?? []).some((entry) => entry.day === state.day)) {
+    return { accepted: false, reason: "今天已经发生过处决，不能再次处决。" };
+  }
 
   const nominator = getPlayerById(state, nominatorId);
   const nominee = getPlayerById(state, nomineeId);
@@ -3298,7 +3753,7 @@ export function resolveNominationAndVote(
   if (!nominator || !nominee) {
     return { accepted: false, reason: "提名者或被提名玩家不存在。" };
   }
-  if (!nominator.alive) {
+  if (!registersAsAlive(state, nominator)) {
     return { accepted: false, reason: "死亡玩家无法发起提名。" };
   }
   if (nominator.nominatedToday) {
@@ -3337,17 +3792,18 @@ export function resolveNominationAndVote(
       special: "virgin",
       nominee,
       yesVotes: 0,
-      threshold: Math.ceil(getAlivePlayers(state).length / 2),
+      threshold: Math.ceil(getPubliclyAlivePlayers(state).length / 2),
       votes: [],
     };
   }
 
-  const aliveCount = getAlivePlayers(state).length;
+  const aliveCount = getPubliclyAlivePlayers(state).length;
   const threshold = Math.ceil(aliveCount / 2);
 
   const votes = [];
   state.players.forEach((player) => {
-    const canVote = player.alive || player.ghostVoteAvailable;
+    const publiclyAlive = registersAsAlive(state, player);
+    const canVote = publiclyAlive || player.ghostVoteAvailable;
     if (!canVote) {
       votes.push({ voterId: player.id, vote: false, abstain: true });
       return;
@@ -3355,6 +3811,8 @@ export function resolveNominationAndVote(
     let vote;
     if (player.isHuman) {
       vote = !!humanVoteYes;
+    } else if (player.id === nominatorId) {
+      vote = true;
     } else {
       vote = !!decideAIVote(player, nominee, state);
     }
@@ -3383,7 +3841,7 @@ export function resolveNominationAndVote(
     if (!voter) {
       return;
     }
-    if (!voter.alive && voter.ghostVoteAvailable) {
+    if (!registersAsAlive(state, voter) && voter.ghostVoteAvailable) {
       voter.ghostVoteAvailable = false;
     }
   });
@@ -3449,10 +3907,19 @@ export function useSlayerAbility(state, { shooterId, targetId }, rng = Math.rand
       ok: false,
       reason: "Slayer 技能模块未注册。",
     };
+  let speech = null;
+  if (result.ok) {
+    speech = recordPublicDayAbility(state, shooter, {
+      roleId: TB.SLAYER,
+      abilityKind: "slayer-shot",
+      targetIds: [target.id],
+      text: `${shooter.name}公开发动猎手能力，选择 ${target.name} 开枪。`,
+    });
+  }
   if (result.ok && shooter.isHuman) {
     markHumanAbilityUsed(state, getEffectiveRoleId(shooter));
   }
-  return result;
+  return result.ok ? { ...result, speechId: speech?.id ?? "", speech } : result;
 }
 
 function evaluateMayorNoExecution(state) {

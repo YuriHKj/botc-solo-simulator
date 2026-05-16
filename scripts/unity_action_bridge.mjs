@@ -12,12 +12,12 @@ import {
   initializeAI,
   recordNominationDebateResponse,
   runAIConversationStep,
-  runAIDiscussion,
   runAIProactiveWhispers,
   runAIToAIPrivateWhispers,
   runPrivateWhisper,
 } from "./ai.js";
 import { renderSpeechWithLocalLLM, resolveLLMRendererConfig } from "./ai_llm_renderer.js";
+import { recordPublicSpeechForAgents } from "./ai_agents.js";
 import {
   addGrimoireReminder,
   addLog,
@@ -30,8 +30,8 @@ import {
   getHumanNightActionState,
   getPendingStorytellerActionState,
   getPlayerById,
-  markPublicDiscussionRound,
   openNominationWindow,
+  registerClaim,
   removeGrimoireReminder,
   resolveNominationAndVote,
   resolvePendingStorytellerAction,
@@ -53,6 +53,7 @@ const DEFAULT_ACTION_PATH = `${DEFAULT_STREAMING_ASSETS}/unity_action.json`;
 const DEFAULT_RESULT_PATH = `${DEFAULT_STREAMING_ASSETS}/unity_action_result.json`;
 const DEFAULT_REPLAY_DIR = "output/demo_replays";
 const DEFAULT_LLM_DIALOGUE_TIMEOUT_MS = 1800;
+const DEFAULT_LLM_DIALOGUE_MAX_LINES = 3;
 
 function argValue(name, fallback = "") {
   const hit = process.argv.find((entry) => entry === name || entry.startsWith(`${name}=`));
@@ -229,6 +230,12 @@ function bridgeLLMRendererEnabled(options = {}) {
   return options.llmRenderer === true || process.env.BOTC_LLM_RENDERER === "1";
 }
 
+function bridgeLLMMaxLines(options = {}) {
+  const raw = Number(options.llmMaxLines ?? process.env.BOTC_LLM_MAX_LINES_PER_ACTION ?? DEFAULT_LLM_DIALOGUE_MAX_LINES);
+  if (!Number.isFinite(raw)) return DEFAULT_LLM_DIALOGUE_MAX_LINES;
+  return Math.max(0, Math.floor(raw));
+}
+
 function llmDialogueTargetName(state, entry = {}) {
   return replayPlayerName(state, entry.focusId || entry.targetId);
 }
@@ -284,23 +291,13 @@ async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options =
     timeoutMs: options.llmTimeoutMs ?? DEFAULT_LLM_DIALOGUE_TIMEOUT_MS,
   });
 
-  const speeches = state.events?.speeches ?? [];
   const timeline = state.aiDialogue?.timeline ?? [];
   let touched = 0;
   let fallback = 0;
-
-  for (const speech of speeches.slice(beforeSnapshot.speechCount ?? speeches.length)) {
-    if (!speech || playerIsHuman(state, speech.playerId) || !speech.line) continue;
-    const result = await renderBridgeDialogueLine(state, speech, speech.line, options);
-    if (result.text && result.text !== speech.line) {
-      speech.llmRender = { source: result.source, fallbackUsed: result.fallbackUsed, reason: result.reason };
-      speech.line = result.text;
-      touched += 1;
-      if (result.fallbackUsed) fallback += 1;
-    }
-  }
-
-  for (const entry of timeline.slice(beforeSnapshot.timelineCount ?? timeline.length)) {
+  const maxLines = bridgeLLMMaxLines(options);
+  const newTimelineEntries = timeline.slice(beforeSnapshot.timelineCount ?? timeline.length);
+  const renderQueue = [];
+  for (const entry of newTimelineEntries) {
     if (
       !entry ||
       playerIsHuman(state, entry.speakerId) ||
@@ -311,10 +308,17 @@ async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options =
     ) {
       continue;
     }
+    renderQueue.push(entry);
+  }
+
+  const selectedEntries = maxLines <= 0 ? [] : renderQueue.slice(0, maxLines);
+  for (const entry of selectedEntries) {
+    const originalText = entry.text;
     const result = await renderBridgeDialogueLine(state, entry, entry.text, options);
     if (result.text && result.text !== entry.text) {
       entry.llmRender = { source: result.source, fallbackUsed: result.fallbackUsed, reason: result.reason };
       entry.text = result.text;
+      updateMatchingSpeechAfterTimelineRender(state, entry, originalText, result.text, entry.llmRender, beforeSnapshot);
       if (state.aiDialogue?.activeSpeech?.id === entry.id) {
         state.aiDialogue.activeSpeech.text = result.text;
         state.aiDialogue.activeSpeech.llmRender = entry.llmRender;
@@ -331,9 +335,23 @@ async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options =
     model: llmConfig.model,
     touched,
     fallback,
+    skipped: Math.max(0, renderQueue.length - selectedEntries.length),
+    maxLines,
     updatedAt: new Date().toISOString(),
   };
-  return { enabled: true, touched, fallback };
+  return { enabled: true, touched, fallback, skipped: Math.max(0, renderQueue.length - selectedEntries.length), maxLines };
+}
+
+function updateMatchingSpeechAfterTimelineRender(state, timelineEntry, originalText, renderedText, llmRender, beforeSnapshot = {}) {
+  const speeches = state.events?.speeches ?? [];
+  const speakerId = timelineEntry.speakerId || timelineEntry.playerId;
+  const isPrivateTimeline = timelineEntry.private === true || `${timelineEntry.mode ?? ""}`.includes("whisper");
+  for (const speech of speeches.slice(beforeSnapshot.speechCount ?? speeches.length)) {
+    if (!speech || speech.playerId !== speakerId || speech.line !== originalText) continue;
+    if (!!speech.private !== !!isPrivateTimeline) continue;
+    speech.line = renderedText;
+    speech.llmRender = llmRender;
+  }
 }
 
 function makeInitialState({ scriptId = "tb", playerCount = 9, preferredHumanRoleId = "washerwoman", seed = 20260506 } = {}) {
@@ -372,6 +390,9 @@ function ensureUnityBridge(state) {
   state.unityBridge.selectedPlayerId = state.unityBridge.selectedPlayerId ?? "";
   state.unityBridge.status = state.unityBridge.status ?? "idle";
   state.unityBridge.message = state.unityBridge.message ?? "";
+  state.unityBridge.resolvedImmediately = !!state.unityBridge.resolvedImmediately;
+  state.unityBridge.publicAction = !!state.unityBridge.publicAction;
+  state.unityBridge.speechId = state.unityBridge.speechId ?? "";
   state.unityBridge.updatedAt = state.unityBridge.updatedAt ?? "";
   return state.unityBridge;
 }
@@ -384,6 +405,8 @@ function normalizeActionType(type) {
     "reject-proactive-whisper": "decline-proactive-whisper",
     "ai-ai-whispers": "ai-private-whispers",
     "public": "public-discussion",
+    "public-speech": "human-public-speech",
+    "human-public": "human-public-speech",
     "public-step": "ai-public-step",
     "conversation-step": "ai-public-step",
     "nomination-intent": "human-nomination-intent",
@@ -417,8 +440,17 @@ function humanPlayerId(state) {
   return state.players?.find((player) => player.isHuman)?.id ?? "";
 }
 
+function humanPlayer(state) {
+  return state.players?.find((player) => player.isHuman) ?? null;
+}
+
 function selectedOrPayloadPlayerId(state, payload) {
   return payload.playerId ?? payload.targetId ?? state.unityBridge?.selectedPlayerId ?? firstNonHumanPlayerId(state);
+}
+
+function trimUnityText(text, fallback = "", maxChars = 260) {
+  const cleaned = `${text ?? ""}`.replace(/\s+/g, " ").trim();
+  return (cleaned || fallback).slice(0, maxChars).trim();
 }
 
 function selectedPlayerIdFromActionResult(action, payload, result) {
@@ -495,12 +527,141 @@ function maybeEnterPublicStage(state) {
     return { ok: false, reason: "当前不在白天流程，无法进入公聊。" };
   }
   if (state.dayStage === "private") {
-    return advanceDayStage(state, "public");
+    const result = advanceDayStage(state, "public");
+    if (result.ok) {
+      clearPrivateStageQueues(state);
+    }
+    return result;
   }
   if (state.dayStage === "public") {
     return { ok: true, stage: "public" };
   }
   return { ok: false, reason: "当前已经不在公聊前置阶段。" };
+}
+
+function clearPrivateStageQueues(state) {
+  state.dayStageMeta = state.dayStageMeta ?? {};
+  state.dayStageMeta.activePrivateTargetId = null;
+  state.dayStageMeta.privateFollowUpUsed = 0;
+  state.aiDialogue = state.aiDialogue ?? {};
+  state.aiDialogue.pendingProactiveWhispers = Array.isArray(state.aiDialogue.pendingProactiveWhispers)
+    ? state.aiDialogue.pendingProactiveWhispers.filter((entry) => entry.day !== (state.day ?? 0))
+    : [];
+}
+
+function pushHumanPublicTimeline(state, entry) {
+  state.aiDialogue = state.aiDialogue ?? {};
+  state.aiDialogue.timeline = Array.isArray(state.aiDialogue.timeline) ? state.aiDialogue.timeline : [];
+  const record = {
+    id: `human-public-${state.day ?? 0}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    timestamp: Date.now(),
+    day: state.day,
+    night: state.night,
+    mode: "public",
+    roundInDay: Math.max(1, state.dayStageMeta?.publicRounds ?? 1),
+    orderIndex: 0,
+    ...entry,
+  };
+  state.aiDialogue.timeline.push(record);
+  if (state.aiDialogue.timeline.length > 80) {
+    state.aiDialogue.timeline.splice(0, state.aiDialogue.timeline.length - 80);
+  }
+  state.aiDialogue.activeSpeech = record;
+  return record;
+}
+
+function ensureHumanPublicOpening(state, payload = {}) {
+  const human = humanPlayer(state);
+  if (!human || human.publicClaimRoleId) {
+    return { claimed: false };
+  }
+  const roleId = `${payload.claimRoleId ?? payload.roleId ?? human.apparentRoleId ?? human.roleId ?? ""}`.trim();
+  if (!roleId) {
+    return { claimed: false };
+  }
+  const ok = registerClaim(state, human.id, roleId);
+  if (!ok) {
+    return { claimed: false };
+  }
+
+  const roleName =
+    roleId === human.apparentRoleId
+      ? human.apparentRoleName
+      : roleId === human.roleId
+        ? human.roleName
+        : roleId;
+  state.aiDialogue = state.aiDialogue ?? {};
+  state.aiDialogue.timeline = Array.isArray(state.aiDialogue.timeline) ? state.aiDialogue.timeline : [];
+  const roundInDay = Math.max(1, (state.dayStageMeta?.publicRounds ?? 0) + 1);
+  const record = {
+    id: `human-public-claim-${state.day ?? 0}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+    timestamp: Date.now(),
+    day: state.day,
+    night: state.night,
+    mode: "public",
+    roundInDay,
+    orderIndex: -1,
+    speakerId: human.id,
+    targetId: "",
+    text: `公开身份：${roleName || roleId}。我先把自己的口径放上桌。`,
+    intent: "public-claim",
+  };
+  state.aiDialogue.timeline.push(record);
+  if (state.aiDialogue.timeline.length > 80) {
+    state.aiDialogue.timeline.splice(0, state.aiDialogue.timeline.length - 80);
+  }
+  state.aiDialogue.activeSpeech = record;
+  return { claimed: true, roleId };
+}
+
+function applyHumanPublicSpeechAction(state, payload = {}) {
+  if (state.phase !== "day" || state.dayStage !== "public" || state.gameOver) {
+    return { ok: false, reason: "当前不在公聊阶段，无法公开发言。" };
+  }
+  const human = humanPlayer(state);
+  if (!human) {
+    return { ok: false, reason: "未找到主视角玩家。" };
+  }
+  const text = trimUnityText(payload.text ?? payload.line ?? payload.message, "", 280);
+  if (!text) {
+    return { ok: false, reason: "请输入要公开发言的内容。" };
+  }
+
+  const claimRoleId = `${payload.claimRoleId ?? payload.roleId ?? ""}`.trim();
+  if (claimRoleId && human.publicClaimRoleId !== claimRoleId) {
+    registerClaim(state, human.id, claimRoleId);
+  }
+  const focusId = `${payload.focusId ?? payload.targetId ?? payload.playerId ?? state.unityBridge?.selectedPlayerId ?? ""}`.trim();
+  const intent = trimUnityText(payload.intent, claimRoleId ? "public-claim" : "human-public-speech", 80);
+  const record = pushHumanPublicTimeline(state, {
+    speakerId: human.id,
+    targetId: "",
+    focusId,
+    text,
+    intent,
+  });
+  state.events.speeches.push({
+    day: state.day,
+    playerId: human.id,
+    line: text,
+    focusId,
+    private: false,
+  });
+  recordPublicSpeechForAgents(state, {
+    speakerId: human.id,
+    text,
+    focusId,
+    roundInDay: record.roundInDay,
+    orderIndex: record.orderIndex,
+    polarity: "human",
+  });
+  addLog(state, "speech", `${human.name}：${text}`, {
+    private: false,
+    playerId: human.id,
+    focusId,
+    source: "human-public-speech",
+  });
+  return { ok: true, message: "主视角公开发言已记录。", speech: record };
 }
 
 function maybeEnterNominationStage(state, rng) {
@@ -510,13 +671,15 @@ function maybeEnterNominationStage(state, rng) {
   if (state.dayStage === "private") {
     const publicResult = advanceDayStage(state, "public");
     if (!publicResult.ok) return publicResult;
-    runAIDiscussion(state, rng);
-    markPublicDiscussionRound(state);
+    ensureHumanPublicOpening(state);
+    const stepResult = runAIConversationStep(state, rng);
+    if (!stepResult.ok) return stepResult;
   }
   if (state.dayStage === "public") {
     if ((state.dayStageMeta?.publicRounds ?? 0) <= 0) {
-      runAIDiscussion(state, rng);
-      markPublicDiscussionRound(state);
+      ensureHumanPublicOpening(state);
+      const stepResult = runAIConversationStep(state, rng);
+      if (!stepResult.ok) return stepResult;
     }
     return advanceDayStage(state, "nomination");
   }
@@ -541,9 +704,11 @@ function applyPhaseAction(state, payload, rng) {
   if (stage === "public") {
     const result = maybeEnterPublicStage(state);
     if (result.ok) {
-      runAIDiscussion(state, rng);
-      markPublicDiscussionRound(state);
-      addLog(state, "unity-action", "Unity 发起了一轮公聊。", { source: "unity" });
+      ensureHumanPublicOpening(state, payload);
+      const stepResult = runAIConversationStep(state, rng);
+      if (!stepResult.ok) return stepResult;
+      addLog(state, "unity-action", "Unity 发起了一步公聊。", { source: "unity" });
+      return { ...stepResult, stage: "public", message: stepResult.message ?? "公聊推进一步。" };
     }
     return result;
   }
@@ -637,16 +802,18 @@ function applyHumanNightAction(state, payload) {
     : result;
 }
 
-function applyHumanDayAction(state, payload) {
+function applyHumanDayAction(state, payload, rng) {
   const action = getHumanDayActionState(state);
   if (!action.available) {
     return { ok: false, reason: action.reason };
   }
   const plan = completeRoleActionInput(action, payload);
-  const result = setHumanDayActionPlan(state, plan);
-  return result.ok
-    ? { ...result, message: `白天行动已预设：${result.roleName} -> ${result.targetNames ?? "无"}` }
-    : result;
+  const result = setHumanDayActionPlan(state, plan, rng);
+  if (!result.ok) {
+    return result;
+  }
+  const verb = result.resolvedImmediately ? "已执行" : "已预设";
+  return { ...result, message: `${verb}白天行动：${result.roleName} -> ${result.targetNames ?? "无"}` };
 }
 
 function applyStorytellerAction(state, payload) {
@@ -963,6 +1130,23 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
       result = applyDeclineProactiveWhisperAction(state, payload);
     } else if (action.type === "ai-private-whispers") {
       result = applyAIPrivateWhisperAction(state, rng);
+    } else if (action.type === "human-public-speech") {
+      result = applyHumanPublicSpeechAction(state, payload);
+      if (result.ok) {
+        const focusId = `${payload.focusId ?? payload.targetId ?? payload.playerId ?? state.unityBridge?.selectedPlayerId ?? ""}`.trim();
+        state.dayStageMeta = state.dayStageMeta ?? {};
+        const conversation = state.dayStageMeta.publicConversation ?? {};
+        state.dayStageMeta.publicConversation = {
+          ...conversation,
+          active: true,
+          clock: "response",
+          pendingResponseSpeakerId: focusId || conversation.activeSpeakerId || null,
+          pendingResponseFocusId: focusId || conversation.focusId || null,
+          pendingQuestionText: trimUnityText(payload.text ?? payload.line ?? payload.message, "", 280),
+          suggestedActions: ["ask-addressed-ai", "continue-public", "open-nomination-window"],
+          lastUpdatedDay: state.day ?? 0,
+        };
+      }
     } else if (action.type === "ai-public-step") {
       result = applyPublicConversationStepAction(state, payload, rng);
     } else if (action.type === "open-nomination-window") {
@@ -984,7 +1168,7 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
     } else if (action.type === "night-action") {
       result = applyHumanNightAction(state, payload);
     } else if (action.type === "day-action") {
-      result = applyHumanDayAction(state, payload);
+      result = applyHumanDayAction(state, payload, rng);
     } else if (action.type === "storyteller-action") {
       result = applyStorytellerAction(state, payload);
     } else if (action.type === "grimoire-reminder") {
@@ -1015,6 +1199,9 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
   bridge.lastActionType = action.type;
   bridge.status = result.ok ? "ok" : "error";
   bridge.message = result.message ?? result.reason ?? "";
+  bridge.resolvedImmediately = !!result.resolvedImmediately;
+  bridge.publicAction = !!result.public;
+  bridge.speechId = result.speechId ?? result.speech?.id ?? "";
   bridge.updatedAt = new Date().toISOString();
   updateBridgeSelectionFromActionResult(state, bridge, action, payload, result);
   initializeAI(state);
@@ -1036,6 +1223,9 @@ export function writeUnityBridgeOutputs({ state, statePath, viewModelPath, resul
       ok: !!result?.ok,
       skipped: !!result?.skipped,
       message: result?.message ?? result?.reason ?? "",
+      resolvedImmediately: !!result?.resolvedImmediately,
+      publicAction: !!result?.public,
+      speechId: result?.speechId ?? result?.speech?.id ?? "",
       llmRenderer: result?.llmRenderer ?? null,
       revision: state.unityBridge.revision,
       updatedAt: state.unityBridge.updatedAt ?? new Date().toISOString(),
@@ -1089,7 +1279,7 @@ export async function processUnityActionFileAsync(options = {}) {
   const result = action ? applyUnityAction(state, action, rng) : { ok: true, skipped: true, reason: "No action file." };
   if (action && result.ok) {
     const llmResult = await applyLLMDialoguePostprocess(state, beforeSnapshot, options);
-    if (llmResult.enabled && llmResult.touched > 0) {
+    if (llmResult.enabled) {
       result.llmRenderer = llmResult;
     }
   }
@@ -1157,6 +1347,7 @@ function cliOptions() {
     llmRenderer: hasFlag("--llm-renderer"),
     llmProvider: argValue("--llm-provider", process.env.BOTC_LLM_PROVIDER || ""),
     llmTimeoutMs: Number(argValue("--llm-timeout", process.env.BOTC_LLM_TIMEOUT_MS || `${DEFAULT_LLM_DIALOGUE_TIMEOUT_MS}`)) || DEFAULT_LLM_DIALOGUE_TIMEOUT_MS,
+    llmMaxLines: Number(argValue("--llm-max-lines", process.env.BOTC_LLM_MAX_LINES_PER_ACTION || `${DEFAULT_LLM_DIALOGUE_MAX_LINES}`)) || DEFAULT_LLM_DIALOGUE_MAX_LINES,
   };
 }
 

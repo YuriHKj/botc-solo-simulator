@@ -175,7 +175,18 @@ export function buildAIThoughtFrameCore(state, aiPlayer, options = {}, deps = {}
   const nominationReadiness = primary
     ? clamp((primary.score ?? 0) * 0.75 + Math.min(0.18, evidenceCount * 0.045) + Math.min(0.12, support * 0.03), 0, 1)
     : 0;
-  const selfDisclosureNeed = thoughtFrameSelfDisclosureNeed(state, aiPlayer, options);
+  const goodDayStrategy = deps.evaluateGoodDayStrategy
+    ? deps.evaluateGoodDayStrategy(state, aiPlayer, options)
+    : null;
+  let selfDisclosureNeed = thoughtFrameSelfDisclosureNeed(state, aiPlayer, options);
+  if (
+    goodDayStrategy?.active &&
+    selfDisclosureNeed === "none" &&
+    goodDayStrategy.selfDisclosureBias >= 0.16 &&
+    (options.audience === "public" || state.dayStage === "public")
+  ) {
+    selfDisclosureNeed = goodDayStrategy.recommendedPublicAct === "offer-virgin-check" ? "hard_claim" : "range";
+  }
   const suggestedClaimRoleId = thoughtFrameDisclosureRoleId(state, aiPlayer, selfDisclosureNeed, options.rng ?? Math.random, deps);
   const socialRisk = thoughtFrameSocialRisk(state, aiPlayer, selfDisclosureNeed);
   const intendedAct = thoughtFrameIntendedAct(state, primary, selfDisclosureNeed, nominationReadiness, options);
@@ -194,6 +205,7 @@ export function buildAIThoughtFrameCore(state, aiPlayer, options = {}, deps = {}
     selfDisclosureNeed,
     suggestedClaimRoleId,
     socialRisk,
+    goodDayStrategy,
     nominationReadiness,
     questionToAsk: primary ? `让 ${primary.player.name} 把身份和昨晚信息说清楚` : "",
     evidenceReasons,

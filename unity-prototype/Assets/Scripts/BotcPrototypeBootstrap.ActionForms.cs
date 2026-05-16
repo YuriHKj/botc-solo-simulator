@@ -83,6 +83,44 @@ namespace BotcSolo.UnityPrototype
             return (vm.actionForms ?? Array.Empty<ActionFormViewModel>()).FirstOrDefault((entry) => entry != null && entry.id == activeActionFormId);
         }
 
+        private static bool IsPublicDayAction(ActionFormViewModel form)
+        {
+            return form != null
+                && form.id == "day-action"
+                && form.interaction != null
+                && (form.roleId == "slayer" || form.roleId == "gossip" || !string.IsNullOrWhiteSpace(form.interaction.confirmText));
+        }
+
+        private static string PublicActionTitle(ActionFormViewModel form)
+        {
+            if (!string.IsNullOrWhiteSpace(form?.interaction?.title)) return form.interaction.title;
+            return string.IsNullOrWhiteSpace(form?.roleName) ? "公开发动" : form.roleName;
+        }
+
+        private static string PublicActionConfirmText(ActionFormViewModel form)
+        {
+            if (!string.IsNullOrWhiteSpace(form?.interaction?.confirmText)) return form.interaction.confirmText;
+            if (form?.roleId == "slayer") return "公开开枪";
+            if (form?.roleId == "gossip") return "公开声明";
+            return "公开发动";
+        }
+
+        private static string PublicActionInputTitle(ActionFormViewModel form)
+        {
+            if (form?.roleId == "gossip") return "公开声明";
+            if (form?.roleId == "slayer") return "开枪目标";
+            return NeedsQuestion(form) ? "公开文本" : "公开选择";
+        }
+
+        private static string PublicActionHelper(ActionFormViewModel form)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(form?.interaction?.badge)) parts.Add(form.interaction.badge);
+            if (!string.IsNullOrWhiteSpace(form?.interaction?.subtitle)) parts.Add(form.interaction.subtitle);
+            if (!string.IsNullOrWhiteSpace(form?.interaction?.helper)) parts.Add(form.interaction.helper);
+            return parts.Count == 0 ? "" : string.Join("  ", parts);
+        }
+
         private void EnsureActiveActionFormStillValid()
         {
             if (string.IsNullOrWhiteSpace(activeActionFormId)) return;
@@ -161,15 +199,18 @@ namespace BotcSolo.UnityPrototype
                 SetActionFormButtonStates(null);
                 return;
             }
-            if (actionFormTitle != null) actionFormTitle.text = form.title ?? "行动表单";
+            var isPublicAction = IsPublicDayAction(form);
+            if (actionFormTitle != null) actionFormTitle.text = isPublicAction ? $"公开发动 · {PublicActionTitle(form)}" : form.title ?? "行动表单";
             if (actionFormBody != null)
             {
                 actionFormBody.text = form.available
                     ? ClampTextLines(new[]
                     {
-                        $"{form.roleName} · {ActionInputLabel(form.inputType)} · {ActionRequirementLabel(form)}",
+                        isPublicAction
+                            ? $"{form.roleName} · 公开技能 · {ActionRequirementLabel(form)}"
+                            : $"{form.roleName} · {ActionInputLabel(form.inputType)} · {ActionRequirementLabel(form)}",
                         string.IsNullOrWhiteSpace(form.prompt) ? "JS Core 已导出行动，等待选择。" : form.prompt,
-                        ActionFormReadinessLine(form)
+                        isPublicAction ? FirstNonEmpty(PublicActionHelper(form), ActionFormReadinessLine(form)) : ActionFormReadinessLine(form)
                     }, 3, 118)
                     : ClampTextBlock($"当前不可用：{form.reason}", 3, 118);
             }
@@ -194,7 +235,7 @@ namespace BotcSolo.UnityPrototype
             }
             if (NeedsTargets(form))
             {
-                AddActionSectionHeader("Target", "目标", ActionTargetHint(form), y);
+                AddActionSectionHeader("Target", isPublicAction ? PublicActionInputTitle(form) : "目标", isPublicAction ? PublicActionHelper(form) : ActionTargetHint(form), y);
                 if (ActionFormUsesGrimoireTargets(form)) RenderActionGrimoireTargetPrompt(form, y - 38f);
                 else RenderActionTargetChoices(form, y - 38f);
                 y -= NeedsRole(form) ? 154f : (form.options?.Length ?? 0) > ActionChoicePageSize ? 150f : 132f;
@@ -207,8 +248,9 @@ namespace BotcSolo.UnityPrototype
             }
             if (NeedsQuestion(form))
             {
-                AddActionSectionHeader("Question", "问题", "写下要交给 JS Core 的是/否问题。", y);
-                actionQuestionInput = AddInputField("Action Question Input", actionOptionRoot, new Vector2(24f, Mathf.Max(28f, y - 74f)), new Vector2(1078f, Mathf.Max(68f, y - 28f)), "输入要提交给 JS Core 的问题");
+                AddActionSectionHeader("Question", isPublicAction ? PublicActionInputTitle(form) : "问题", isPublicAction ? "提交后会立刻写入公开时间线。" : "写下要交给 JS Core 的是/否问题。", y);
+                actionQuestionInput = AddInputField("Action Question Input", actionOptionRoot, new Vector2(24f, Mathf.Max(28f, y - 74f)), new Vector2(1078f, Mathf.Max(68f, y - 28f)), isPublicAction ? "输入要公开声明的内容" : "输入要提交给 JS Core 的问题");
+                if (isPublicAction) actionQuestionInput.characterLimit = 180;
             }
             if (!NeedsMode(form) && !NeedsTargets(form) && !NeedsRole(form) && !NeedsQuestion(form))
             {
@@ -228,7 +270,7 @@ namespace BotcSolo.UnityPrototype
             var panel = AddPanel("Action Submit Checklist", actionOptionRoot, Vector2.zero, Vector2.zero, new Vector2(1120f, 24f), new Vector2(1424f, 472f), new Color(0.004f, 0.010f, 0.017f, 0.62f));
             AddFrame(panel.transform, "Action Checklist Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
             AddImage("Action Checklist Header Wash", panel.transform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -58f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.060f));
-            AddText("Action Checklist Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 398f), new Vector2(-18f, -14f), "提交检查", 19, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Action Checklist Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 398f), new Vector2(-18f, -14f), IsPublicDayAction(form) ? "公开发动检查" : "提交检查", 19, TextAnchor.UpperLeft, FontStyle.Bold);
 
             var y = 356f;
             if (NeedsTargets(form))
@@ -238,7 +280,7 @@ namespace BotcSolo.UnityPrototype
                 var countText = modeSkipsTargets
                     ? "当前模式不需要目标"
                     : $"{selectedActionTargetIds.Count}/{Mathf.Max(1, form.minTargetCount)} 已选";
-                AddActionChecklistRow(panel.transform, "目标", countText, ok, y);
+                AddActionChecklistRow(panel.transform, IsPublicDayAction(form) ? PublicActionInputTitle(form) : "目标", countText, ok, y);
                 y -= 48f;
             }
             if (NeedsRole(form))
@@ -254,7 +296,7 @@ namespace BotcSolo.UnityPrototype
             }
             if (NeedsQuestion(form))
             {
-                AddActionChecklistRow(panel.transform, "问题", "留空则使用默认问题", true, y);
+                AddActionChecklistRow(panel.transform, IsPublicDayAction(form) ? PublicActionInputTitle(form) : "问题", IsPublicDayAction(form) ? "将公开写入时间线" : "留空则使用默认问题", true, y);
                 y -= 48f;
             }
             if (!NeedsTargets(form) && !NeedsRole(form) && !NeedsMode(form) && !NeedsQuestion(form))
@@ -398,10 +440,11 @@ namespace BotcSolo.UnityPrototype
             }
             AddFrame(actionTargetBar, "Action Target Bar Frame", 1.0f, new Color(0.92f, 0.62f, 0.28f, 0.34f));
             AddImage("Action Target Bar Header Wash", actionTargetBar, new Vector2(0f, 0.65f), Vector2.one, Vector2.zero, Vector2.zero, new Color(0.76f, 0.48f, 0.18f, 0.060f));
-            AddText("Action Target Bar Title", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 174f), new Vector2(-620f, -12f), form.title ?? "行动目标", 24, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddText("Action Target Bar Hint", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 132f), new Vector2(-690f, -58f), "在大魔典上点击带“可”的玩家 token 选择目标。已选目标会显示“选”。", 16, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.88f, 0.92f, 0.94f, 0.94f);
+            var isPublicAction = IsPublicDayAction(form);
+            AddText("Action Target Bar Title", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 174f), new Vector2(-620f, -12f), isPublicAction ? $"公开发动 · {PublicActionTitle(form)}" : form.title ?? "行动目标", 24, TextAnchor.UpperLeft, FontStyle.Bold);
+            AddText("Action Target Bar Hint", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 132f), new Vector2(-690f, -58f), isPublicAction ? FirstNonEmpty(PublicActionHelper(form), "在大魔典上选择目标后公开发动。") : "在大魔典上点击带“可”的玩家 token 选择目标。已选目标会显示“选”。", 16, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.88f, 0.92f, 0.94f, 0.94f);
             var selectedTargets = selectedActionTargetIds.Count == 0 ? "未选择目标" : string.Join(" / ", selectedActionTargetIds.Select(NameForPlayerId));
-            actionTargetBarStatusText = AddText("Action Target Bar Status", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 72f), new Vector2(-690f, -102f), $"目标：{selectedTargets}    {ActionFormStatus(form)}", 15, TextAnchor.UpperLeft, FontStyle.Normal);
+            actionTargetBarStatusText = AddText("Action Target Bar Status", actionTargetBar, Vector2.zero, Vector2.one, new Vector2(26f, 72f), new Vector2(-690f, -102f), $"{(isPublicAction ? PublicActionInputTitle(form) : "目标")}：{selectedTargets}    {ActionFormStatus(form)}", 15, TextAnchor.UpperLeft, FontStyle.Normal);
             actionTargetBarStatusText.color = ActionFormStatusColor(form);
 
             if (NeedsMode(form))
@@ -417,10 +460,14 @@ namespace BotcSolo.UnityPrototype
             }
 
             if (NeedsRole(form)) RenderActionRoleSelector(actionTargetBar, new Vector2(852f, 42f), new Vector2(1182f, 154f), 52f);
-            if (selectedActionTargetIds.Count > 0) AddToolActionButton("清", "清空目标", actionTargetBar, new Vector2(1248f, 172f), new Vector2(116f, 34f), ClearActionFormTargets, true);
-            var auto = AddToolActionButton("自", "自动合法", actionTargetBar, new Vector2(1374f, 172f), new Vector2(120f, 34f), SendActiveActionFormAuto, true);
-            var submit = AddToolActionButton("发", "确认发送", actionTargetBar, new Vector2(1308f, 96f), new Vector2(128f, 40f), SendActionFormComposed);
-            AddToolActionButton("关", "关闭", actionTargetBar, new Vector2(1444f, 96f), new Vector2(96f, 40f), CloseActionFormPanel);
+            if (selectedActionTargetIds.Count > 0)
+            {
+                AddToolActionButton("清", "清空目标", actionTargetBar, isPublicAction ? new Vector2(1190f, 172f) : new Vector2(1248f, 172f), new Vector2(116f, 34f), ClearActionFormTargets, true);
+            }
+            Button auto = null;
+            if (!isPublicAction) auto = AddToolActionButton("自", "自动合法", actionTargetBar, new Vector2(1374f, 172f), new Vector2(120f, 34f), SendActiveActionFormAuto, true);
+            var submit = AddToolActionButton("发", isPublicAction ? PublicActionConfirmText(form) : "确认发送", actionTargetBar, isPublicAction ? new Vector2(1334f, 96f) : new Vector2(1308f, 96f), new Vector2(128f, 40f), SendActionFormComposed);
+            AddToolActionButton("关", "关闭", actionTargetBar, isPublicAction ? new Vector2(1460f, 96f) : new Vector2(1444f, 96f), new Vector2(96f, 40f), CloseActionFormPanel);
             SetToolButtonEnabled(auto, form.available);
             SetToolButtonEnabled(submit, CanSubmitActionForm(form));
             SetRaycastTargetsExceptButtons(actionTargetBar);
@@ -606,10 +653,10 @@ namespace BotcSolo.UnityPrototype
         private string ActionFormSelectionText(ActionFormViewModel form)
         {
             var parts = new List<string>();
-            if (selectedActionTargetIds.Count > 0) parts.Add($"目标 {string.Join(" / ", selectedActionTargetIds.Select(NameForPlayerId))}");
+            if (selectedActionTargetIds.Count > 0) parts.Add($"{(IsPublicDayAction(form) ? PublicActionInputTitle(form) : "目标")} {string.Join(" / ", selectedActionTargetIds.Select(NameForPlayerId))}");
             if (!string.IsNullOrWhiteSpace(selectedActionRoleId)) parts.Add($"身份 {RoleNameForId(selectedActionRoleId)}");
             if (!string.IsNullOrWhiteSpace(selectedActionModeId)) parts.Add($"模式 {ActionModeLabel(form, selectedActionModeId)}");
-            if (form != null && NeedsQuestion(form) && actionQuestionInput != null && !string.IsNullOrWhiteSpace(actionQuestionInput.text)) parts.Add($"问题 {actionQuestionInput.text}");
+            if (form != null && NeedsQuestion(form) && actionQuestionInput != null && !string.IsNullOrWhiteSpace(actionQuestionInput.text)) parts.Add($"{(IsPublicDayAction(form) ? PublicActionInputTitle(form) : "问题")} {actionQuestionInput.text}");
             return parts.Count == 0 ? "未选择" : string.Join("；", parts);
         }
 
@@ -634,11 +681,13 @@ namespace BotcSolo.UnityPrototype
         {
             if (form == null) return "";
             if (!form.available) return form.reason ?? "当前不可用。";
+            if (IsPublicDayAction(form) && NeedsTargets(form) && selectedActionTargetIds.Count < form.minTargetCount) return $"还需要选择{PublicActionInputTitle(form)}。";
             if (form.inputType == "guesses" && (selectedActionTargetIds.Count == 0 || string.IsNullOrWhiteSpace(selectedActionRoleId))) return "猜测类行动需要玩家 + 身份。";
             var modeSkipsTargets = ActionFormModeSkipsTargetsInstance(form);
             if (NeedsTargets(form) && !modeSkipsTargets && selectedActionTargetIds.Count < form.minTargetCount) return $"还需选择至少 {form.minTargetCount} 个目标。";
             if (NeedsRole(form) && string.IsNullOrWhiteSpace(selectedActionRoleId)) return "还需选择身份。";
             if (NeedsMode(form) && string.IsNullOrWhiteSpace(selectedActionModeId) && (form.modes?.Length ?? 0) > 0) return "可选择一个模式，未选则由 JS Core 使用默认模式。";
+            if (IsPublicDayAction(form)) return "可以公开发动；提交后由 JS Core 结算并写入公开时间线。";
             return "可以确认发送；规则仍由 JS Core 结算。";
         }
 
@@ -652,16 +701,21 @@ namespace BotcSolo.UnityPrototype
 
         private void SetActionFormButtonStates(ActionFormViewModel form)
         {
-            SetToolButtonEnabled(actionFormAutoButton, form != null && form.available);
+            var isPublicAction = IsPublicDayAction(form);
+            if (actionFormAutoButton != null) actionFormAutoButton.gameObject.SetActive(!isPublicAction);
+            var submitLabel = ToolButtonLabel(actionFormSubmitButton);
+            if (submitLabel != null) submitLabel.text = isPublicAction ? PublicActionConfirmText(form) : "确认发送";
+            SetToolButtonEnabled(actionFormAutoButton, form != null && form.available && !isPublicAction);
             SetToolButtonEnabled(actionFormSubmitButton, CanSubmitActionForm(form));
             SetButtonSuggested(actionFormSubmitButton, CanSubmitActionForm(form));
-            SetButtonSuggested(actionFormAutoButton, form != null && form.available && !CanSubmitActionForm(form));
+            SetButtonSuggested(actionFormAutoButton, form != null && form.available && !isPublicAction && !CanSubmitActionForm(form));
         }
 
         private void SendActiveActionFormAuto()
         {
             var form = ActiveActionForm();
             if (form == null || string.IsNullOrWhiteSpace(form.id)) return;
+            if (IsPublicDayAction(form)) return;
             SendUnityAction(form.id);
             FinishActionFormSend(form, "已发送给 JS Core：自动使用当前合法默认选择。");
         }
@@ -722,7 +776,8 @@ namespace BotcSolo.UnityPrototype
             else if (NeedsQuestion(form))
             {
                 var question = actionQuestionInput == null ? "" : actionQuestionInput.text.Trim();
-                SendUnityAction(form.id, text: string.IsNullOrWhiteSpace(question) ? "Is there a demon in play?" : question);
+                var fallback = IsPublicDayAction(form) ? "我公开声明：这条线值得所有人记录。" : "Is there a demon in play?";
+                SendUnityAction(form.id, text: string.IsNullOrWhiteSpace(question) ? fallback : question);
                 FinishActionFormSend(form, $"已发送给 JS Core：{ActionFormSelectionText(form)}。");
                 return;
             }
@@ -750,10 +805,11 @@ namespace BotcSolo.UnityPrototype
         private void FinishActionFormSend(ActionFormViewModel form, string message)
         {
             var isNight = form?.id == "night-action";
-            var title = form?.title ?? "行动表单";
+            var isPublicAction = IsPublicDayAction(form);
+            var title = isPublicAction ? PublicActionTitle(form) : form?.title ?? "行动表单";
             CloseActionFormPanel();
-            dialogueTitle.text = $"{title}已发送";
-            dialogueBody.text = message;
+            dialogueTitle.text = isPublicAction ? "公开发动已提交" : $"{title}已发送";
+            dialogueBody.text = isPublicAction ? $"{PublicActionConfirmText(form)} 已发送给 JS Core；公开时间线会立即刷新。" : message;
             if (isNight)
             {
                 QueueStageDialogue(

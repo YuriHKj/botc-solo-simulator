@@ -26,6 +26,32 @@
   PO: "po",
 };
 
+function hasDeathToday(state) {
+  return (
+    (state.events?.executions ?? []).some((entry) => entry.day === state.day) ||
+    (state.events?.dayDeaths ?? []).some((entry) => entry.day === state.day)
+  );
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value) || 0));
+}
+
+function isZombuulRegisteringDead(state, player) {
+  if (!state?.bmr?.zombuulHiddenDead || !player?.alive) {
+    return false;
+  }
+  const stored = state.bmr.zombuulHiddenDeadPlayerId;
+  if (stored) {
+    return stored === player.id;
+  }
+  return player.roleId === BMR.ZOMBUUL;
+}
+
+function registersAsDeadForBMR(state, player) {
+  return !!player && (!player.alive || isZombuulRegisteringDead(state, player));
+}
+
 export const BMR_ROLE_ACTION_RULES = {
   [BMR.SAILOR]: {
     kind: "player-target",
@@ -68,6 +94,7 @@ export const BMR_ROLE_ACTION_RULES = {
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
+    targetFilter: ({ state, actor, target }) => state.bmr?.exorcistLastTargetById?.[actor.id] !== target.id,
     minNight: 2,
     prompt: "选择 1 名存活玩家驱魔；如果 ta 是恶魔，今晚不会行动。",
     interaction: {
@@ -144,6 +171,7 @@ export const BMR_ROLE_ACTION_RULES = {
     allowSelf: false,
     allowDead: true,
     requireDead: true,
+    targetFilter: ({ state, target }) => registersAsDeadForBMR(state, target),
     minNight: 2,
     maxUses: 1,
     prompt: "Choose 1 dead player to attempt to revive.",
@@ -163,6 +191,7 @@ export const BMR_ROLE_ACTION_RULES = {
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
+    targetFilter: ({ state, actor, target }) => state.bmr?.devilsAdvocateLastTargetById?.[actor.id] !== target.id,
     minNight: 1,
     prompt: "选择 1 名存活玩家，明天若 ta 被处决则不会死亡。",
     interaction: {
@@ -280,6 +309,7 @@ export const BMR_ROLE_ACTION_RULES = {
     targetCount: 1,
     allowSelf: false,
     allowDead: false,
+    available: ({ state }) => !hasDeathToday(state),
     minNight: 2,
     prompt: "若今天无人死亡，选择 1 名存活玩家死亡。",
     interaction: {
@@ -411,10 +441,22 @@ export function runBadMoonRisingNight(ctx) {
 
   if (bmr.pukkaPoisonedId) {
     const delayed = getPlayerById(state, bmr.pukkaPoisonedId);
-    if (delayed?.alive) {
+    const activePukka = state.players.find(
+      (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.PUKKA && !isAbilityBlocked(entry, state)
+    );
+    if (activePukka && delayed?.alive) {
       processNightDeath(state, delayed, "pukka-delayed-kill", {}, rng);
+      bmr.pukkaPoisonedId = null;
+    } else if (activePukka || !delayed?.alive) {
+      bmr.pukkaPoisonedId = null;
+    } else if (delayed) {
+      delayed.poisoned = true;
+      delayed.poisonedTomorrowDay = true;
+      addAbilityInterference(state, 1);
+      addLog(state, "night-effect", "Pukka 当前失效，上一名中毒者继续处于延迟毒状态。", {
+        targetId: delayed.id,
+      });
     }
-    bmr.pukkaPoisonedId = null;
   }
 
   const shabaloth = state.players.find(
@@ -659,21 +701,26 @@ export function runBadMoonRisingNight(ctx) {
       if (bmr.professorUsedByIds.includes(professor.id)) {
         return;
       }
-      const deadTownsfolk = state.players.filter((entry) => !entry.alive && entry.category === "townsfolk");
-      if (deadTownsfolk.length === 0) {
+      const deadPlayers = state.players.filter((entry) => registersAsDeadForBMR(state, entry));
+      if (deadPlayers.length === 0) {
         return;
       }
+      const deadTownsfolk = deadPlayers.filter((entry) => entry.category === "townsfolk");
       const planned = professor.isHuman
         ? consumeHumanNightPlanTargets(state, professor, 1, { allowSelf: false, allowDead: true })
         : null;
-      let target = planned?.[0] ?? chooseOne(deadTownsfolk, rng);
-      if (!target || target.alive || target.category !== "townsfolk") {
-        target = chooseOne(deadTownsfolk, rng);
+      let target = planned?.[0] ?? chooseOne(deadTownsfolk.length > 0 ? deadTownsfolk : deadPlayers, rng);
+      if (!target || !registersAsDeadForBMR(state, target)) {
+        target = chooseOne(deadPlayers, rng);
       }
       if (!target) {
         return;
       }
       bmr.professorUsedByIds.push(professor.id);
+      if (target.category !== "townsfolk") {
+        addLog(state, "night-effect", "Professor 尝试复活一名死者，但没有成功。", { by: professor.id, targetId: target.id });
+        return;
+      }
       target.alive = true;
       target.ghostVoteAvailable = true;
       addLog(state, "night-effect", "Professor 复活了一名镇民。", { by: professor.id, targetId: target.id });
@@ -830,11 +877,14 @@ export function runBadMoonRisingNight(ctx) {
   if (!isRoleNightWindowOpen(state, demonRole, state.night)) {
     return;
   }
+  if (isAbilityBlocked(demon, state)) {
+    addLog(state, "night-effect", "恶魔本夜能力失效，没有造成恶魔行动。", { demonId: demon.id, roleId: demonRole });
+    return;
+  }
   markWokeTonight(state, demon, "demon");
 
   if (demonRole === BMR.ZOMBUUL) {
-    const hadExecutionToday = state.events.executions.some((entry) => entry.day === state.day);
-    if (!hadExecutionToday) {
+    if (!hasDeathToday(state)) {
       const target = pickNightTargets(
         state,
         demon,
@@ -1052,6 +1102,33 @@ function maybeBlockDeathByTeaLady(ctx, victim, reason, logType) {
   return true;
 }
 
+function maybeBlockDeathByInnkeeper(ctx, victim, reason, logType) {
+  const { state, addLog } = ctx;
+  if (!state.bmr || !victim?.alive || !state.bmr.innkeeperProtectedIds?.includes(victim.id)) {
+    return false;
+  }
+  addLog(state, logType, `${victim.name} 受到 Innkeeper 保护，免于死亡。`, {
+    victimId: victim.id,
+    reason,
+  });
+  return true;
+}
+
+function maybeSaveBySailor(ctx, victim, reason, logType) {
+  const { state, addLog, getEffectiveRoleId, isAbilityBlocked } = ctx;
+  if (!state.bmr || !victim?.alive || getEffectiveRoleId(victim) !== BMR.SAILOR) {
+    return false;
+  }
+  if (isAbilityBlocked(victim)) {
+    return false;
+  }
+  addLog(state, logType, `${victim.name} 受到 Sailor 免死效果保护。`, {
+    victimId: victim.id,
+    reason,
+  });
+  return true;
+}
+
 function maybeSaveByFool(ctx, victim, reason, logType) {
   const { state, addLog, isAbilityBlocked } = ctx;
   if (!state.bmr || victim.roleId !== BMR.FOOL || !victim.alive) {
@@ -1078,6 +1155,7 @@ function maybeSaveByZombuul(ctx, victim, reason, logType) {
   }
   state.bmr.zombuulRevived = true;
   state.bmr.zombuulHiddenDead = true;
+  state.bmr.zombuulHiddenDeadPlayerId = victim.id;
   addLog(state, logType, `${victim.name} 触发 Zombuul 诈死效果，暂未真正死亡。`, {
     victimId: victim.id,
     reason,
@@ -1085,29 +1163,100 @@ function maybeSaveByZombuul(ctx, victim, reason, logType) {
   return true;
 }
 
+function pacifistSaveWeight(ctx, victim, reason) {
+  const { state, getAlivePlayers } = ctx;
+  const factors = [];
+  let weight = 0.22;
+
+  const push = (id, delta) => {
+    if (!delta) {
+      return;
+    }
+    weight += delta;
+    factors.push({ id, delta: Number(delta.toFixed(3)) });
+  };
+
+  if (victim.category === "townsfolk") {
+    push("townsfolk", 0.12);
+  } else if (victim.category === "outsider") {
+    push("outsider", 0.04);
+  }
+  if (victim.roleId === BMR.PACIFIST) {
+    push("self", 0.08);
+  }
+  if (victim.roleId === BMR.MOONCHILD) {
+    push("avoid-moonchild-chain", 0.05);
+  }
+  if (victim.roleId === BMR.FOOL) {
+    push("fool-backup-only", -0.08);
+  }
+  if (reason === "virgin-trigger") {
+    push("sudden-execution", 0.08);
+  }
+  if ((state.day ?? 0) <= 1) {
+    push("early-day", 0.05);
+  }
+
+  const alive = getAlivePlayers(state);
+  const aliveGood = alive.filter((entry) => entry.team === "good").length;
+  if (aliveGood <= 3) {
+    push("protect-low-good-count", 0.16);
+  } else if (aliveGood <= 4) {
+    push("protect-tight-good-count", 0.08);
+  }
+  if (state.bmr?.mastermindPendingDay === state.day) {
+    push("mastermind-extra-day", -0.18);
+  }
+  if (victim.category === "outsider" && state.players.some((entry) => entry.alive && entry.roleId === BMR.GODFATHER)) {
+    push("avoid-blocking-godfather-signal-too-often", -0.06);
+  }
+
+  return {
+    weight: clampNumber(weight, 0.05, 0.65),
+    factors,
+  };
+}
+
+function maybeSaveByPacifist(ctx, victim, reason) {
+  const { state, rng, addLog, getEffectiveRoleId, isAbilityBlocked } = ctx;
+  if (!state.bmr || victim.team !== "good" || !victim.alive || state.bmr.pacifistSavedToday) {
+    return false;
+  }
+  const activePacifists = state.players.filter(
+    (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.PACIFIST && !isAbilityBlocked(entry)
+  );
+  if (activePacifists.length === 0) {
+    return false;
+  }
+  const decision = pacifistSaveWeight(ctx, victim, reason);
+  const roll = rng();
+  if (roll >= decision.weight) {
+    return false;
+  }
+  state.bmr.pacifistSavedToday = true;
+  addLog(state, "day-skill", `${victim.name} 受到 Pacifist 影响，免于本次处决。`, {
+    victimId: victim.id,
+    reason,
+    weight: decision.weight,
+    roll,
+    factors: decision.factors,
+    pacifistIds: activePacifists.map((entry) => entry.id),
+  });
+  return true;
+}
+
 function onBeforeExecutionDeath(ctx, { victim, reason }) {
-  const { state, rng, addAbilityInterference, addLog, getAlivePlayers, getEffectiveRoleId, isAbilityBlocked } = ctx;
+  const { state, addLog } = ctx;
   if (!state.bmr) {
     return { prevented: false };
+  }
+  if (maybeSaveBySailor(ctx, victim, reason, "day-skill")) {
+    return { prevented: true };
   }
   if (maybeBlockDeathByTeaLady(ctx, victim, reason, "day-skill")) {
     return { prevented: true };
   }
   if (maybeSaveByFool(ctx, victim, reason, "night-effect")) {
-    return { prevented: true };
-  }
-  if (
-    victim.team === "good" &&
-    victim.alive &&
-    !state.bmr.pacifistSavedToday &&
-    state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.PACIFIST && !isAbilityBlocked(entry)) &&
-    rng() < 0.33
-  ) {
-    state.bmr.pacifistSavedToday = true;
-    addLog(state, "day-skill", `${victim.name} 受到 Pacifist 影响，免于本次处决。`, {
-      victimId: victim.id,
-      reason,
-    });
     return { prevented: true };
   }
   if (state.bmr.devilsAdvocateProtectedId === victim.id && victim.alive) {
@@ -1116,6 +1265,9 @@ function onBeforeExecutionDeath(ctx, { victim, reason }) {
       reason,
     });
     state.bmr.devilsAdvocateProtectedId = null;
+    return { prevented: true };
+  }
+  if (maybeSaveByPacifist(ctx, victim, reason)) {
     return { prevented: true };
   }
   if (maybeSaveByZombuul(ctx, victim, reason, "day-skill")) {
@@ -1128,6 +1280,12 @@ function onBeforeNightDeath(ctx, { victim, reason, unstoppable }) {
   if (unstoppable) {
     return { prevented: false };
   }
+  if (maybeSaveBySailor(ctx, victim, reason, "night-effect")) {
+    return { prevented: true };
+  }
+  if (maybeBlockDeathByInnkeeper(ctx, victim, reason, "night-effect")) {
+    return { prevented: true };
+  }
   if (maybeBlockDeathByTeaLady(ctx, victim, reason, "day-skill")) {
     return { prevented: true };
   }
@@ -1135,6 +1293,22 @@ function onBeforeNightDeath(ctx, { victim, reason, unstoppable }) {
     return { prevented: true };
   }
   if (maybeSaveByZombuul(ctx, victim, reason, "night-effect")) {
+    return { prevented: true };
+  }
+  return { prevented: false };
+}
+
+function onBeforeDayDeath(ctx, { victim, reason }) {
+  if (maybeSaveBySailor(ctx, victim, reason, "day-skill")) {
+    return { prevented: true };
+  }
+  if (maybeBlockDeathByTeaLady(ctx, victim, reason, "day-skill")) {
+    return { prevented: true };
+  }
+  if (maybeSaveByFool(ctx, victim, reason, "day-skill")) {
+    return { prevented: true };
+  }
+  if (maybeSaveByZombuul(ctx, victim, reason, "day-skill")) {
     return { prevented: true };
   }
   return { prevented: false };
@@ -1208,17 +1382,12 @@ function onAfterExecutionDeath(ctx, { victim }) {
     return;
   }
 
-  if (state.bmr.mastermindPendingDay === state.day && victim.category !== "demon") {
-    state.bmr.mastermindPendingDay = null;
-    addLog(state, "day-skill", "Mastermind 额外日出现处决，延迟结算结束。", { day: state.day });
-  }
-
   if (victim.category === "outsider") {
     state.bmr.lastDayOutsiderExecuted = true;
   }
   if (victim.category === "minion") {
     state.bmr.lastDayMinionExecuted = true;
-    if (state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.MINSTREL)) {
+    if (state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.MINSTREL && !isAbilityBlocked(entry))) {
       state.bmr.minstrelAoeDrunkUntilNight = Math.max(state.bmr.minstrelAoeDrunkUntilNight, state.night + 1);
       addAbilityInterference(state, getAlivePlayers(state).length);
     }
@@ -1233,6 +1402,38 @@ function onAfterExecutionDeath(ctx, { victim }) {
       day: state.day,
       pendingDay: state.bmr.mastermindPendingDay,
     });
+  }
+}
+
+function onAfterExecutionOutcome(ctx, { victim }) {
+  const { state, finalizeWinner, addLog } = ctx;
+  if (!state.bmr || state.gameOver || state.bmr.mastermindPendingDay !== state.day) {
+    return;
+  }
+  state.bmr.mastermindPendingDay = null;
+  const winner = victim.team === "good" ? "evil" : "good";
+  addLog(state, "day-skill", "Mastermind 额外日发生处决，按被处决玩家阵营结算。", {
+    day: state.day,
+    nomineeId: victim.id,
+    nomineeTeam: victim.team,
+    winner,
+  });
+  finalizeWinner(
+    state,
+    winner,
+    victim.team === "good"
+      ? "Mastermind 额外日处决了善良玩家，邪恶阵营获胜。"
+      : "Mastermind 额外日处决了邪恶玩家，善良阵营获胜。"
+  );
+}
+
+function onAfterDayDeath(ctx, { victim }) {
+  const { state } = ctx;
+  if (!state.bmr) {
+    return;
+  }
+  if (victim.category === "outsider") {
+    state.bmr.lastDayOutsiderExecuted = true;
   }
 }
 
@@ -1328,6 +1529,9 @@ function onEndOfDay(ctx) {
   if (!state.bmr) {
     return;
   }
+  if (state.day <= 0) {
+    return;
+  }
   const statementsToday = state.bmr.gossipStatementsByDay?.[state.day] ?? {};
   const gossips = state.players.filter(
     (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.GOSSIP && !isAbilityBlocked(entry)
@@ -1371,15 +1575,19 @@ function onEndOfDay(ctx) {
 function onNoExecution(ctx) {
   const { state, finalizeWinner } = ctx;
   if (state.bmr?.mastermindPendingDay === state.day) {
-    finalizeWinner(state, "evil", "Mastermind 额外日无人处决，邪恶阵营获胜。");
+    state.bmr.mastermindPendingDay = null;
+    finalizeWinner(state, "good", "Mastermind 额外日无人处决，善良阵营获胜。");
   }
 }
 
 export const BMR_RULE_HANDLERS = {
   onSetup,
   onBeforeExecutionDeath,
+  onBeforeDayDeath,
   onBeforeNightDeath,
   onAfterExecutionDeath,
+  onAfterExecutionOutcome,
+  onAfterDayDeath,
   onAfterNightDeath,
   onAfterDeath,
   onEndOfDay,

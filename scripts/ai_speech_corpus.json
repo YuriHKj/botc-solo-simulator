@@ -632,9 +632,9 @@
         "我这里有个初步判断，先私下给你听。"
       ],
       "noteShare": [
-        "目前能交代的是：{notesText}。",
-        "手上可公开验证的部分是：{notesText}。",
-        "先别当铁证，夜里拿到的是：{notesText}。"
+        "{notesText}",
+        "这条先别当铁证，{notesText}",
+        "我先把能说的给你：{notesText}"
       ],
       "focusPush": [
         "现在更想推进 {targetName}。{reasonText}",

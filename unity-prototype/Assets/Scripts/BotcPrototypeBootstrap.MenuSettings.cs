@@ -54,16 +54,16 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildMainMenu()
         {
-            mainMenuRoot = AddPanel("Main Menu Overlay", canvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.005f, 0.010f, 0.014f, 0.68f)).GetComponent<RectTransform>();
+            mainMenuRoot = AddPanel("Main Menu Overlay", canvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.005f, 0.010f, 0.014f, 0.42f)).GetComponent<RectTransform>();
             var menuBg = AddImage("Menu Background", mainMenuRoot, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, Color.white);
             menuBg.sprite = SpriteFromResource("Botc/ui/menu_bg") ?? SpriteFromResource("Botc/ui/bg_night");
-            menuBg.color = menuBg.sprite == null ? new Color(0.006f, 0.010f, 0.016f, 1f) : new Color(0.82f, 0.90f, 1f, 1f);
+            menuBg.color = menuBg.sprite == null ? new Color(0.010f, 0.018f, 0.026f, 1f) : new Color(0.98f, 1f, 1f, 1f);
             menuBg.preserveAspect = false;
             menuBg.raycastTarget = false;
-            AddImage("Menu Background Shade", mainMenuRoot, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.46f));
-            AddImage("Menu Background Bottom Vignette", mainMenuRoot, Vector2.zero, new Vector2(1f, 0.58f), Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.28f));
-            AddImage("Menu Warm Halo", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-560f, -360f), new Vector2(560f, 360f), new Color(0.95f, 0.72f, 0.38f, 0.10f));
-            var card = AddPanel("Main Menu Card", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-460f, -320f), new Vector2(460f, 330f), new Color(0.012f, 0.014f, 0.016f, 0.90f));
+            AddImage("Menu Background Shade", mainMenuRoot, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.24f));
+            AddImage("Menu Background Bottom Vignette", mainMenuRoot, Vector2.zero, new Vector2(1f, 0.58f), Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.18f));
+            AddImage("Menu Warm Halo", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-560f, -360f), new Vector2(560f, 360f), new Color(0.95f, 0.72f, 0.38f, 0.070f));
+            var card = AddPanel("Main Menu Card", mainMenuRoot, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-460f, -320f), new Vector2(460f, 330f), new Color(0.012f, 0.014f, 0.016f, 0.82f));
             AddFrame(card.transform, "Main Menu Card Frame", 2f, new Color(0.88f, 0.62f, 0.28f, 0.56f));
             AddImage("Menu Inner Glow", card.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-18f, -18f), new Color(0.78f, 0.54f, 0.24f, 0.055f));
             var title = AddText("Menu Title", card.transform, Vector2.zero, Vector2.one, new Vector2(34f, 520f), new Vector2(-34f, -34f), "BOTC SOLO", 58, TextAnchor.UpperLeft, FontStyle.Bold);

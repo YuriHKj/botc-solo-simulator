@@ -1,4 +1,13 @@
-﻿const TB = {
+﻿import {
+  chooseFortuneTellerRedHerring,
+  chooseReasonableInfoSubject,
+  chooseReasonableTwoPlayerInfo,
+  chooseSituationAwareFalseRoleForInfo,
+  chooseSituationAwareRegisteredAdjacentTeamPairs,
+  chooseSituationAwareRegisteredTeamCount,
+} from "../info_reasonableness.js";
+
+const TB = {
   WASHERWOMAN: "washerwoman",
   LIBRARIAN: "librarian",
   INVESTIGATOR: "investigator",
@@ -133,7 +142,7 @@ export const TB_DAY_ACTION_RULES = {
       badge: "每局一次",
       targetLabels: ["开枪目标"],
       helper: "私聊阶段不能开枪。中毒或醉酒时，枪声仍会响起，但不会杀死恶魔。",
-      confirmText: "扣下扳机",
+      confirmText: "公开开枪",
       skipText: "暂不发动",
     },
   },
@@ -189,6 +198,11 @@ function maybeDistortRoleId(ctx, roleId, category, blocked) {
   return randomRoleAny(ctx) ?? roleId;
 }
 
+function chooseTruthHolder(ctx, actor, candidates) {
+  const preferred = candidates.filter((entry) => entry.id !== actor.id);
+  return ctx.chooseOne(preferred.length > 0 ? preferred : candidates);
+}
+
 function twoPlayerPair(ctx, anchor, pool = ctx.state.players) {
   const another = ctx.chooseOne(ctx.state.players.filter((entry) => entry.id !== anchor?.id));
   return ctx.shuffle([anchor, another].filter(Boolean)).slice(0, 2);
@@ -212,45 +226,103 @@ function sendWasherwomanInfo(ctx, player) {
     return;
   }
 
-  const trueHolder = blocked ? ctx.chooseOne(ctx.state.players) : ctx.chooseOne(townsfolkPlayers);
+  const subject = blocked
+    ? { holder: chooseTruthHolder(ctx, player, ctx.state.players), shownRoleId: null, registered: false, strategy: "blocked-random-subject" }
+    : chooseReasonableInfoSubject(ctx, {
+        actor: player,
+        actualCandidates: townsfolkPlayers,
+        profile: "townsfolk-role",
+        rolePool: ctx.getAllRoles(ctx.state.scriptId),
+      });
+  const trueHolder = subject.holder;
   if (!trueHolder) {
     return;
   }
-  const shownRoleId = maybeDistortRoleId(ctx, trueHolder.roleId, "townsfolk", blocked);
-  const pair = twoPlayerPair(ctx, trueHolder);
+  const shownRoleId = blocked ? maybeDistortRoleId(ctx, trueHolder.roleId, "townsfolk", blocked) : subject.shownRoleId ?? trueHolder.roleId;
+  const { pair, falseTokenId } = chooseReasonableTwoPlayerInfo(ctx, {
+    actor: player,
+    trueHolder,
+    profile: "townsfolk-role",
+  });
   if (pair.length < 2) {
     return;
   }
 
   const text = `[第${ctx.state.night}夜] 你得知：${pair[0].name} 与 ${pair[1].name} 中，有一位是 ${ctx.getRoleNameById(ctx.state, shownRoleId)}。`;
   ctx.addPrivateInfo(ctx.state, player, text);
-  ctx.state.events.infoPings.push({ night: ctx.state.night, actorId: player.id, type: "washerwoman", polluted: blocked, text });
+  ctx.state.events.infoPings.push({
+    night: ctx.state.night,
+    actorId: player.id,
+    type: "washerwoman",
+    targetIds: pair.map((entry) => entry.id),
+    truthHolderId: blocked || subject.registered ? null : trueHolder.id,
+    registeredHolderId: subject.registered ? trueHolder.id : null,
+    falseTokenId,
+    shownRoleId,
+    polluted: blocked,
+    selectionProfile: "reasonable-two-player-info:v1",
+    situationStrategy: subject.strategy,
+    situationPressure: subject.pressure ?? null,
+    text,
+  });
 }
 
 function sendLibrarianInfo(ctx, player) {
   const blocked = ctx.isAbilityBlocked(player);
   const outsiders = ctx.state.players.filter((entry) => entry.category === "outsider");
 
-  if (outsiders.length === 0 && !blocked) {
-    const text = `[第${ctx.state.night}夜] 你得知：本局没有外来者。`;
-    ctx.addPrivateInfo(ctx.state, player, text);
-    ctx.state.events.infoPings.push({ night: ctx.state.night, actorId: player.id, type: "librarian", text });
-    return;
-  }
-
-  const trueHolder = blocked ? ctx.chooseOne(ctx.state.players) : ctx.chooseOne(outsiders);
+  const subject = blocked
+    ? { holder: chooseTruthHolder(ctx, player, ctx.state.players), shownRoleId: null, registered: false, strategy: "blocked-random-subject" }
+    : chooseReasonableInfoSubject(ctx, {
+        actor: player,
+        actualCandidates: outsiders,
+        profile: "outsider-role",
+        rolePool: ctx.getAllRoles(ctx.state.scriptId),
+      });
+  const trueHolder = subject.holder;
   if (!trueHolder) {
+    if (!blocked) {
+      const text = `[第${ctx.state.night}夜] 你得知：本局没有外来者。`;
+      ctx.addPrivateInfo(ctx.state, player, text);
+      ctx.state.events.infoPings.push({
+        night: ctx.state.night,
+        actorId: player.id,
+        type: "librarian",
+        selectionProfile: "reasonable-two-player-info:v1",
+        situationStrategy: "no-outsider-or-registered-outsider",
+        situationPressure: subject.pressure ?? null,
+        text,
+      });
+    }
     return;
   }
-  const shownRoleId = maybeDistortRoleId(ctx, trueHolder.roleId, "outsider", blocked);
-  const pair = twoPlayerPair(ctx, trueHolder);
+  const shownRoleId = blocked ? maybeDistortRoleId(ctx, trueHolder.roleId, "outsider", blocked) : subject.shownRoleId ?? trueHolder.roleId;
+  const { pair, falseTokenId } = chooseReasonableTwoPlayerInfo(ctx, {
+    actor: player,
+    trueHolder,
+    profile: "outsider-role",
+  });
   if (pair.length < 2) {
     return;
   }
 
   const text = `[第${ctx.state.night}夜] 你得知：${pair[0].name} 与 ${pair[1].name} 中，有一位是 ${ctx.getRoleNameById(ctx.state, shownRoleId)}。`;
   ctx.addPrivateInfo(ctx.state, player, text);
-  ctx.state.events.infoPings.push({ night: ctx.state.night, actorId: player.id, type: "librarian", polluted: blocked, text });
+  ctx.state.events.infoPings.push({
+    night: ctx.state.night,
+    actorId: player.id,
+    type: "librarian",
+    targetIds: pair.map((entry) => entry.id),
+    truthHolderId: blocked || subject.registered ? null : trueHolder.id,
+    registeredHolderId: subject.registered ? trueHolder.id : null,
+    falseTokenId,
+    shownRoleId,
+    polluted: blocked,
+    selectionProfile: "reasonable-two-player-info:v1",
+    situationStrategy: subject.strategy,
+    situationPressure: subject.pressure ?? null,
+    text,
+  });
 }
 
 function sendInvestigatorInfo(ctx, player) {
@@ -259,18 +331,37 @@ function sendInvestigatorInfo(ctx, player) {
   let pair;
   let shownRoleId;
   let truthHolderId = null;
+  let falseTokenId = null;
+  let registeredHolderId = null;
+  let subjectStrategy = null;
+  let subjectPressure = null;
 
   if (blocked) {
     pair = goodFalsePair(ctx);
     shownRoleId = minionBluffRoleId(ctx);
   } else {
-    const trueHolder = minions.length > 0 ? ctx.chooseOne(minions) : ctx.chooseOne(ctx.state.players);
+    const subject = chooseReasonableInfoSubject(ctx, {
+      actor: player,
+      actualCandidates: minions.length > 0 ? minions : ctx.state.players,
+      profile: "minion-role",
+      rolePool: ctx.getAllRoles(ctx.state.scriptId),
+    });
+    const trueHolder = subject.holder;
     if (!trueHolder) {
       return;
     }
-    truthHolderId = trueHolder.id;
-    shownRoleId = trueHolder.roleId;
-    pair = twoPlayerPair(ctx, trueHolder);
+    truthHolderId = subject.registered ? null : trueHolder.id;
+    registeredHolderId = subject.registered ? trueHolder.id : null;
+    subjectStrategy = subject.strategy;
+    subjectPressure = subject.pressure;
+    shownRoleId = subject.shownRoleId ?? trueHolder.roleId;
+    const reasonable = chooseReasonableTwoPlayerInfo(ctx, {
+      actor: player,
+      trueHolder,
+      profile: "minion-role",
+    });
+    pair = reasonable.pair;
+    falseTokenId = reasonable.falseTokenId;
   }
 
   if (!pair || pair.length < 2) {
@@ -285,46 +376,63 @@ function sendInvestigatorInfo(ctx, player) {
     type: "investigator",
     targetIds: pair.map((entry) => entry.id),
     truthHolderId,
+    registeredHolderId: registeredHolderId ?? null,
+    falseTokenId: falseTokenId ?? null,
     shownRoleId,
     polluted: blocked,
+    selectionProfile: "reasonable-two-player-info:v1",
+    situationStrategy: subjectStrategy ?? (blocked ? "blocked-good-false-pair" : "actual-role-holder"),
+    situationPressure: subjectPressure ?? null,
     text,
   });
 }
 
 function countAdjacentEvilPairs(ctx) {
-  const seated = ctx.getSortedBySeat(ctx.state.players);
-  if (seated.length < 2) {
-    return 0;
-  }
-
-  let pairs = 0;
-  for (let idx = 0; idx < seated.length; idx += 1) {
-    const a = seated[idx];
-    const b = seated[(idx + 1) % seated.length];
-    if (ctx.registersAsTeam(a, "evil") && ctx.registersAsTeam(b, "evil")) {
-      pairs += 1;
-    }
-  }
-  return pairs;
+  return chooseSituationAwareRegisteredAdjacentTeamPairs(ctx.state.players, "evil", ctx.state, (options) => ctx.chooseOne(options));
 }
 
 function sendChefInfo(ctx, player) {
   const blocked = ctx.isAbilityBlocked(player);
-  const truth = countAdjacentEvilPairs(ctx);
-  const shown = blocked ? ctx.randomInt(0, 3) : truth;
+  const decision = countAdjacentEvilPairs(ctx);
+  const truth = decision.value;
+  const shown = truth;
   const text = `[第${ctx.state.night}夜] 你得知：邪恶相邻对数为 ${shown}。`;
   ctx.addPrivateInfo(ctx.state, player, text);
-  ctx.state.events.infoPings.push({ night: ctx.state.night, actorId: player.id, type: "chef", truth, shown, polluted: blocked, text });
+  ctx.state.events.infoPings.push({
+    night: ctx.state.night,
+    actorId: player.id,
+    type: "chef",
+    truth,
+    shown,
+    polluted: blocked,
+    selectionProfile: "situation-aware-registered-adjacent-team-pairs:v1",
+    situationStrategy: decision.strategy,
+    situationPressure: decision.pressure,
+    text,
+  });
 }
 
 function sendEmpathInfo(ctx, player) {
   const blocked = ctx.isAbilityBlocked(player);
   const neighbors = ctx.aliveNeighbors(ctx.state, player);
-  const truth = neighbors.reduce((sum, entry) => sum + (ctx.registersAsTeam(entry, "evil") ? 1 : 0), 0);
-  const shown = blocked ? ctx.randomInt(0, 2) : truth;
+  const decision = chooseSituationAwareRegisteredTeamCount(neighbors, "evil", ctx.state, { max: 2 }, (options) => ctx.chooseOne(options));
+  const truth = decision.value;
+  const shown = truth;
   const text = `[第${ctx.state.night}夜] 你得知：你的两侧存活邻居中有 ${shown} 位邪恶。`;
   ctx.addPrivateInfo(ctx.state, player, text);
-  ctx.state.events.infoPings.push({ night: ctx.state.night, actorId: player.id, type: "empath", truth, shown, polluted: blocked, text });
+  ctx.state.events.infoPings.push({
+    night: ctx.state.night,
+    actorId: player.id,
+    type: "empath",
+    targetIds: neighbors.map((entry) => entry.id),
+    truth,
+    shown,
+    polluted: blocked,
+    selectionProfile: "situation-aware-registered-team-count:v1",
+    situationStrategy: decision.strategy,
+    situationPressure: decision.pressure,
+    text,
+  });
 }
 
 function chooseFortuneTellerTargets(ctx, fortuneTeller, plannedTargets = null) {
@@ -379,7 +487,10 @@ function sendUndertakerInfo(ctx, player) {
   }
 
   const blocked = ctx.isAbilityBlocked(player);
-  const shownRoleId = maybeDistortRoleId(ctx, roleId, null, blocked) ?? roleId;
+  const falseDecision = blocked
+    ? chooseSituationAwareFalseRoleForInfo(ctx.getAllRoles(ctx.state.scriptId), roleId, ctx.state, "identity-check", (options) => ctx.chooseOne(options))
+    : null;
+  const shownRoleId = falseDecision?.role?.id ?? roleId;
   const text = `[第${ctx.state.night}夜] 你得知：今天被处决者的身份是 ${ctx.getRoleNameById(ctx.state, shownRoleId)}。`;
   ctx.addPrivateInfo(ctx.state, player, text);
   ctx.state.events.infoPings.push({
@@ -389,6 +500,9 @@ function sendUndertakerInfo(ctx, player) {
     roleId,
     shownRoleId,
     polluted: blocked,
+    selectionProfile: blocked ? "situation-aware-false-role:v1" : "identity-check:v1",
+    situationStrategy: falseDecision?.strategy ?? "truthful-identity-check",
+    situationPressure: falseDecision?.pressure ?? null,
     text,
   });
 }
@@ -579,7 +693,13 @@ function triggerRavenkeeperInfo(ctx, ravenkeeper) {
     return;
   }
 
-  const shownRoleId = maybeDistortRoleId(ctx, chosen.roleId, null, ctx.isAbilityBlocked(ravenkeeper)) ?? chosen.roleId;
+  const blocked = ctx.isAbilityBlocked(ravenkeeper);
+  const falseDecision = blocked
+    ? chooseSituationAwareFalseRoleForInfo(ctx.getAllRoles(ctx.state.scriptId), chosen.roleId, ctx.state, "identity-check", (options) =>
+        ctx.chooseOne(options)
+      )
+    : null;
+  const shownRoleId = falseDecision?.role?.id ?? chosen.roleId;
   const text = `[第${ctx.state.night}夜] 你临终查验 ${chosen.name}，其身份为 ${ctx.getRoleNameById(ctx.state, shownRoleId)}。`;
   ctx.addPrivateInfo(ctx.state, ravenkeeper, text);
   ctx.state.events.infoPings.push({
@@ -588,6 +708,10 @@ function triggerRavenkeeperInfo(ctx, ravenkeeper) {
     type: "ravenkeeper",
     targetId: chosen.id,
     shownRoleId,
+    polluted: blocked,
+    selectionProfile: blocked ? "situation-aware-false-role:v1" : "identity-check:v1",
+    situationStrategy: falseDecision?.strategy ?? "truthful-identity-check",
+    situationPressure: falseDecision?.pressure ?? null,
     text,
   });
 }
@@ -846,7 +970,7 @@ function useSlayerAbility(ctx, { shooter, target }) {
     return { ok: true, hit: false, targetDead: false };
   }
 
-  ctx.processExecutionDeath(ctx.state, target, "slayer-shot", { shooterId: shooter.id }, ctx.rng);
+  ctx.processDayDeath(ctx.state, target, "slayer-shot", { shooterId: shooter.id }, ctx.rng);
   ctx.checkWin(ctx.state);
   return { ok: true, hit: true, targetDead: true };
 }
@@ -893,8 +1017,7 @@ function ensureFortuneTellerRedHerring(ctx) {
   if (fortuneTellers.length === 0) {
     return;
   }
-  const pool = ctx.state.players.filter((entry) => entry.team === "good" && entry.category !== "demon");
-  ctx.state.tb.redHerringId = ctx.chooseOne(pool)?.id ?? null;
+  ctx.state.tb.redHerringId = chooseFortuneTellerRedHerring(ctx.state.players, (options) => ctx.chooseOne(options))?.id ?? null;
 }
 
 function runRavenkeeperDeathHooks(ctx) {

@@ -22,13 +22,19 @@ namespace BotcSolo.UnityPrototype
             AddImage("Stage Dialogue Bottom Accent", stageDialoguePanel, Vector2.zero, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-1f, 4f), new Color(1f, 0.72f, 0.30f, 0.14f));
             var portrait = AddPanel("Stage Dialogue Portrait", stageDialoguePanel, Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-1334f, -20f), new Color(0.010f, 0.018f, 0.028f, 0.66f));
             AddFrame(portrait.transform, "Stage Dialogue Portrait Frame", 1f, new Color(0.92f, 0.64f, 0.30f, 0.30f));
-            AddImage("Stage Dialogue Portrait Glow", portrait.transform, Vector2.zero, Vector2.one, new Vector2(8f, 8f), new Vector2(-8f, -8f), new Color(1f, 0.76f, 0.30f, 0.052f));
+            stageDialoguePortraitAuraImage = AddCircleImage("Stage Dialogue Portrait Aura", portrait.transform, 78f, new Color(1f, 0.76f, 0.30f, 0.16f), true);
+            stageDialoguePortraitAuraRect = stageDialoguePortraitAuraImage.rectTransform;
+            stageDialoguePortraitAuraImage.raycastTarget = false;
+            stageDialoguePortraitGlowImage = AddImage("Stage Dialogue Portrait Glow", portrait.transform, Vector2.zero, Vector2.one, new Vector2(8f, 8f), new Vector2(-8f, -8f), new Color(1f, 0.76f, 0.30f, 0.052f));
+            stageDialoguePortraitGlowImage.raycastTarget = false;
             stageDialoguePortraitTokenImage = AddImage("Stage Dialogue Portrait Token", portrait.transform, Vector2.zero, Vector2.one, new Vector2(18f, 42f), new Vector2(-18f, -48f), new Color(0.92f, 0.82f, 0.60f, 0.90f));
             stageDialoguePortraitTokenImage.sprite = SpriteFromResource("Botc/ui/vote1") ?? GetCircleFillSprite();
             stageDialoguePortraitTokenImage.preserveAspect = true;
             stageDialoguePortraitRoleImage = AddImage("Stage Dialogue Portrait Role", portrait.transform, Vector2.zero, Vector2.one, new Vector2(44f, 72f), new Vector2(-44f, -80f), Color.white);
             stageDialoguePortraitRoleImage.preserveAspect = true;
             stageDialoguePortraitText = AddText("Stage Dialogue Portrait Text", portrait.transform, Vector2.zero, Vector2.one, new Vector2(20f, 14f), new Vector2(-20f, -124f), "说", 30, TextAnchor.MiddleCenter, FontStyle.Bold);
+            stageDialoguePortraitNameText = AddText("Stage Dialogue Portrait Name", portrait.transform, Vector2.zero, Vector2.one, new Vector2(12f, 12f), new Vector2(-12f, -154f), "说书人", 14, TextAnchor.LowerCenter, FontStyle.Bold);
+            stageDialoguePortraitNameText.color = new Color(0.94f, 0.88f, 0.72f, 0.88f);
             stageDialogueSpeakerText = AddText("Stage Dialogue Speaker", stageDialoguePanel, Vector2.zero, Vector2.one, new Vector2(204f, 148f), new Vector2(-430f, -18f), "说书人", 24, TextAnchor.UpperLeft, FontStyle.Bold);
             stageDialogueTagText = AddText("Stage Dialogue Tag", stageDialoguePanel, Vector2.zero, Vector2.one, new Vector2(930f, 150f), new Vector2(-190f, -22f), "", 15, TextAnchor.UpperRight, FontStyle.Bold);
             stageDialogueMetaText = AddText("Stage Dialogue Meta", stageDialoguePanel, Vector2.zero, Vector2.one, new Vector2(204f, 118f), new Vector2(-430f, -58f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
@@ -514,7 +520,12 @@ namespace BotcSolo.UnityPrototype
             if (!IsPublicTimelineEntry(mode) && !IsPrivateTimelineEntry(mode)) return false;
             if (mode.IndexOf("ai-private", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             var speaker = StageDialoguePlayerById(entry.speakerId);
-            if (speaker != null && speaker.human) return false;
+            var humanPublicAbility = speaker != null
+                && speaker.human
+                && IsPublicTimelineEntry(mode)
+                && (string.Equals(entry.intent, "public-ability", StringComparison.OrdinalIgnoreCase)
+                    || !string.IsNullOrWhiteSpace(entry.abilityRoleId));
+            if (speaker != null && speaker.human && !humanPublicAbility) return false;
             return true;
         }
 
@@ -523,6 +534,91 @@ namespace BotcSolo.UnityPrototype
         {
             if (string.IsNullOrWhiteSpace(playerId)) return null;
             return (vm?.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && player.id == playerId);
+        }
+
+
+        private void MaybeQueueNominationDebateNarration(string previousKey, string nextKey)
+        {
+            if (!gameplayEntered || vm?.nominationDebate == null) return;
+            if (string.IsNullOrWhiteSpace(nextKey) || nextKey == previousKey) return;
+            var debate = vm.nominationDebate;
+            if (!debate.active) return;
+            var intro = $"{FirstNonEmpty(debate.nominatorName, "提名者")} 提名 {FirstNonEmpty(debate.nomineeName, "被提名者")}";
+            if (!string.IsNullOrWhiteSpace(debate.reason)) intro += $"。\n理由：{debate.reason.Trim()}";
+            QueueStageDialogue("说书人", intro, "提名互辩", debate.nominatorId, debate.nomineeId);
+            foreach (var line in (debate.lines ?? Array.Empty<NominationDebateLineViewModel>()).Where((entry) => entry != null && !entry.pending && !string.IsNullOrWhiteSpace(entry.text)).TakeLast(4))
+            {
+                QueueStageDialogue(FirstNonEmpty(line.speakerName, NameForPlayerId(line.speakerId)), line.text.Trim(), "提名互辩", line.speakerId, debate.nomineeId);
+            }
+        }
+
+
+        private void MaybeQueueVoteCeremonyNarration(string previousKey, string nextKey)
+        {
+            if (!gameplayEntered || vm?.voteCeremony == null) return;
+            if (string.IsNullOrWhiteSpace(nextKey) || nextKey == previousKey) return;
+            var vote = vm.voteCeremony;
+            if (string.IsNullOrWhiteSpace(vote.nomineeId)) return;
+            var yesVoters = (vote.voters ?? Array.Empty<VoteViewModel>())
+                .Where((entry) => entry != null && entry.vote)
+                .OrderBy((entry) => entry.seat)
+                .Select((entry) => FirstNonEmpty(entry.voterName, $"{entry.seat}号"))
+                .Take(8)
+                .ToArray();
+            var yesLine = yesVoters.Length == 0 ? "无人举手" : string.Join(" / ", yesVoters);
+            var body = $"{FirstNonEmpty(vote.nominatorName, "提名者")} 提名 {FirstNonEmpty(vote.nomineeName, "被提名者")}。\n"
+                + $"票数：{vote.yesVotes}/{vote.threshold}，{FirstNonEmpty(vote.resultText, vote.passed ? "通过" : "未通过")}。\n"
+                + $"举手：{yesLine}\n"
+                + "投票标记已同步到魔典 token；需要回放时可打开投票仪式。";
+            QueueStageDialogue("说书人", body, "投票结果", vote.nominatorId, vote.nomineeId);
+        }
+
+
+        private void MaybeQueueActionStatusNarration(string previousKey, string nextKey)
+        {
+            if (!gameplayEntered || vm?.action == null) return;
+            if (string.IsNullOrWhiteSpace(nextKey) || nextKey == previousKey) return;
+            var action = vm.action;
+            if (string.IsNullOrWhiteSpace(action.lastActionId) || string.IsNullOrWhiteSpace(action.lastActionType)) return;
+            if (!ShouldNarrateActionStatus(action.lastActionType)) return;
+            var ok = !string.Equals(action.status, "error", StringComparison.OrdinalIgnoreCase);
+            var title = ok ? "行动已同步" : "行动同步失败";
+            var message = FirstNonEmpty(action.message, ok ? "JS Core 已处理本次行动。" : "请检查 bridge 状态。");
+            QueueStageDialogue("说书人", $"{ActionStatusDisplayName(action.lastActionType)}：{message}", title, "", action.selectedPlayerId);
+        }
+
+
+        private static bool ShouldNarrateActionStatus(string actionType)
+        {
+            if (string.IsNullOrWhiteSpace(actionType)) return false;
+            var type = actionType.Trim().ToLowerInvariant();
+            if (type == "select-token") return false;
+            if (type == "grimoire-reminder" || type == "grimoire-mark-role") return false;
+            if (type == "ai-public-step" || type == "ai-nomination-step") return false;
+            if (type == "ai-private-whispers" || type == "ai-proactive-whispers") return false;
+            if (type == "resolve-nomination-vote" || type == "human-nomination-intent" || type == "nomination-debate-response") return false;
+            if (type == "decline-proactive-whisper") return false;
+            return type.Contains("action")
+                || type.Contains("storyteller")
+                || type.Contains("nomination")
+                || type.Contains("vote")
+                || type.Contains("whisper")
+                || type.Contains("private")
+                || type.Contains("phase");
+        }
+
+
+        private static string ActionStatusDisplayName(string actionType)
+        {
+            var type = (actionType ?? "").Trim().ToLowerInvariant();
+            if (type.Contains("storyteller")) return "说书人行动";
+            if (type.Contains("vote")) return "投票";
+            if (type.Contains("nomination")) return "提名";
+            if (type.Contains("private") || type.Contains("whisper")) return "私聊";
+            if (type.Contains("phase")) return "阶段推进";
+            if (type.Contains("night")) return "夜间行动";
+            if (type.Contains("day")) return "白天行动";
+            return "行动";
         }
 
 
@@ -565,6 +661,34 @@ namespace BotcSolo.UnityPrototype
         {
             var info = model?.privateInfo ?? Array.Empty<string>();
             return info.Length == 0 ? "" : string.Join("|", info.Where((entry) => !string.IsNullOrWhiteSpace(entry)).TakeLast(4));
+        }
+
+
+        private static string NominationDebateNarrationKey(PrototypeViewModel model)
+        {
+            var debate = model?.nominationDebate;
+            if (debate == null || !debate.active) return "";
+            var lines = debate.lines ?? Array.Empty<NominationDebateLineViewModel>();
+            var lineBits = string.Join("|", lines.Where((entry) => entry != null && !entry.pending).Select((entry) => $"{entry.speakerId}:{entry.role}:{entry.text}").TakeLast(5));
+            return $"{debate.nominationId}:{debate.day}:{debate.nominatorId}:{debate.nomineeId}:{debate.reason}:{lineBits}";
+        }
+
+
+        private static string VoteCeremonyNarrationKey(PrototypeViewModel model)
+        {
+            var vote = model?.voteCeremony;
+            if (vote == null || string.IsNullOrWhiteSpace(vote.nomineeId)) return "";
+            var voters = vote.voters ?? Array.Empty<VoteViewModel>();
+            var voterBits = string.Join(",", voters.OrderBy((entry) => entry.seat).Select((entry) => $"{entry.voterId}:{entry.vote}:{entry.abstain}:{entry.ghostVote}"));
+            return $"{vote.day}:{vote.nominatorId}:{vote.nomineeId}:{vote.yesVotes}:{vote.threshold}:{vote.passed}:{voterBits}";
+        }
+
+
+        private static string ActionStatusNarrationKey(PrototypeViewModel model)
+        {
+            var action = model?.action;
+            if (action == null || string.IsNullOrWhiteSpace(action.lastActionId)) return "";
+            return $"{action.revision}:{action.lastActionId}:{action.lastActionType}:{action.status}:{action.message}";
         }
 
 
@@ -682,6 +806,7 @@ namespace BotcSolo.UnityPrototype
         private void ShowStageDialogue(string speaker, string body, string tag, string speakerId = "", string targetId = "")
         {
             if (stageDialoguePanel == null || stageDialogueBodyText == null) return;
+            HideProactiveWhisperForStageDialogue();
             if (stageDialogueRoutine != null) StopCoroutine(stageDialogueRoutine);
             PrepareStageDialogue(speaker, body, tag, speakerId, targetId);
             stageDialoguePanel.SetAsLastSibling();
@@ -691,6 +816,7 @@ namespace BotcSolo.UnityPrototype
 
         private void QueueStageDialogue(string speaker, string body, string tag, string speakerId = "", string targetId = "")
         {
+            HideProactiveWhisperForStageDialogue();
             if (stageDialoguePanel != null && stageDialoguePanel.gameObject.activeSelf)
             {
                 while (stageDialogueQueue.Count >= StageDialogueQueueLimit) stageDialogueQueue.Dequeue();
@@ -712,6 +838,7 @@ namespace BotcSolo.UnityPrototype
         private void ShowStageDialogueStill(string speaker, string body, string tag)
         {
             if (stageDialoguePanel == null || stageDialogueBodyText == null) return;
+            HideProactiveWhisperForStageDialogue();
             stageDialogueQueue.Clear();
             if (stageDialogueRoutine != null)
             {
@@ -868,6 +995,11 @@ namespace BotcSolo.UnityPrototype
                 ShowInfoDrawer("recap");
                 return;
             }
+            if (mode == "nomination")
+            {
+                ResolveNominationDebateToVote();
+                return;
+            }
             ShowInfoDrawer("events");
         }
 
@@ -894,8 +1026,22 @@ namespace BotcSolo.UnityPrototype
 
         private void RenderStageDialoguePortrait(string speaker)
         {
-            var player = PlayerFromDialogueHeading(speaker);
+            var player = !string.IsNullOrWhiteSpace(stageDialogueSpeakerPlayerId)
+                ? StageDialoguePlayerById(stageDialogueSpeakerPlayerId)
+                : PlayerFromDialogueHeading(speaker);
             var storyteller = player == null && (string.IsNullOrWhiteSpace(speaker) || speaker.Contains("说书人") || speaker.Contains("Storyteller"));
+            if (stageDialoguePortraitAuraImage != null)
+            {
+                stageDialoguePortraitAuraImage.color = storyteller
+                    ? new Color(1f, 0.76f, 0.30f, 0.20f)
+                    : new Color(0.46f, 0.74f, 1f, 0.15f);
+            }
+            if (stageDialoguePortraitGlowImage != null)
+            {
+                stageDialoguePortraitGlowImage.color = storyteller
+                    ? new Color(1f, 0.76f, 0.30f, 0.075f)
+                    : new Color(0.44f, 0.72f, 1f, 0.060f);
+            }
             if (stageDialoguePortraitTokenImage != null)
             {
                 stageDialoguePortraitTokenImage.sprite = SpriteFromResource(storyteller || player?.revealed == true ? "Botc/ui/token1" : "Botc/ui/vote1") ?? GetCircleFillSprite();
@@ -914,6 +1060,43 @@ namespace BotcSolo.UnityPrototype
                 stageDialoguePortraitText.text = player == null ? (storyteller ? "说" : StagePortraitLabel(speaker)) : $"{player.seat}号";
                 stageDialoguePortraitText.fontSize = player == null && storyteller ? 34 : 21;
                 stageDialoguePortraitText.color = storyteller ? new Color(1f, 0.84f, 0.48f, 0.98f) : new Color(0.98f, 0.91f, 0.78f, 1f);
+            }
+            if (stageDialoguePortraitNameText != null)
+            {
+                stageDialoguePortraitNameText.text = storyteller
+                    ? "说书人"
+                    : player != null
+                        ? (player.human ? "你" : $"{player.seat}号")
+                        : Ellipsize(FirstNonEmpty(speaker, "发言者"), 6);
+                stageDialoguePortraitNameText.color = storyteller ? new Color(1f, 0.84f, 0.48f, 0.92f) : new Color(0.76f, 0.88f, 1f, 0.88f);
+            }
+        }
+
+
+        private void UpdateStageDialogueMotion()
+        {
+            if (UiMotionDisabled() || stageDialoguePanel == null || !stageDialoguePanel.gameObject.activeSelf) return;
+            var time = Time.realtimeSinceStartup;
+            var breath = 0.5f + 0.5f * Mathf.Sin(time * 2.6f);
+            var storyteller = stageDialogueSpeakerText == null
+                || string.IsNullOrWhiteSpace(stageDialogueSpeakerText.text)
+                || stageDialogueSpeakerText.text.Contains("说书人")
+                || stageDialogueSpeakerText.text.Contains("Storyteller");
+            if (stageDialoguePortraitAuraRect != null)
+            {
+                stageDialoguePortraitAuraRect.localScale = Vector3.one * (1.0f + breath * 0.050f);
+            }
+            if (stageDialoguePortraitAuraImage != null)
+            {
+                stageDialoguePortraitAuraImage.color = storyteller
+                    ? new Color(1f, 0.76f, 0.30f, 0.16f + breath * 0.11f)
+                    : new Color(0.46f, 0.74f, 1f, 0.11f + breath * 0.085f);
+            }
+            if (stageDialoguePortraitGlowImage != null)
+            {
+                stageDialoguePortraitGlowImage.color = storyteller
+                    ? new Color(1f, 0.76f, 0.30f, 0.052f + breath * 0.050f)
+                    : new Color(0.44f, 0.72f, 1f, 0.042f + breath * 0.040f);
             }
         }
 
@@ -960,6 +1143,7 @@ namespace BotcSolo.UnityPrototype
             }
             RenderGrimoire();
             StartQueuedPhaseTransitionAfterDialogue();
+            ScheduleProactiveWhisperRenderAfterDialogue();
         }
 
 
@@ -1033,6 +1217,7 @@ namespace BotcSolo.UnityPrototype
             if (value.Contains("私聊")) return "private";
             if (value.Contains("公聊") || value.Contains("时间") || value.Contains("发言")) return "timeline";
             if (value.Contains("复盘")) return "recap";
+            if (value.Contains("提名")) return "nomination";
             return "events";
         }
 
@@ -1042,6 +1227,7 @@ namespace BotcSolo.UnityPrototype
             if (mode == "private") return "私聊";
             if (mode == "timeline") return "时间线";
             if (mode == "recap") return "复盘";
+            if (mode == "nomination") return "投票";
             return "日志";
         }
 

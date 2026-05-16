@@ -4,7 +4,7 @@ param(
   [string]$PackageName = "",
   [string]$LocalLlmSource = "",
   [switch]$PrepareLocalLlm,
-  [ValidateSet("tiny", "balanced", "quality", "custom")]
+  [ValidateSet("tiny", "balanced", "quality", "premium", "premium-max", "custom")]
   [string]$ModelTier = "balanced",
   [string]$ModelRepo = "",
   [string]$ModelFile = "",
@@ -70,7 +70,7 @@ function Write-Utf8File([string]$PathValue, [string]$Content) {
   if (-not [string]::IsNullOrWhiteSpace($parent)) {
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
   }
-  Set-Content -LiteralPath $PathValue -Encoding UTF8 -Value $Content
+  [System.IO.File]::WriteAllText($PathValue, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Write-AsciiFile([string]$PathValue, [string]$Content) {
@@ -119,16 +119,16 @@ if ($PrepareLocalLlm) {
   }
   Push-Location $repoRoot
   try {
-    $prepareArgs = @(
-      "-OutputDir", $prepareOutput,
-      "-ModelTier", $ModelTier,
-      "-LlamaReleaseTag", $LlamaReleaseTag
-    )
+    $prepareArgs = @{
+      OutputDir = $prepareOutput
+      ModelTier = $ModelTier
+      LlamaReleaseTag = $LlamaReleaseTag
+    }
     if (-not [string]::IsNullOrWhiteSpace($ModelRepo)) {
-      $prepareArgs += @("-ModelRepo", $ModelRepo)
+      $prepareArgs.ModelRepo = $ModelRepo
     }
     if (-not [string]::IsNullOrWhiteSpace($ModelFile)) {
-      $prepareArgs += @("-ModelFile", $ModelFile)
+      $prepareArgs.ModelFile = $ModelFile
     }
     & $prepareScript @prepareArgs
   }
@@ -231,7 +231,10 @@ If that folder is absent or incomplete, gameplay still works. The JS Core bridge
 ## Recommended license-safe bundle
 
 - Runtime: `llama.cpp` server, MIT license.
-- Model: an Apache-2.0 small Chinese-capable GGUF. The default packager uses `Qwen2.5-0.5B-Instruct-GGUF` to keep the release lightweight.
+- Model: an Apache-2.0 Chinese-capable GGUF. Check `LocalLLM/LOCAL_LLM_MANIFEST.json` for the exact bundled tier and file.
+- Default tier: `Qwen2.5-0.5B-Instruct-GGUF`, smaller and faster.
+- Quality tier: `Qwen2.5-1.5B-Instruct-GGUF` Q4_K_M, larger but usually better for dialogue polish.
+- Premium tier: `Qwen3-4B-GGUF` Q4_K_M, targets a 2-3GB release.
 
 Do not bundle the previous Ollama `qwen2.5:3b` package unless you have separately verified its model license and distribution terms.
 
@@ -243,7 +246,16 @@ The model only rewrites already-safe AI speech. It does not decide rules, read h
 if (-not $NoZip) {
   $zipPath = Join-Path $outputRootPath ($PackageName + ".zip")
   if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-  Compress-Archive -LiteralPath $dest -DestinationPath $zipPath -Force
+  $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+  if ($tar) {
+    & $tar.Source -a -c -f $zipPath -C $outputRootPath $PackageName
+    if ($LASTEXITCODE -ne 0) {
+      throw "tar.exe failed to create zip: $zipPath"
+    }
+  }
+  else {
+    Compress-Archive -LiteralPath $dest -DestinationPath $zipPath -Force
+  }
   Write-Host "Package ready: $dest"
   Write-Host "Zip ready: $zipPath"
 }

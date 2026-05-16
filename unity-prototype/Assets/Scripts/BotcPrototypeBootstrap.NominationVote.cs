@@ -11,18 +11,21 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildPhaseAssistPanel()
         {
-            phaseAssistPanel = AddPanel("Phase Assist Panel", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-500f, -172f), new Vector2(500f, -102f), new Color(0.004f, 0.010f, 0.016f, 0.72f)).GetComponent<RectTransform>();
+            phaseAssistPanel = AddPanel("Phase Assist Panel", canvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-500f, -220f), new Vector2(500f, -102f), new Color(0.004f, 0.010f, 0.016f, 0.72f)).GetComponent<RectTransform>();
             AddFrame(phaseAssistPanel, "Phase Assist Frame", 0.9f, new Color(0.92f, 0.62f, 0.28f, 0.26f));
             AddImage("Phase Assist Track", phaseAssistPanel, Vector2.zero, Vector2.zero, new Vector2(24f, 12f), new Vector2(608f, 18f), new Color(0.62f, 0.48f, 0.30f, 0.18f));
             phaseAssistProgressFill = AddImage("Phase Assist Progress", phaseAssistPanel, Vector2.zero, Vector2.zero, new Vector2(24f, 12f), new Vector2(86f, 18f), new Color(1f, 0.72f, 0.30f, 0.62f));
-            phaseAssistTitleText = AddText("Phase Assist Title", phaseAssistPanel, Vector2.zero, Vector2.one, new Vector2(24f, 44f), new Vector2(-430f, -8f), "流程提示", 18, TextAnchor.UpperLeft, FontStyle.Bold);
-            phaseAssistHintText = AddText("Phase Assist Hint", phaseAssistPanel, Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-430f, -36f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
+            phaseAssistTitleText = AddText("Phase Assist Title", phaseAssistPanel, Vector2.zero, Vector2.one, new Vector2(24f, 92f), new Vector2(-430f, -8f), "流程提示", 18, TextAnchor.UpperLeft, FontStyle.Bold);
+            phaseAssistHintText = AddText("Phase Assist Hint", phaseAssistPanel, Vector2.zero, Vector2.one, new Vector2(24f, 68f), new Vector2(-430f, -36f), "", 13, TextAnchor.UpperLeft, FontStyle.Normal);
             phaseAssistPrimaryButton = AddToolActionButton("▶", "推进", phaseAssistPanel, new Vector2(690f, 36f), new Vector2(112f, 34f), PhaseAssistPrimaryAction, true);
             phaseAssistSecondaryButton = AddToolActionButton("◇", "提名", phaseAssistPanel, new Vector2(812f, 36f), new Vector2(112f, 34f), PhaseAssistSecondaryAction, true);
             phaseAssistTertiaryButton = AddToolActionButton("○", "空过", phaseAssistPanel, new Vector2(934f, 36f), new Vector2(112f, 34f), PhaseAssistTertiaryAction, true);
             phaseAssistPrimaryLabel = ToolButtonLabel(phaseAssistPrimaryButton);
             phaseAssistSecondaryLabel = ToolButtonLabel(phaseAssistSecondaryButton);
             phaseAssistTertiaryLabel = ToolButtonLabel(phaseAssistTertiaryButton);
+            publicSpeechInput = AddInputField("Public Speech Input", phaseAssistPanel, new Vector2(24f, 22f), new Vector2(610f, 54f), "输入你的公聊发言");
+            publicSpeechInput.characterLimit = 180;
+            publicSpeechInput.gameObject.SetActive(false);
             phaseAssistPanel.gameObject.SetActive(false);
         }
 
@@ -88,11 +91,16 @@ namespace BotcSolo.UnityPrototype
             var showDebate = debate != null && debate.active;
             var visible = gameplayEntered && !GameplayOverlayOpen() && (showPublic || showNomination || showDebate);
             phaseAssistPanel.gameObject.SetActive(visible);
-            if (!visible) return;
+            if (!visible)
+            {
+                SetPublicSpeechInputVisible(false);
+                return;
+            }
 
             phaseAssistPanel.SetAsLastSibling();
             if (showDebate)
             {
+                SetPublicSpeechInputVisible(false);
                 if (phaseAssistTitleText != null) phaseAssistTitleText.text = "提名互辩";
                 if (phaseAssistHintText != null) phaseAssistHintText.text = $"{debate.nominatorName} 提名 {debate.nomineeName}，读完双方陈述后进入投票。";
                 SetPhaseAssistProgress(1f);
@@ -102,6 +110,7 @@ namespace BotcSolo.UnityPrototype
 
             if (showNomination)
             {
+                SetPublicSpeechInputVisible(false);
                 var total = Mathf.Max(1, clock?.totalTicks ?? 0);
                 var remaining = Mathf.Clamp(clock?.ticksRemaining ?? 0, 0, total);
                 var elapsed = clock != null && clock.active ? 1f - remaining / (float)total : 0.08f;
@@ -119,13 +128,22 @@ namespace BotcSolo.UnityPrototype
             }
 
             if (phaseAssistTitleText != null) phaseAssistTitleText.text = $"公聊时钟 · {conversation.label}";
+            SetPublicSpeechInputVisible(true);
             if (phaseAssistHintText != null)
             {
                 var pressure = Mathf.RoundToInt(Mathf.Clamp01(conversation.pressure) * 100f);
-                phaseAssistHintText.text = conversation.step > 0 ? $"当前压力 {pressure}%。继续接话，或在焦点清晰后开启提名窗口。" : "让 AI 按开场、回应、交锋、提名压力、冷却自然推进。";
+                phaseAssistHintText.text = string.IsNullOrWhiteSpace(publicSpeechStatus)
+                    ? conversation.step > 0 ? $"当前压力 {pressure}%。你可以先公开发言，再让 AI 接话。" : "你可以先公开发言，或让 AI 按公聊时钟继续推进。"
+                    : publicSpeechStatus;
             }
             SetPhaseAssistProgress(Mathf.Clamp01(conversation.pressure));
-            SetPhaseAssistButtons("继续公聊", "开提名窗", "", true, true, false);
+            SetPhaseAssistButtons("AI 接话", "开提名窗", "你发言", true, true, true);
+        }
+
+
+        private void SetPublicSpeechInputVisible(bool visible)
+        {
+            if (publicSpeechInput != null) publicSpeechInput.gameObject.SetActive(visible);
         }
 
 
@@ -176,6 +194,7 @@ namespace BotcSolo.UnityPrototype
                 SendUnityAction("ai-nomination-step");
                 return;
             }
+            publicSpeechStatus = "";
             SendUnityAction("ai-public-step");
         }
 
@@ -196,7 +215,33 @@ namespace BotcSolo.UnityPrototype
             if (vm?.dayStage == "nomination")
             {
                 SendUnityAction("pass-nomination-window");
+                return;
             }
+            SubmitHumanPublicSpeech();
+        }
+
+
+        private void SubmitHumanPublicSpeech()
+        {
+            if (vm?.phase != "day" || vm?.dayStage != "public")
+            {
+                publicSpeechStatus = "当前不在公聊阶段。";
+                RenderPhaseAssistPanel();
+                return;
+            }
+            var text = publicSpeechInput == null ? "" : publicSpeechInput.text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                publicSpeechStatus = "先输入一句你想在公聊里说的话。";
+                RenderPhaseAssistPanel();
+                return;
+            }
+            var focus = SelectedPlayer();
+            var focusId = focus != null && !focus.human ? focus.id : "";
+            if (!SendUnityAction("human-public-speech", focusId, "", text, "human-public")) return;
+            publicSpeechStatus = "已发送你的公聊发言；下一步可以让 AI 接话。";
+            if (publicSpeechInput != null) publicSpeechInput.text = "";
+            RenderPhaseAssistPanel();
         }
 
 

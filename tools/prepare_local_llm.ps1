@@ -1,6 +1,6 @@
 param(
   [string]$OutputDir = "third_party\LocalLLM",
-  [ValidateSet("tiny", "balanced", "quality", "custom")]
+  [ValidateSet("tiny", "balanced", "quality", "premium", "premium-max", "custom")]
   [string]$ModelTier = "balanced",
   [string]$ModelRepo = "",
   [string]$ModelFile = "",
@@ -25,7 +25,7 @@ function Write-Utf8File([string]$PathValue, [string]$Content) {
   if (-not [string]::IsNullOrWhiteSpace($parent)) {
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
   }
-  Set-Content -LiteralPath $PathValue -Encoding UTF8 -Value $Content
+  [System.IO.File]::WriteAllText($PathValue, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Download-File([string]$Url, [string]$Destination, [switch]$Required) {
@@ -77,6 +77,16 @@ function Resolve-ModelPreset() {
       repo = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
       file = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
       licenseFile = "qwen2.5-1.5b-instruct-APACHE-2.0.txt"
+    }
+    premium = @{
+      repo = "Qwen/Qwen3-4B-GGUF"
+      file = "Qwen3-4B-Q4_K_M.gguf"
+      licenseFile = "qwen3-4b-APACHE-2.0.txt"
+    }
+    "premium-max" = @{
+      repo = "Qwen/Qwen3-4B-GGUF"
+      file = "Qwen3-4B-Q5_K_M.gguf"
+      licenseFile = "qwen3-4b-APACHE-2.0.txt"
     }
   }
   if ($ModelTier -eq "custom") {

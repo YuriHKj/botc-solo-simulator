@@ -26,6 +26,8 @@
     "ai:llm-render-smoke": "node scripts/ai_llm_render_smoke.mjs --mock",
     "ai:llm-dialogue-eval": "node scripts/ai_llm_dialogue_eval.mjs --mock",
     "ai:llm-dialogue-eval:live": "node scripts/ai_llm_dialogue_eval.mjs --live --provider=ollama --timeout=30000",
+    "ai:llm-sft-dataset": "node scripts/build_llm_sft_dataset.mjs",
+    "ai:llm-sft-dataset:rendered": "node scripts/build_llm_sft_dataset.mjs --target=rendered --provider=mock",
     "export:unity-viewmodel": "node scripts/export_unity_viewmodel.mjs",
     "unity:sync-assets": "node scripts/sync_unity_assets.mjs",
     "unity:bridge": "node scripts/unity_action_bridge.mjs --watch",
@@ -35,9 +37,13 @@
     "unity:ui-smoke": "powershell -ExecutionPolicy Bypass -File tools/capture_unity_ui_smoke.ps1",
     "prepare:local-llm": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1",
     "prepare:local-llm:quality": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1 -ModelTier quality -OutputDir third_party\\LocalLLM-quality",
+    "prepare:local-llm:premium": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1 -ModelTier premium -OutputDir third_party\\LocalLLM-premium",
+    "prepare:local-llm:premium-max": "powershell -ExecutionPolicy Bypass -File tools/prepare_local_llm.ps1 -ModelTier premium-max -OutputDir third_party\\LocalLLM-premium-max",
     "package:unity-ai": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1",
     "package:unity-ai:embedded": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm",
     "package:unity-ai:quality": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier quality -LocalLlmSource third_party\\LocalLLM-quality",
+    "package:unity-ai:premium": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier premium -LocalLlmSource third_party\\LocalLLM-premium",
+    "package:unity-ai:premium-max": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier premium-max -LocalLlmSource third_party\\LocalLLM-premium-max",
     "test": "npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:ai-agents && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-demo-acceptance && npm run test:mojibake"
   },
   "devDependencies": {

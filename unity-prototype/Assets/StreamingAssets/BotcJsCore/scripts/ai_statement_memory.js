@@ -17,6 +17,7 @@ function ensureStatementMemoryState(state) {
   state.aiDialogue.statementMemory = state.aiDialogue.statementMemory ?? {};
   state.aiDialogue.statementMemory.publicBySpeakerId = state.aiDialogue.statementMemory.publicBySpeakerId ?? {};
   state.aiDialogue.statementMemory.privateByPairKey = state.aiDialogue.statementMemory.privateByPairKey ?? {};
+  state.aiDialogue.statementMemory.sharedInfoByPairKey = state.aiDialogue.statementMemory.sharedInfoByPairKey ?? {};
   return state.aiDialogue;
 }
 
@@ -78,6 +79,70 @@ export function voteStanceFromText(text) {
 
 function statementPairKey(speakerId, viewerId) {
   return `${speakerId ?? ""}::${viewerId ?? ""}`;
+}
+
+function infoFingerprint(text) {
+  return normalizeText(text)
+    .replace(/\d+/g, "#")
+    .slice(0, 120);
+}
+
+export function getSharedInfoMemory(state, speakerId, viewerId) {
+  const dialogue = ensureStatementMemoryState(state);
+  return dialogue.statementMemory.sharedInfoByPairKey[statementPairKey(speakerId, viewerId)] ?? null;
+}
+
+export function rememberSharedInfoMemory(state, speaker, viewer, details = {}) {
+  if (!speaker?.id || !viewer?.id) {
+    return null;
+  }
+  const dialogue = ensureStatementMemoryState(state);
+  const key = statementPairKey(speaker.id, viewer.id);
+  const previous = dialogue.statementMemory.sharedInfoByPairKey[key] ?? null;
+  const rawSummary = `${details.infoSummary ?? details.text ?? ""}`.trim();
+  const fingerprint = details.infoFingerprint ?? infoFingerprint(rawSummary);
+  const sameInfo = !!fingerprint && previous?.lastInfoFingerprint === fingerprint;
+  const next = {
+    speakerId: speaker.id,
+    viewerId: viewer.id,
+    claimRoleId: details.claimRoleId ?? speaker.publicClaimRoleId ?? previous?.claimRoleId ?? "",
+    lastInfoFingerprint: fingerprint || previous?.lastInfoFingerprint || "",
+    lastInfoSummary: rawSummary || previous?.lastInfoSummary || "",
+    lastSharedDay: state.day ?? 0,
+    lastSharedNight: state.night ?? 0,
+    shareCount: (previous?.shareCount ?? 0) + 1,
+    repeatedInfoCount: sameInfo ? (previous?.repeatedInfoCount ?? 0) + 1 : 0,
+    source: details.source ?? previous?.source ?? "",
+    updatedAt: Date.now(),
+  };
+  dialogue.statementMemory.sharedInfoByPairKey[key] = next;
+  return next;
+}
+
+export function summarizeSharedInfoRepeat(state, speaker, viewer, nextInfoSummary = "") {
+  const memory = getSharedInfoMemory(state, speaker?.id, viewer?.id);
+  if (!memory) {
+    return {
+      repeated: false,
+      memory: null,
+      line: "",
+    };
+  }
+  const nextFingerprint = infoFingerprint(nextInfoSummary);
+  const repeated = !!memory.lastInfoFingerprint && memory.lastInfoFingerprint === nextFingerprint;
+  const staleDays = Math.max(0, Number(state?.day ?? 0) - Number(memory.lastSharedDay ?? 0));
+  let line = "";
+  if (repeated && staleDays >= 1) {
+    line = "昨天那条信息我这边没有改，今天先看有没有新发言能对上。";
+  } else if (memory.claimRoleId && staleDays >= 1) {
+    line = `我昨天给过身份说法，今天不会无理由改口，还是先按 ${roleNameById(state, memory.claimRoleId)} 这条看。`;
+  }
+  return {
+    repeated,
+    memory,
+    staleDays,
+    line,
+  };
 }
 
 export function statementTargetLabel(state, targetId) {
@@ -366,10 +431,10 @@ export function publicStatementMemoryPressure(memory) {
     return 0;
   }
   if (memory.stance === "press") {
-    return 0.12;
+    return 0.16;
   }
   if (memory.stance === "suspect" || Number(memory.focusScore ?? 0) >= 0.56) {
-    return 0.11;
+    return 0.14;
   }
   if (memory.stance === "watch") {
     return 0.03;
@@ -386,7 +451,7 @@ export function publicStatementVoteThresholdShift(state, voter, nominee) {
   if (pressure <= 0) {
     return 0;
   }
-  return voter?.team === "evil" ? -Math.min(0.06, pressure) : -Math.min(0.12, pressure);
+  return voter?.team === "evil" ? -Math.min(0.06, pressure) : -Math.min(0.14, pressure);
 }
 
 export function publicStatementNominationReason(state, aiPlayer, targetId) {

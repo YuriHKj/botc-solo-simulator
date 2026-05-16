@@ -5,6 +5,9 @@ const DEFAULT_BANNED_PHRASES = [
   "证据线",
   "当前主线",
   "低证据",
+  "复核",
+  "硬信息",
+  "那件事",
   "agentView",
   "evidenceContract",
   "JS Core",
@@ -15,6 +18,7 @@ const DEFAULT_BANNED_PHRASES = [
 const DEFAULT_OPENAI_ENDPOINT = "http://127.0.0.1:8080/v1/chat/completions";
 const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434/api/generate";
 const DEFAULT_NEAR_COPY_THRESHOLD = 0.88;
+const REPAIRABLE_VAGUE_TERMS = ["那件事"];
 
 function compactText(value, limit = 240) {
   const text = `${value ?? ""}`.replace(/\s+/g, " ").trim();
@@ -89,7 +93,7 @@ function intentLabel(intent) {
 function personaGuide(persona) {
   return {
     pressure: "偏主动，短句施压，要求对方给出可核验信息。",
-    steady: "偏稳健，先留余地，再指出需要复核的点。",
+    steady: "偏稳健，先留余地，再指出需要对方讲清楚的点。",
     shadow: "偏观察票型和改口，语气谨慎但会抓矛盾。",
     social: "偏社交，少下结论，多问对方信息来源。",
     evil: "像普通玩家一样自然发言，不暴露阵营，不说自己在表演。",
@@ -127,7 +131,10 @@ function buildVisibleFacts(payload) {
   if (payload.evidence.length > 0) {
     payload.evidence.forEach((entry) => facts.push(`可见线索：${entry}`));
   } else {
-    facts.push("目前硬信息不足，应该说成先听回应或暂不定死。");
+    facts.push("目前能确定的东西不多，应该说成先听回应或暂不定死。");
+    if (payload.intent === "pressure_question") {
+      facts.push("公开追问没有具体线索时，可以要求目标把身份和昨晚信息讲完整。");
+    }
   }
   return facts;
 }
@@ -136,6 +143,7 @@ export function buildLLMRendererPrompt(payloadInput = {}) {
   const payload = buildLLMRenderPayload(payloadInput);
   const system = [
     "你是《血染钟楼》中文桌游玩家台词生成器。",
+    "/no_think",
     "你只把给定的结构化发言意图写成自然玩家发言，不做规则判断，不新增事实。",
     "你不能泄露 forbiddenTerms，不能加入未提供的身份、阵营、私聊原文或夜间信息。",
     "requiredTerms 中的每个词必须原样出现在 text 中；targetName 不能改写成“你、他、这个位置”。",
@@ -160,8 +168,11 @@ export function buildLLMRendererPrompt(payloadInput = {}) {
         audienceGuide(payload.audience),
         personaGuide(payload.persona),
         "一句或两句中文，像玩家在桌边说话。",
+        "可以少量使用“嗯、说实话、先别急、我有点担心”这类自然语气，但不要卖萌，不要每句都加。",
+        "语气要贴合局势：被提名时先防守，信息可能脏时先打折，强压目标时短句直接，弱证据时留余地。",
         "先给判断，再给一个可回应的问题或保留意见。",
-        "不要使用“口径、证据线、当前主线、低证据、接前面一句、JS Core”等系统词。",
+        "如果 visibleFacts 里有可见线索，必须保留至少一个具体锚点，比如身份、信息、投票、提名或私聊；不要只说“有点怪”“那件事”。",
+        "不要使用“口径、证据线、当前主线、低证据、复核、硬信息、那件事、接前面一句、JS Core”等系统词。",
         payload.copyAvoidance || payload.rewriteAttempt > 1
           ? "这次必须换一种句式表达，不能只是替换一两个词。"
           : "不要模仿 deterministic draft 的句式。",
@@ -173,7 +184,7 @@ export function buildLLMRendererPrompt(payloadInput = {}) {
       outputRules: [
         "只输出一条 text。",
         "不要编造新身份、新夜间结果、新投票事实。",
-        "如果信息不足，可以说“先听回应”“先别定死”“这点要复核”。",
+        "如果信息不足，可以说“先听回应”“先别定死”“这点再对一下”。",
         "如果 targetName 非空，必须写出 targetName 原文。",
         "禁止说自己是 AI、系统、JS Core 或根据隐藏信息判断。",
       ],
@@ -248,6 +259,37 @@ function repairMissingRequiredTerms(text, payloadInput = {}) {
   return compactText(`${missing.join("、")}这边，${text ?? ""}`, payload.maxChars + 20);
 }
 
+function evidenceAnchorTerms(evidenceEntries = []) {
+  const text = unique(evidenceEntries).join(" ");
+  const anchors = [];
+  if (/身份|角色|跳/.test(text)) anchors.push("身份");
+  if (/信息|昨晚|夜|查验|得知/.test(text)) anchors.push("信息");
+  if (/投票|上票|票型|票/.test(text)) anchors.push("票");
+  if (/提名|被提/.test(text)) anchors.push("提名");
+  if (/私聊|声称|说法|告诉/.test(text)) anchors.push("私聊");
+  if (/死亡|处决|死/.test(text)) anchors.push("死亡");
+  return unique(anchors);
+}
+
+function makeEvidenceGroundedFallbackText(payloadInput = {}) {
+  const payload = buildLLMRenderPayload(payloadInput);
+  const target = payload.targetName || "这位";
+  if (payload.evidence.length === 0) {
+    return compactText(`${target}我先问你一下，身份和昨晚信息讲完整，我再看。`, payload.maxChars);
+  }
+  const safeEvidence = removeTerms(payload.evidence[0] || "现在说法还没对上", payload.forbiddenTerms) || "现在说法还没对上";
+  const needsInfo = /身份|信息|昨晚|夜|查验|得知/.test(safeEvidence);
+  const followup = needsInfo ? "你先把身份和昨晚信息讲清楚。" : "你先把这一点讲清楚。";
+  return compactText(`${target}我先放不下，主要是${compactText(safeEvidence, 44)}。${followup}`, payload.maxChars);
+}
+
+function stripSpeakerPrefix(text, payloadInput = {}) {
+  const payload = buildLLMRenderPayload(payloadInput);
+  if (!payload.speakerName) return `${text ?? ""}`.trim();
+  const escaped = payload.speakerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return `${text ?? ""}`.replace(new RegExp(`^\\s*${escaped}\\s*(?:[：:、，,。.-]+\\s*)?`), "").trim();
+}
+
 export function validateLLMRenderedSpeech(text, payloadInput = {}, options = {}) {
   const payload = buildLLMRenderPayload(payloadInput);
   const value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
@@ -270,6 +312,10 @@ export function validateLLMRenderedSpeech(text, payloadInput = {}, options = {})
   if (payload.targetName && options.requireTarget !== false && !value.includes(payload.targetName)) {
     return { ok: false, reason: `missing-target:${payload.targetName}`, text: value };
   }
+  const evidenceAnchors = evidenceAnchorTerms(payload.evidence);
+  if (options.requireEvidenceAnchor !== false && evidenceAnchors.length > 0 && !evidenceAnchors.some((term) => value.includes(term))) {
+    return { ok: false, reason: `missing-evidence-anchor:${evidenceAnchors.join("/")}`, text: value };
+  }
   if (options.rejectNearCopy === true) {
     const copy = nearCopyDetails(value, payload.candidateText, options.nearCopyThreshold);
     if (copy.nearCopy) {
@@ -281,7 +327,46 @@ export function validateLLMRenderedSpeech(text, payloadInput = {}, options = {})
 
 function validateOrRepairLLMRenderedSpeech(text, payloadInput = {}, options = {}) {
   const validation = validateLLMRenderedSpeech(text, payloadInput, options);
-  if (validation.ok || !/missing-required-term|missing-target/.test(validation.reason)) {
+  if (validation.ok) {
+    return validation;
+  }
+  if (/speaker-prefix/.test(validation.reason)) {
+    const strippedText = stripSpeakerPrefix(validation.text, payloadInput);
+    const stripped = validateLLMRenderedSpeech(strippedText, payloadInput, options);
+    if (stripped.ok) {
+      return {
+        ...stripped,
+        repaired: true,
+        repairReason: validation.reason,
+      };
+    }
+  }
+  if (/missing-evidence-anchor/.test(validation.reason)) {
+    const groundedText = makeEvidenceGroundedFallbackText(payloadInput);
+    const grounded = validateLLMRenderedSpeech(groundedText, payloadInput, options);
+    if (grounded.ok) {
+      return {
+        ...grounded,
+        repaired: true,
+        repairReason: validation.reason,
+      };
+    }
+  }
+  if (validation.reason.startsWith("forbidden-term:")) {
+    const term = validation.reason.slice("forbidden-term:".length);
+    if (REPAIRABLE_VAGUE_TERMS.includes(term)) {
+      const groundedText = makeEvidenceGroundedFallbackText(payloadInput);
+      const grounded = validateLLMRenderedSpeech(groundedText, payloadInput, options);
+      if (grounded.ok) {
+        return {
+          ...grounded,
+          repaired: true,
+          repairReason: validation.reason,
+        };
+      }
+    }
+  }
+  if (!/missing-required-term|missing-target/.test(validation.reason)) {
     return validation;
   }
   const repairedText = repairMissingRequiredTerms(validation.text, payloadInput);
@@ -346,6 +431,8 @@ async function callOpenAICompatible(prompt, options = {}) {
       body: JSON.stringify({
         model,
         temperature: Number.isFinite(options.temperature) ? options.temperature : 0.45,
+        top_p: Number.isFinite(options.topP) ? options.topP : 0.8,
+        presence_penalty: Number.isFinite(options.presencePenalty) ? options.presencePenalty : 1.2,
         max_tokens: Number.isFinite(options.maxTokens) ? options.maxTokens : 128,
         messages: [
           { role: "system", content: prompt.system },
@@ -375,6 +462,8 @@ async function callOllama(prompt, options = {}) {
         format: "json",
         options: {
           temperature: Number.isFinite(options.temperature) ? options.temperature : 0.35,
+          top_p: Number.isFinite(options.topP) ? options.topP : 0.8,
+          presence_penalty: Number.isFinite(options.presencePenalty) ? options.presencePenalty : 1.2,
           num_predict: Number.isFinite(options.maxTokens) ? options.maxTokens : 128,
         },
       }),

@@ -11,22 +11,33 @@ namespace BotcSolo.UnityPrototype
 
         private void BuildEventPanel()
         {
-            eventPanel = AddPanel("Event Panel", canvas.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-720f, -330f), new Vector2(-18f, 330f), new Color(0.004f, 0.010f, 0.017f, 0.86f)).GetComponent<RectTransform>();
+            eventPanel = AddPanel("Event Panel", canvas.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-720f, -330f), new Vector2(-18f, 330f), new Color(0.66f, 0.57f, 0.38f, 0.93f)).GetComponent<RectTransform>();
             eventPanelTargetOffsetMin = eventPanel.offsetMin;
             eventPanelTargetOffsetMax = eventPanel.offsetMax;
-            AddFrame(eventPanel, "Event Panel Frame", 1.2f, new Color(0.82f, 0.56f, 0.25f, 0.36f));
-            AddImage("Info Drawer Header Wash", eventPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -86f), new Vector2(-1f, -1f), new Color(0.72f, 0.45f, 0.18f, 0.075f));
-            AddImage("Info Drawer Content Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 66f), new Vector2(-16f, -112f), new Color(0.020f, 0.028f, 0.036f, 0.34f));
-            AddImage("Info Drawer Sub Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 16f), new Vector2(-16f, -438f), new Color(0.65f, 0.43f, 0.18f, 0.065f));
+            AddFrame(eventPanel, "Event Panel Frame", 1.2f, new Color(0.28f, 0.16f, 0.075f, 0.58f));
+            AddImage("Info Drawer Header Wash", eventPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -86f), new Vector2(-1f, -1f), new Color(0.42f, 0.22f, 0.08f, 0.12f));
+            AddImage("Info Drawer Content Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 66f), new Vector2(-16f, -112f), new Color(0.86f, 0.78f, 0.56f, 0.78f));
+            AddImage("Info Drawer Sub Wash", eventPanel, Vector2.zero, Vector2.one, new Vector2(16f, 16f), new Vector2(-16f, -438f), new Color(0.76f, 0.62f, 0.38f, 0.50f));
+            AddImage("Info Drawer Notebook Spine", eventPanel, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(76f, 0f), new Color(0.28f, 0.020f, 0.026f, 0.94f));
+            AddImage("Info Drawer Spine Edge", eventPanel, Vector2.zero, new Vector2(0f, 1f), new Vector2(76f, 0f), new Vector2(80f, 0f), new Color(0.82f, 0.54f, 0.24f, 0.62f));
+            var spineText = AddText("Info Drawer Spine Text", eventPanel, Vector2.zero, new Vector2(0f, 1f), new Vector2(16f, 210f), new Vector2(64f, -130f), "笔\n记\n本", 31, TextAnchor.MiddleCenter, FontStyle.Bold);
+            spineText.color = new Color(1f, 0.91f, 0.72f, 0.98f);
             infoDrawerTitle = AddText("Info Drawer Title", eventPanel, Vector2.zero, Vector2.one, new Vector2(24f, 604f), new Vector2(-24f, -14f), "资料抽屉", 29, TextAnchor.UpperLeft, FontStyle.Bold);
+            SetRect(infoDrawerTitle.rectTransform, Vector2.zero, Vector2.one, new Vector2(104f, 604f), new Vector2(-24f, -14f));
+            infoDrawerTitle.color = new Color(0.20f, 0.10f, 0.045f, 1f);
             AddText("Info Drawer Hint", eventPanel, Vector2.zero, Vector2.one, new Vector2(500f, 614f), new Vector2(-126f, -20f), "", 13, TextAnchor.UpperRight, FontStyle.Normal);
             AddToolActionButton("关", "关闭", eventPanel, new Vector2(640f, 620f), new Vector2(92f, 32f), CloseAuxPanels, true);
             eventTabText = AddButton("日志", eventPanel, new Vector2(72f, 562f), new Vector2(90f, 32f), () => ShowInfoDrawer("events")).GetComponentInChildren<Text>();
             timelineTabText = AddButton("时间", eventPanel, new Vector2(172f, 562f), new Vector2(90f, 32f), () => ShowInfoDrawer("timeline")).GetComponentInChildren<Text>();
             handbookTabText = AddButton("信息", eventPanel, new Vector2(272f, 562f), new Vector2(90f, 32f), () => ShowInfoDrawer("intel")).GetComponentInChildren<Text>();
             recapTabText = AddButton("复盘", eventPanel, new Vector2(372f, 562f), new Vector2(90f, 32f), () => ShowInfoDrawer("recap")).GetComponentInChildren<Text>();
+            SetInfoTabButtonPosition(eventTabText, new Vector2(138f, 562f));
+            SetInfoTabButtonPosition(timelineTabText, new Vector2(238f, 562f));
+            SetInfoTabButtonPosition(handbookTabText, new Vector2(338f, 562f));
+            SetInfoTabButtonPosition(recapTabText, new Vector2(438f, 562f));
             eventBody = AddText("Info Drawer Main", eventPanel, Vector2.zero, Vector2.one, new Vector2(28f, 188f), new Vector2(-28f, -114f), "", 17, TextAnchor.UpperLeft, FontStyle.Normal);
             queueBody = AddText("Info Drawer Sub", eventPanel, Vector2.zero, Vector2.one, new Vector2(28f, 52f), new Vector2(-28f, -474f), "", 16, TextAnchor.UpperLeft, FontStyle.Normal);
+            ApplyInfoDrawerTextStyle();
             eventPanel.gameObject.SetActive(false);
         }
 
@@ -38,6 +49,34 @@ namespace BotcSolo.UnityPrototype
             AddText("Timeline Title", timelinePanel, Vector2.zero, Vector2.one, new Vector2(20f, 430f), new Vector2(-20f, -10f), "对话时间线", 24, TextAnchor.UpperLeft, FontStyle.Bold);
             timelineBody = AddText("Timeline Body", timelinePanel, Vector2.zero, Vector2.one, new Vector2(20f, 18f), new Vector2(-20f, -58f), "", 14, TextAnchor.UpperLeft, FontStyle.Normal);
             timelinePanel.gameObject.SetActive(false);
+        }
+
+
+        private void SetInfoTabButtonPosition(Text label, Vector2 center)
+        {
+            if (label == null || label.transform.parent == null) return;
+            var rect = label.transform.parent as RectTransform;
+            if (rect == null) return;
+            SetRect(rect, Vector2.zero, Vector2.zero, center - new Vector2(45f, 16f), center + new Vector2(45f, 16f));
+        }
+
+
+        private void ApplyInfoDrawerTextStyle()
+        {
+            var notebook = infoDrawerTab == "intel";
+            if (eventBody != null)
+            {
+                SetRect(eventBody.rectTransform, Vector2.zero, Vector2.one, notebook ? new Vector2(106f, 86f) : new Vector2(106f, 188f), notebook ? new Vector2(-30f, -112f) : new Vector2(-30f, -114f));
+                eventBody.fontSize = notebook ? 19 : 16;
+                eventBody.fontStyle = notebook ? FontStyle.Bold : FontStyle.Normal;
+                eventBody.color = new Color(0.11f, 0.060f, 0.030f, 0.98f);
+            }
+            if (queueBody != null)
+            {
+                SetRect(queueBody.rectTransform, Vector2.zero, Vector2.one, new Vector2(106f, 42f), notebook ? new Vector2(-30f, -588f) : new Vector2(-30f, -474f));
+                queueBody.fontSize = notebook ? 14 : 15;
+                queueBody.color = new Color(0.22f, 0.12f, 0.055f, 0.84f);
+            }
         }
 
 
@@ -60,6 +99,12 @@ namespace BotcSolo.UnityPrototype
         }
 
 
+        private void RefreshInfoDrawerTabLayout()
+        {
+            ApplyInfoDrawerTextStyle();
+        }
+
+
         private void SetInfoTabStyle(Text label, string tab, string title)
         {
             if (label == null) return;
@@ -72,8 +117,9 @@ namespace BotcSolo.UnityPrototype
 
         private string BuildInfoDrawerMainText()
         {
+            ApplyInfoDrawerTextStyle();
             if (infoDrawerTab == "timeline") return BuildTimelineOnlyText();
-            if (infoDrawerTab == "intel") return BuildInformationOnlyText();
+            if (infoDrawerTab == "intel") return BuildNotebookInformationText();
             if (infoDrawerTab == "handbook") return BuildHandbookText();
             if (infoDrawerTab == "recap") return BuildRecapText();
             return BuildEventText();
@@ -96,6 +142,7 @@ namespace BotcSolo.UnityPrototype
                 var count = vm.aiRecapDetails?.Length ?? 0;
                 return $"AI 条目：{count}  ·  来源：JS Core belief trail";
             }
+            if (infoDrawerTab == "intel") return BuildNotebookSummaryText();
             return BuildQueueText();
         }
 
@@ -157,6 +204,189 @@ namespace BotcSolo.UnityPrototype
             }
             return ClampTextLines(lines, 14, 48);
         }
+
+        private string BuildNotebookInformationText()
+        {
+            var claims = BuildNotebookClaimLines().ToArray();
+            var reports = BuildNotebookReportLines().ToArray();
+            var lines = new List<string>();
+
+            if (claims.Length > 0)
+            {
+                foreach (var entry in claims.Take(10)) lines.Add(entry);
+            }
+
+            if (reports.Length > 0)
+            {
+                if (lines.Count > 0) lines.Add("");
+                foreach (var entry in reports.TakeLast(8)) lines.Add(entry);
+            }
+
+            if (lines.Count == 0) lines.Add("暂无 AI 身份声称或报信。");
+            return ClampTextLines(lines, 19, 38);
+        }
+
+
+        private string BuildNotebookSummaryText()
+        {
+            var claimCount = BuildNotebookClaimLines().Count();
+            var reportCount = BuildNotebookReportLines().Count();
+            return $"身份 {claimCount}   报信 {reportCount}";
+        }
+
+
+        private IEnumerable<string> BuildNotebookClaimLines()
+        {
+            var seen = new HashSet<string>();
+            var players = vm.players ?? Array.Empty<PlayerViewModel>();
+            if (!vm.grimoireView)
+            {
+                foreach (var player in players.Where((entry) => entry != null && !entry.human && !string.IsNullOrWhiteSpace(entry.roleId)).OrderBy((entry) => entry.seat))
+                {
+                    var role = RoleForId(player.roleId);
+                    var roleName = FirstNonEmpty(player.roleName, role?.name, RoleNameForId(player.roleId));
+                    var line = $"{NotebookSeatLabel(player)}  {NotebookRoleIcon(role)} {roleName}";
+                    if (seen.Add($"claim:{player.id}:{roleName}")) yield return line;
+                }
+            }
+
+            foreach (var item in vm.timeline ?? Array.Empty<TimelineEntryViewModel>())
+            {
+                if (!NotebookLooksLikeClaimEntry(item)) continue;
+                var player = PlayerById(item.speakerId);
+                if (player == null || player.human) continue;
+                var roleName = NotebookClaimRoleName(item);
+                if (string.IsNullOrWhiteSpace(roleName)) continue;
+                var line = $"{NotebookSeatLabel(player)}  {roleName}";
+                if (seen.Add($"claim:{player.id}:{roleName}")) yield return line;
+            }
+        }
+
+
+        private IEnumerable<string> BuildNotebookReportLines()
+        {
+            var seen = new HashSet<string>();
+            foreach (var item in vm.timeline ?? Array.Empty<TimelineEntryViewModel>())
+            {
+                if (!NotebookLooksLikeReportEntry(item)) continue;
+                var player = PlayerById(item.speakerId);
+                if (player == null || player.human) continue;
+                var summary = NotebookReportSummary(item);
+                if (string.IsNullOrWhiteSpace(summary)) continue;
+                var line = $"{NotebookSeatLabel(player)}  报：{summary}";
+                if (seen.Add($"report:{player.id}:{summary}")) yield return line;
+            }
+        }
+
+
+        private PlayerViewModel PlayerById(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId)) return null;
+            return (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && player.id == playerId);
+        }
+
+
+        private static string NotebookSeatLabel(PlayerViewModel player)
+        {
+            if (player == null) return "?号";
+            return player.seat > 0 ? $"{player.seat}号" : FirstNonEmpty(player.name, player.id);
+        }
+
+
+        private static string NotebookRoleIcon(ScriptRoleViewModel role)
+        {
+            if (role == null) return "◇";
+            if (string.Equals(role.team, "evil", StringComparison.OrdinalIgnoreCase) || role.category == "demon") return "◆";
+            if (role.category == "minion") return "✦";
+            if (role.category == "outsider") return "◇";
+            return "△";
+        }
+
+
+        private string NotebookClaimRoleName(TimelineEntryViewModel item)
+        {
+            var text = item?.text ?? "";
+            var roles = (vm.scriptHandbook?.roles ?? Array.Empty<ScriptRoleViewModel>())
+                .Where((role) => role != null && !string.IsNullOrWhiteSpace(role.name))
+                .OrderByDescending((role) => role.name.Length);
+            foreach (var role in roles)
+            {
+                if (text.IndexOf(role.name, StringComparison.OrdinalIgnoreCase) >= 0) return role.name;
+            }
+            return "";
+        }
+
+
+        private static bool NotebookLooksLikeClaimEntry(TimelineEntryViewModel item)
+        {
+            if (item == null) return false;
+            if (NotebookTextHasAny(item.intent, "claim", "public-claim")) return true;
+            if (NotebookTextHasAny(item.evidenceKind, "claim")) return true;
+            return NotebookTextHasAny(
+                item.text,
+                "公开身份",
+                "公开报身份",
+                "声称自己是",
+                "我是",
+                "我先跳",
+                "我跳",
+                "先跳",
+                "台面上我先跳",
+                "公开说，我是",
+                "身份先放桌上",
+                "身份放桌上",
+                "私聊中报身份",
+                "我声称自己是");
+        }
+
+
+        private static bool NotebookLooksLikeReportEntry(TimelineEntryViewModel item)
+        {
+            if (item == null || NotebookLooksLikeClaimEntry(item)) return false;
+            if (!string.IsNullOrWhiteSpace(item.abilityRoleId) || !string.IsNullOrWhiteSpace(item.abilityKind)) return true;
+            if (NotebookTextHasAny(item.intent, "night", "info", "report")) return true;
+            if (NotebookTextHasAny(item.evidenceKind, "night-info", "info")) return true;
+            var text = item.text ?? "";
+            var hasNightCue = NotebookTextHasAny(text, "昨晚", "昨夜", "夜里", "夜间", "夜信", "得到的信息");
+            var hasInfoCue = NotebookTextHasAny(text, "信息是", "报信息", "看见", "测到", "同阵营", "不同阵营", "恶魔", "爪牙");
+            return hasNightCue && hasInfoCue;
+        }
+
+
+        private string NotebookReportSummary(TimelineEntryViewModel item)
+        {
+            var text = (item?.text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            foreach (var marker in new[] { "我说我昨晚得到的信息是：", "我昨晚得到的信息是：", "我昨晚的信息是：", "昨晚信息：", "信息是：" })
+            {
+                var index = text.IndexOf(marker, StringComparison.Ordinal);
+                if (index >= 0)
+                {
+                    text = text.Substring(index + marker.Length).Trim();
+                    break;
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(item?.abilityRoleId))
+            {
+                var roleName = RoleNameForId(item.abilityRoleId);
+                if (!string.IsNullOrWhiteSpace(roleName) && text.IndexOf(roleName, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    text = $"{roleName}：{text}";
+                }
+            }
+            return Ellipsize(text, 32);
+        }
+
+
+        private static bool NotebookTextHasAny(string value, params string[] needles)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            foreach (var needle in needles)
+            {
+                if (!string.IsNullOrWhiteSpace(needle) && value.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
+
 
         private string BuildInformationOnlyText()
         {

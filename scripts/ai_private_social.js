@@ -6,6 +6,7 @@ export function createAIPrivateSocial(deps) {
     ensureDialogueState,
     refreshAIBeliefs,
     buildAIThoughtFrame,
+    buildAIStrategyContext,
     areKnownAllies,
     composeEvilAllianceResponse,
     composeHumanizedEvilAllianceResponse,
@@ -20,10 +21,12 @@ export function createAIPrivateSocial(deps) {
     humanizeSharedPrivateNote,
     composeNightInfoDisclosure,
     rememberDayStance,
+    getSharedInfoMemory,
     collectEvidence,
     evidenceReasonText,
     statementTargetLabel,
     dayStanceLabel,
+    applyHumanSpeechCadence,
     applySpeechBudget,
     sanitizePrivateDialogueText,
     joinSpeechFragments,
@@ -32,9 +35,12 @@ export function createAIPrivateSocial(deps) {
     isEarlyInfoRole,
     getPlayerById,
     addLog,
+    consumePrivateChat,
     predictDialogueSignals,
     recordPrivateWhisperForAgents,
+    rememberSharedInfoMemory,
     rememberStatementMemory,
+    summarizeSharedInfoRepeat,
     pushTimeline,
     recordUtteranceMVP,
     inferSpeechActsFromIntent,
@@ -72,9 +78,20 @@ function aiPrivatePairLimitForDay(day) {
   return clamp(5 - Math.max(1, Number(day) || 1), 1, 4);
 }
 
+function sharedPrivateInfoSummary(state, speaker, audience, limit = 2) {
+  return summarizeShareablePrivateNotes(speaker, limit, { state, audience })
+    .map(humanizeSharedPrivateNote)
+    .filter(Boolean)
+    .join(" / ");
+}
+
 function scoreProactiveWhisperCandidate(state, aiPlayer, human, options = {}) {
   const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
   const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
+  const sharedSummary = sharedPrivateInfoSummary(state, aiPlayer, human);
+  const repeat = summarizeSharedInfoRepeat
+    ? summarizeSharedInfoRepeat(state, aiPlayer, human, sharedSummary)
+    : null;
   const top = getTopTarget(aiPlayer, state);
   const thoughtFrame = options.thoughtFrame ?? buildAIThoughtFrame(state, aiPlayer, {
     audience: "private",
@@ -115,6 +132,11 @@ function scoreProactiveWhisperCandidate(state, aiPlayer, human, options = {}) {
   if (areKnownAllies(state, aiPlayer, human)) {
     score += 6;
   }
+  if (repeat?.repeated && repeat.staleDays >= 1) {
+    score -= notes.length > 0 ? 4.2 : 1.2;
+  } else if (getSharedInfoMemory?.(state, aiPlayer.id, human.id)?.claimRoleId && state.day >= 2) {
+    score -= 0.8;
+  }
 
   return score;
 }
@@ -123,6 +145,10 @@ function proactiveWhisperReason(state, aiPlayer, human, composed = {}) {
   const perceivedRole = perceivedRoleForPlayer(state, aiPlayer) ?? roleForPlayer(state, aiPlayer);
   const thoughtFrame = composed.thoughtFrame ?? null;
   const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
+  const sharedSummary = sharedPrivateInfoSummary(state, aiPlayer, human);
+  const repeat = summarizeSharedInfoRepeat
+    ? summarizeSharedInfoRepeat(state, aiPlayer, human, sharedSummary)
+    : null;
   if (!aiPlayer.alive) {
     return "出局后想把可用口径留给你";
   }
@@ -131,6 +157,9 @@ function proactiveWhisperReason(state, aiPlayer, human, composed = {}) {
     if (focus) {
       return `想先和你私下对一下 ${focus.name}`;
     }
+  }
+  if (repeat?.repeated && repeat.staleDays >= 1) {
+    return "昨天那条信息没有变化，只想补一下今天的观察";
   }
   if (notes.length > 0 || composed.intent === QUESTION_INTENT.NIGHT) {
     return "手里有一条可私下同步的信息";
@@ -170,6 +199,8 @@ function buildProactiveWhisperOffer(state, aiPlayer, human, composed) {
     focusScore: composed.focusScore ?? null,
     intent: composed.intent ?? QUESTION_INTENT.GENERIC,
     thoughtFrame: composed.thoughtFrame ?? null,
+    infoSummary: composed.infoSummary ?? "",
+    repeatedInfo: !!composed.repeatedInfo,
     createdAt: Date.now(),
   };
 }
@@ -217,6 +248,13 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
     source: "ai_proactive_private_whisper",
     intent,
   });
+  if (rememberSharedInfoMemory && (offer.infoSummary || aiPlayer.publicClaimRoleId)) {
+    rememberSharedInfoMemory(state, aiPlayer, human, {
+      infoSummary: offer.infoSummary,
+      claimRoleId: aiPlayer.publicClaimRoleId ?? "",
+      source: "ai_proactive_private_whisper",
+    });
+  }
 
   pushTimeline(state, {
     mode: "whisper-in",
@@ -295,7 +333,21 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
       : null) ??
     ranked[0] ??
     null;
+  const strategyContext = focus && buildAIStrategyContext
+    ? buildAIStrategyContext(state, aiPlayer, {
+        audience: "private",
+        stage: "private",
+        targetId: focus.player.id,
+      })
+    : null;
+  const strategyLine = strategyContext?.evilPlanContextLine && aiPlayer.team === "evil"
+    ? strategyContext.evilPlanContextLine
+    : "";
   const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
+  const infoSummary = sharedPrivateInfoSummary(state, aiPlayer, human);
+  const repeatInfo = summarizeSharedInfoRepeat
+    ? summarizeSharedInfoRepeat(state, aiPlayer, human, infoSummary)
+    : null;
   const lines = [];
   const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
   let intent = QUESTION_INTENT.PLAN;
@@ -332,12 +384,16 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
       trustScore: aiPlayer.suspicion?.[human.id],
     });
     const notesText = disclosure?.text || notes.map(humanizeSharedPrivateNote).join("；");
+    if (repeatInfo?.line) {
+      lines.push(repeatInfo.line);
+    } else {
     lines.push(pickCorpusTemplate(
       "private.proactive.noteShare",
       { notesText },
       rng,
       [`我目前能交代的是：${notesText}。`]
     ));
+    }
   }
 
   if (focus) {
@@ -362,6 +418,9 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
         [`这和我今天前面的判断一致，先按“${dayStanceLabel(stanceMemory.stance)}”处理。`]
       ));
     }
+    if (strategyLine && rng() < 0.65) {
+      lines.push(strategyLine);
+    }
   } else {
     lines.push(pickLayeredSpeech({ layer: "privateSocial", audience: "private", persona, team: aiPlayer.team, act: "noFocus" }, {}, rng, [
       "如果今天没人给新信息，至少要逼一个明确口径，别直接空过。",
@@ -374,15 +433,24 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
     ]));
   }
 
+  const rawResponse = sanitizePrivateDialogueText(joinSpeechFragments(lines), focus ? statementTargetLabel(state, focus.player.id) : "");
   return {
-    response: applySpeechBudget(
-      sanitizePrivateDialogueText(joinSpeechFragments(lines), focus ? statementTargetLabel(state, focus.player.id) : ""),
-      { audience: "private", maxSentences: 3, maxChars: 170 }
-    ),
+    response: applyHumanSpeechCadence
+      ? applyHumanSpeechCadence(state, aiPlayer, rawResponse, rng, {
+          audience: "private",
+          intent,
+          force: true,
+          maxSentences: 3,
+          maxChars: 170,
+        })
+      : applySpeechBudget(rawResponse, { audience: "private", maxSentences: 3, maxChars: 170 }),
     focusId: focus?.player?.id ?? null,
     focusScore: focus?.score ?? null,
     intent,
     thoughtFrame,
+    strategyContext,
+    infoSummary,
+    repeatedInfo: !!repeatInfo?.repeated,
   };
 }
 function scoreAIToAIWhisperPair(state, speaker, target) {
@@ -432,6 +500,16 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
 
   const ranked = rankTargets(speaker, state, 3).filter((entry) => entry.player.id !== target.id);
   const focus = ranked[0] ?? null;
+  const strategyContext = focus && buildAIStrategyContext
+    ? buildAIStrategyContext(state, speaker, {
+        audience: "private",
+        stage: "private",
+        targetId: focus.player.id,
+      })
+    : null;
+  const strategyLine = strategyContext?.evilPlanContextLine && speaker.team === "evil"
+    ? strategyContext.evilPlanContextLine
+    : "";
   const notes = summarizeShareablePrivateNotes(speaker, 2, { state, audience: target });
   const lines = [];
   const persona = speaker.aiPersona ?? PERSONA_TYPES.STEADY;
@@ -499,20 +577,30 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
         [`我今天对 ta 的口径还是“${dayStanceLabel(stanceMemory.stance)}”，先不乱跳线。`]
       ));
     }
+    if (strategyLine && rng() < 0.65) {
+      lines.push(strategyLine);
+    }
   } else {
     lines.push(pickLayeredSpeech({ layer: "privateSocial", audience: "private", persona, team: speaker.team, act: "noFocus" }, {}, rng, [
       "如果今天没有新信息，至少要逼一个明确口径，不要直接空过。",
     ]));
   }
 
+  const rawResponse = sanitizePrivateDialogueText(joinSpeechFragments(lines), focus ? statementTargetLabel(state, focus.player.id) : "");
   return {
-    response: applySpeechBudget(
-      sanitizePrivateDialogueText(joinSpeechFragments(lines), focus ? statementTargetLabel(state, focus.player.id) : ""),
-      { audience: "private", maxSentences: 3, maxChars: 170 }
-    ),
+    response: applyHumanSpeechCadence
+      ? applyHumanSpeechCadence(state, speaker, rawResponse, rng, {
+          audience: "private",
+          intent,
+          force: true,
+          maxSentences: 3,
+          maxChars: 170,
+        })
+      : applySpeechBudget(rawResponse, { audience: "private", maxSentences: 3, maxChars: 170 }),
     focusId: focus?.player?.id ?? null,
     focusScore: focus?.score ?? null,
     intent,
+    strategyContext,
   };
 }
 function runAIToAIPrivateWhispers(state, rng = Math.random) {
@@ -729,7 +817,12 @@ function acceptAIProactiveWhisper(state, offerId, rng = Math.random) {
   if (index < 0) {
     return { ok: false, reason: "该主动私聊邀请不存在或已处理。" };
   }
-  const [offer] = dialogue.pendingProactiveWhispers.splice(index, 1);
+  const offer = dialogue.pendingProactiveWhispers[index];
+  const slot = typeof consumePrivateChat === "function" ? consumePrivateChat(state, offer.playerId) : { ok: true };
+  if (!slot.ok) {
+    return { ok: false, reason: slot.reason };
+  }
+  dialogue.pendingProactiveWhispers.splice(index, 1);
   const dayRecord = proactiveWhisperDayRecord(state);
   const sentIds = new Set(dayRecord.sentIds ?? []);
   const committed = commitProactiveWhisper(state, offer, rng);

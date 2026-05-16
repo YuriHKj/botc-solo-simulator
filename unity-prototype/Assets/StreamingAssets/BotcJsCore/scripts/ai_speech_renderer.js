@@ -112,6 +112,22 @@ export function joinSpeechFragments(fragments) {
 }
 
 const HUMAN_CADENCE_MARKERS = ["换个说法", "说白了", "我的意思是", "换句话说", "先说清楚"];
+const EMOTIONAL_TEXTURE_MARKERS = [
+  "嗯，",
+  "说实话，",
+  "先别急，",
+  "先别当铁证，",
+  "这条先打折听，",
+  "我不敢说死，",
+  "我得防一下，",
+  "这票先别锁，",
+  "我有点",
+  "我直说，",
+  "别拖，",
+  "我先留个心眼，",
+  "我不太放心，",
+  "票上我先说清，",
+];
 const COOLDOWN_PHRASE_REPLACEMENTS = {
   证据线: ["这条链", "这个点", "这段信息"],
   口径: ["说法", "解释", "这边的身份"],
@@ -208,6 +224,149 @@ function applyPhraseCooldown(text, aiPlayer, rng = Math.random) {
   return value;
 }
 
+function hasEmotionalTexture(text) {
+  const value = `${text ?? ""}`;
+  return EMOTIONAL_TEXTURE_MARKERS.some((marker) => value.includes(marker));
+}
+
+function emotionContextForSpeech(text, state, aiPlayer, options = {}) {
+  const value = `${text ?? ""}`;
+  if (options.emotionContext) {
+    return `${options.emotionContext}`;
+  }
+  if (
+    options.selfNominated ||
+    aiPlayer?.beenNominatedToday ||
+    options.audience === "nomination" ||
+    /被提名|上台|在台上|这票|锁票|投死|票型你们自己看|防守|辩解|互辩/.test(value)
+  ) {
+    return "on-block";
+  }
+  if (/醉酒|中毒|污染|脏信息|打折|别当铁证|可能被|暂时偏清白/.test(value)) {
+    return "contaminated";
+  }
+  if (options.intent === "claim" || /我是|身份|跳身份|直接说身份|大概身份|昨晚信息/.test(value)) {
+    return "claim";
+  }
+  if ((options.focusScore ?? 0) >= 0.72 || /放不下|过不去|马上听回应|需要马上听回应|先压|直接压|别拖/.test(value)) {
+    return "strong-pressure";
+  }
+  if (/公开信息还不够|证据还薄|现在还不够|信息不够|先听回应|先别定死|这条还弱/.test(value)) {
+    return "low-evidence";
+  }
+  if (options.intent === "vote" || /投票|上票|跟票|票型|处决/.test(value)) {
+    return "vote";
+  }
+  if (options.intent === "night" || /昨晚|夜里|夜间信息|拿到/.test(value)) {
+    return "night-info";
+  }
+  return "default";
+}
+
+function contextAlreadyHasEmotion(text, context) {
+  const value = `${text ?? ""}`;
+  if (!value) {
+    return true;
+  }
+  if (context === "on-block") {
+    return /先别急|我得防一下|这票先别锁|在台上|票型你们自己看/.test(value);
+  }
+  if (context === "contaminated") {
+    return /打折听|别当铁证|不敢说死|可能被醉酒|可能被中毒/.test(value);
+  }
+  if (context === "strong-pressure") {
+    return /我直说|别拖|说真的|马上听回应|直接压/.test(value);
+  }
+  if (context === "low-evidence") {
+    return /先不定死|先别定死|这条还轻|先听回应|现在还不够/.test(value);
+  }
+  if (context === "vote") {
+    return /票上我先说清|投票|票型/.test(value);
+  }
+  return false;
+}
+
+function stripGenericBridgeForEmotion(text, context) {
+  const value = `${text ?? ""}`;
+  if (!["on-block", "contaminated", "low-evidence", "vote", "night-info"].includes(context)) {
+    return value;
+  }
+  return value.replace(/^(换个说法|说白了|我的意思是|换句话说|先说清楚)，\s*/u, "");
+}
+
+function emotionPrefixForSpeech(text, state, aiPlayer, options = {}, rng = Math.random) {
+  const persona = aiPlayer?.aiPersona ?? PERSONA_TYPES.STEADY;
+  const audience = options.audience ?? "private";
+  const intent = options.intent ?? "";
+  const context = emotionContextForSpeech(text, state, aiPlayer, options);
+  if (context === "on-block") {
+    return sample(["先别急，", "我得防一下，", "这票先别锁，"], 1, rng)[0] ?? "先别急，";
+  }
+  if (context === "contaminated") {
+    return sample(["这条先打折听，", "先别当铁证，", "我不敢说死，"], 1, rng)[0] ?? "这条先打折听，";
+  }
+  if (context === "low-evidence") {
+    return sample(["我先不定死，", "先别急着定，", "这条还轻，"], 1, rng)[0] ?? "我先不定死，";
+  }
+  if (context === "vote") {
+    return sample(["票上我先说清，", "到票我会看，", "先别急着跟票，"], 1, rng)[0] ?? "票上我先说清，";
+  }
+  if (context === "night-info") {
+    return sample(["嗯，", "说实话，", "我先把这条说清，"], 1, rng)[0] ?? "嗯，";
+  }
+  if (audience === "public" && !options.force && (options.focusScore ?? 0) < 0.58 && context === "default") {
+    return "";
+  }
+  if (intent === "claim") {
+    return sample(["嗯，", "我直接说，", "先别急，"], 1, rng)[0] ?? "嗯，";
+  }
+  if (persona === PERSONA_TYPES.PRESSURE) {
+    return sample(["我直说，", "别拖，", "说真的，"], 1, rng)[0] ?? "我直说，";
+  }
+  if (persona === PERSONA_TYPES.SHADOW) {
+    return sample(["我有点在意，", "我先留个心眼，", "我不太放心，"], 1, rng)[0] ?? "我有点在意，";
+  }
+  return sample(["嗯，", "说实话，", "我有点犹豫，但"], 1, rng)[0] ?? "嗯，";
+}
+
+function applyEmotionalTexture(text, state, aiPlayer, rng = Math.random, options = {}) {
+  let value = `${text ?? ""}`.trim();
+  if (!value || options.emotionalTexture === false || hasEmotionalTexture(value)) {
+    return value;
+  }
+  const context = emotionContextForSpeech(value, state, aiPlayer, options);
+  value = stripGenericBridgeForEmotion(value, context).trim();
+  if (contextAlreadyHasEmotion(value, context)) {
+    return value;
+  }
+  if (/^(换个说法|说白了|我的意思是|换句话说|先说清楚|我直说|我直接说|公开身份|先跳)/.test(value)) {
+    return value;
+  }
+  const force = options.emotionalTexture === "force";
+  const contextualForce = ["on-block", "contaminated", "low-evidence"].includes(context);
+  const chance =
+    context === "strong-pressure"
+      ? 0.48
+      : context === "vote"
+        ? 0.36
+        : options.audience === "private"
+          ? 0.42
+          : 0.22;
+  if (!force && !contextualForce && rng() >= chance) {
+    return value;
+  }
+  const prefix = emotionPrefixForSpeech(value, state, aiPlayer, options, rng);
+  if (!prefix) {
+    return value;
+  }
+  return `${prefix}${value}`
+    .replace(/^(嗯，)+/g, "嗯，")
+    .replace(/^(说实话，)+/g, "说实话，")
+    .replace(/^(先别急，)+/g, "先别急，")
+    .replace(/，我直接说身份/g, "，直接说身份")
+    .trim();
+}
+
 export function differentiateRepeatedSpeech(text, aiPlayer, rng = Math.random, options = {}) {
   let value = `${text ?? ""}`.trim();
   if (!value || !aiPlayer) {
@@ -248,6 +407,33 @@ function reduceClauseStacking(text) {
     return value;
   }
   value = value
+    .replace(/(目前能交代的是|我目前能说的是|手上(?:大家能验证|可公开验证)的部分是|先别当铁证，夜里拿到的是)：\s*身份直接摊：\s*([^。；！？]+)。\s*昨晚信息：\s*([^。；！？]+)。?/g, (_, lead, roleName, infoText) => {
+      const role = `${roleName ?? ""}`.trim();
+      const info = `${infoText ?? ""}`.replace(/^夜里拿到的/, "").trim();
+      if (/先别当铁证/.test(lead)) {
+        return `先别当铁证，我是${role}，昨晚拿到的是${info}。`;
+      }
+      if (/手上/.test(lead)) {
+        return `能先给你验证的是，我是${role}，昨晚拿到的是${info}。`;
+      }
+      return `我现在能直接说，我是${role}，昨晚拿到的是${info}。`;
+    })
+    .replace(/身份直接摊：\s*([^。；！？]+)。\s*昨晚信息：\s*([^。；！？]+)。?/g, (_, roleName, infoText) => {
+      const role = `${roleName ?? ""}`.trim();
+      const info = `${infoText ?? ""}`.replace(/^夜里拿到的/, "").trim();
+      return `我直接说身份，我是${role}，昨晚拿到的是${info}。`;
+    })
+    .replace(/昨晚信息：\s*夜里拿到的/g, "昨晚我拿到的")
+    .replace(/昨晚信息：/g, "昨晚我拿到的是")
+    .replace(/昨晚拿到的是([^，。；！？]{1,24})是\s*([0-9]+)/g, "昨晚拿到的$1是 $2")
+    .replace(/拿来再对一下/g, "拿来对一下")
+    .replace(/身份直接摊：/g, "我直接说身份，我是")
+    .replace(/我有夜间信息，但现在能安全说的只有：我先不把格式交出来。/g, "我有夜间信息，但格式先不交出来。")
+    .replace(/我有一条夜间信息，但现在能安全说的只有：说清格式基本就等于暴露身份。/g, "我有一条夜间信息，但格式现在不能说太细，说细了基本就暴露身份。")
+    .replace(/手上(?:大家能验证|可公开验证)的部分是：/g, "能先给你验证的是，")
+    .replace(/目前能交代的是：/g, "我现在能说的是，")
+    .replace(/我目前能说的是：/g, "我现在能说的是，")
+    .replace(/夜里拿到的是：/g, "夜里拿到的是")
     .replace(/如果你要记，先记我是\s*([^，。；！？]+)，但别替我公开。?/g, "你可以先记我是$1。别替我公开。")
     .replace(/如果你要记，先记我更像\s*([^，。；！？]+)，但先别替我公开。?/g, "你可以先记我更像$1。别替我公开。")
     .replace(/这局我先说自己是\s*([^，。；！？]+)，后面不会平白换身份。?/g, "没有新情况我不会换。")
@@ -273,6 +459,7 @@ function reduceClauseStacking(text) {
 
   return value
     .replace(/。{2,}/g, "。")
+    .replace(/：([^。！？；]*?)：/g, "，$1：")
     .replace(/，。/g, "。")
     .replace(/\s+([，。；！？])/g, "$1")
     .replace(/\s+/g, " ")
@@ -473,6 +660,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
   if (!value || alreadyHasHumanCadence(value)) {
     value = applyPhraseCooldown(value, aiPlayer, rng);
     value = polishConversationalText(value);
+    value = applyEmotionalTexture(value, state, aiPlayer, rng, options);
     value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
     value = applySpeechBudget(value, options);
     value = reducePublicSelfDensity(value, options);
@@ -489,6 +677,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
   if (!shouldBridge) {
     value = applyPhraseCooldown(value, aiPlayer, rng);
     value = polishConversationalText(value);
+    value = applyEmotionalTexture(value, state, aiPlayer, rng, options);
     value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
     value = applySpeechBudget(value, options);
     value = reducePublicSelfDensity(value, options);
@@ -498,6 +687,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
   value = insertCadenceBridge(value, bridgePhraseForSpeech(aiPlayer, options));
   value = applyPhraseCooldown(value, aiPlayer, rng);
   value = polishConversationalText(value);
+  value = applyEmotionalTexture(value, state, aiPlayer, rng, options);
   value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
   value = applySpeechBudget(value, options);
   value = reducePublicSelfDensity(value, options);

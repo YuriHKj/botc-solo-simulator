@@ -14,7 +14,8 @@ namespace BotcSolo.UnityPrototype
     {
         private const float TokenSize = 128f;
         private const float RoleIconSize = 78f;
-        private const float BridgeTimeoutSeconds = 3f;
+        private const float BridgeSlowWarningSeconds = 8f;
+        private const float BridgeStaleActionSeconds = 75f;
         private const float PendingViewModelPollSeconds = 0.35f;
         private const int ActionChoicePageSize = 10;
         private const int HandbookRolePageSize = 15;
@@ -132,6 +133,10 @@ namespace BotcSolo.UnityPrototype
         private Text stageDialogueMetaText;
         private Text stageDialogueContinueText;
         private Text stageDialogueSourceText;
+        private Text stageDialoguePortraitNameText;
+        private Image stageDialoguePortraitAuraImage;
+        private RectTransform stageDialoguePortraitAuraRect;
+        private Image stageDialoguePortraitGlowImage;
         private Image stageDialoguePortraitTokenImage;
         private Image stageDialoguePortraitRoleImage;
         private Image proactiveWhisperTokenImage;
@@ -249,6 +254,7 @@ namespace BotcSolo.UnityPrototype
         private string selectedPlayerId = "";
         private readonly List<string> privateClaimRoleIds = new List<string>();
         private int privateClaimRoleIndex;
+        private InputField publicSpeechInput;
         private InputField privateNightInput;
         private Toggle privateSecretToggle;
         private string activeActionFormId = "";
@@ -271,6 +277,7 @@ namespace BotcSolo.UnityPrototype
         private bool reopenReminderPickerAfterRoleMark;
         private InputField reminderCustomInput;
         private string privateChatStatus = "";
+        private string publicSpeechStatus = "";
         private string pendingActionId = "";
         private string pendingActionType = "";
         private string pendingActionPlayerId = "";
@@ -290,6 +297,9 @@ namespace BotcSolo.UnityPrototype
         private string lastTimelineNarrationKey = "";
         private string lastPrivateInfoNarrationKey = "";
         private string lastNightActionNarrationKey = "";
+        private string lastNominationDebateNarrationKey = "";
+        private string lastVoteCeremonyNarrationKey = "";
+        private string lastActionStatusNarrationKey = "";
         private bool hasPendingPostPhaseNarration;
         private string pendingPostPhaseTimelinePreviousKey = "";
         private string pendingPostPhaseTimelineNextKey = "";
@@ -350,6 +360,9 @@ namespace BotcSolo.UnityPrototype
             lastTimelineNarrationKey = LatestTimelineNarrationKey(vm);
             lastPrivateInfoNarrationKey = PrivateInfoNarrationKey(vm);
             lastNightActionNarrationKey = NightActionNarrationKey(vm);
+            lastNominationDebateNarrationKey = NominationDebateNarrationKey(vm);
+            lastVoteCeremonyNarrationKey = VoteCeremonyNarrationKey(vm);
+            lastActionStatusNarrationKey = ActionStatusNarrationKey(vm);
             RememberViewModelTimestamp();
             BuildScene();
             RenderAll();
@@ -368,6 +381,7 @@ namespace BotcSolo.UnityPrototype
             UpdateSelectedTokenPulse();
             UpdateDialogueTokenPulse();
             UpdateSuggestedButtonPulse();
+            UpdateStageDialogueMotion();
             UpdateAmbientMotion();
             UpdatePhaseAssistProgress();
             UpdateSyncStatusText();
@@ -524,11 +538,12 @@ namespace BotcSolo.UnityPrototype
             AddFrame(infoDock, "Info Rail Frame", 0.8f, new Color(0.82f, 0.56f, 0.25f, 0.18f));
             AddImage("Info Rail Wash", infoDock, Vector2.zero, Vector2.one, new Vector2(4f, 4f), new Vector2(-4f, -4f), new Color(0.12f, 0.075f, 0.030f, 0.10f));
             AddText("Info Dock Title", infoDock, Vector2.zero, Vector2.one, new Vector2(20f, 294f), new Vector2(-18f, -12f), "资料", 22, TextAnchor.UpperLeft, FontStyle.Bold);
-            AddNavButton("☷ 日志", infoDock, new Vector2(78f, 238f), new Vector2(132f, 44f), ToggleEventPanel);
-            AddNavButton("✦ 时间线", infoDock, new Vector2(78f, 174f), new Vector2(132f, 44f), ToggleTimelinePanel);
-            nextPhaseButton = AddNavButton("下一阶段", infoDock, new Vector2(78f, 110f), new Vector2(132f, 44f), () => CyclePhase("next"));
+            AddNavButton("☷ 日志", infoDock, new Vector2(78f, 250f), new Vector2(132f, 40f), ToggleEventPanel);
+            AddNavButton("✦ 时间线", infoDock, new Vector2(78f, 194f), new Vector2(132f, 40f), ToggleTimelinePanel);
+            AddNavButton("ⓘ 信息", infoDock, new Vector2(78f, 138f), new Vector2(132f, 40f), () => ShowInfoDrawer("intel"));
+            nextPhaseButton = AddNavButton("下一阶段", infoDock, new Vector2(78f, 82f), new Vector2(132f, 40f), () => CyclePhase("next"));
             nextPhaseButtonLabelText = nextPhaseButton.GetComponentInChildren<Text>();
-            AddNavButton("◉ 全知", infoDock, new Vector2(78f, 46f), new Vector2(132f, 44f), () => SelectDialoguePreset("grimoire"));
+            AddNavButton("◉ 全知", infoDock, new Vector2(78f, 26f), new Vector2(132f, 36f), () => SelectDialoguePreset("grimoire"));
         }
 
         private void BuildBottomDock()
@@ -981,7 +996,7 @@ namespace BotcSolo.UnityPrototype
                     dialogueBody.text = "先选择私聊目标，再询问身份。";
                     return;
                 }
-                SendUnityAction("private-chat", selectedPlayerId, "", "你是什么身份？", "claim");
+                if (!SendUnityAction("private-chat", selectedPlayerId, "", "你是什么身份？", "claim")) return;
                 dialogueBody.text = string.IsNullOrWhiteSpace(vm.privateDeceptionText)
                     ? "已发送给 JS Core：询问选中玩家的身份说法，等待视图刷新。"
                     : $"已发送给 JS Core：询问选中玩家的身份说法。\n{vm.privateDeceptionText}";
@@ -990,7 +1005,7 @@ namespace BotcSolo.UnityPrototype
             if (mode == "public")
             {
                 dialogueTitle.text = "公聊请求";
-                SendUnityAction("ai-public-step");
+                if (!SendUnityAction("ai-public-step")) return;
                 dialogueBody.text = "已请求 AI 按公聊时钟推进一段发言。后续可继续公聊，或开启提名窗口。";
                 return;
             }
@@ -999,7 +1014,7 @@ namespace BotcSolo.UnityPrototype
                 dialogueTitle.text = "提名窗口";
                 if (vm.phase != "day" || vm.dayStage != "nomination")
                 {
-                    SendUnityAction("open-nomination-window");
+                    if (!SendUnityAction("open-nomination-window")) return;
                     dialogueBody.text = vm.dayStage == "private"
                         ? "已请求开启提名窗口；如果当前仍在私聊阶段，JS Core 会要求先进入公聊。"
                         : "已请求开启提名窗口。窗口中可以由你或 AI 主动提名。";
@@ -1052,14 +1067,14 @@ namespace BotcSolo.UnityPrototype
             if (mode == "grimoire")
             {
                 dialogueTitle.text = "魔典视角";
-                SendUnityAction("toggle-grimoire");
+                if (!SendUnityAction("toggle-grimoire")) return;
                 dialogueBody.text = "已发送给 JS Core：切换全知魔典视角。注意：非全知且非恶魔时，恶魔伪装会保持隐藏。";
                 return;
             }
             if (mode == "handbook")
             {
                 dialogueTitle.text = "剧本手册";
-                SendUnityAction("script-handbook", "", "", "", "", "", "", "", "", false, "open");
+                if (!SendUnityAction("script-handbook", "", "", "", "", "", "", "", "", false, "open")) return;
                 OpenHandbookPanel();
                 dialogueBody.text = "已打开正式剧本手册。";
                 return;
@@ -1067,7 +1082,7 @@ namespace BotcSolo.UnityPrototype
             if (mode == "new-game")
             {
                 dialogueTitle.text = "新局";
-                SendUnityAction("new-game");
+                if (!SendUnityAction("new-game")) return;
                 dialogueBody.text = "已发送给 JS Core：创建新局并重新导出 Unity viewmodel。";
                 return;
             }
@@ -1079,7 +1094,7 @@ namespace BotcSolo.UnityPrototype
                     dialogueBody.text = "请先点击一个 token，再添加提醒物。";
                     return;
                 }
-                SendUnityAction("grimoire-reminder", selectedPlayerId, "", "", "", "Guard", "");
+                if (!SendUnityAction("grimoire-reminder", selectedPlayerId, "", "", "", "Guard", "")) return;
                 dialogueBody.text = "已发送给 JS Core：给选中 token 添加“守护”提醒物。下一步会改成正式提醒物选择器。";
                 return;
             }
@@ -1242,6 +1257,11 @@ namespace BotcSolo.UnityPrototype
 
         private void RequestPhaseStage(string stage, string label)
         {
+            if (HasPendingAction() && !PendingActionExpired())
+            {
+                ShowPendingActionBusyMessage("phase");
+                return;
+            }
             var guard = vm?.phaseAdvance;
             if (guard != null && !string.IsNullOrWhiteSpace(guard.targetStage) && guard.targetStage != stage)
             {
@@ -1274,8 +1294,13 @@ namespace BotcSolo.UnityPrototype
             }
             ShowPhaseGuardMessage(label, "已发送给 JS Core；阶段切换成功后界面会自动刷新。");
             var normalizedStage = NormalizePhaseTransitionStage(stage);
-            if (normalizedStage != "private") BeginPhaseTransition(stage, true);
-            SendUnityAction("phase", "", stage, "", "", "", "", "", "", false, needsConfirm ? "confirm" : "");
+            if (!SendUnityAction("phase", "", stage, "", "", "", "", "", "", false, needsConfirm ? "confirm" : "")) return;
+            if (normalizedStage != "private")
+            {
+                HidePrivateStagePanelsForPhaseExit();
+                publicSpeechStatus = "";
+                BeginPhaseTransition(stage, true);
+            }
         }
 
         private IEnumerator SendPhaseActionAfterInterlude(string stage, bool needsConfirm)
@@ -1415,8 +1440,8 @@ namespace BotcSolo.UnityPrototype
                 if (PendingActionTimedOut())
                 {
                     return compact
-                        ? "同步超时：bridge 未响应"
-                        : "同步告警：JS Core bridge 未处理上次操作；如果刚启动 exe，请等待几秒或确认本机 Node.js 可用。";
+                        ? $"同步：{label}仍在处理 {PendingActionElapsed():0.0}s"
+                        : $"同步：JS Core / 本地语言模型仍在处理 {label}（{PendingActionElapsed():0.0}s）。完成前会阻止新的流程动作，避免对话顺序错乱。";
                 }
                 return compact
                     ? $"同步：{label}处理中 {PendingActionElapsed():0.0}s"
@@ -1448,9 +1473,11 @@ namespace BotcSolo.UnityPrototype
         {
             if (type == "select-token") return "选中";
             if (type == "private-chat" || type == "private-preset") return "私聊";
-            if (type == "public-discussion" || type == "public") return "公聊";
+            if (type == "public-discussion" || type == "public" || type == "ai-public-step" || type == "human-public-speech") return "公聊";
             if (type == "phase") return "阶段";
-            if (type == "nomination") return "提名";
+            if (type == "nomination" || type == "open-nomination-window" || type == "ai-nomination-step" || type == "human-nomination-intent") return "提名";
+            if (type == "resolve-nomination-vote") return "投票结算";
+            if (type == "accept-proactive-whisper" || type == "decline-proactive-whisper" || type == "ai-proactive-whispers") return "主动私聊";
             if (type == "night-action") return "夜间行动";
             if (type == "day-action") return "白天行动";
             if (type == "storyteller-action") return "说书人";
@@ -1574,6 +1601,7 @@ namespace BotcSolo.UnityPrototype
         {
             return (privateChatPanel != null && privateChatPanel.gameObject.activeSelf)
                 || (actionFormPanel != null && actionFormPanel.gameObject.activeSelf)
+                || StageDialogueOverlayOpen()
                 || (storytellerPanel != null && storytellerPanel.gameObject.activeSelf)
                 || (handbookPanel != null && handbookPanel.gameObject.activeSelf)
                 || (votePanel != null && votePanel.gameObject.activeSelf)
@@ -1581,6 +1609,35 @@ namespace BotcSolo.UnityPrototype
                 || (reminderPickerPanel != null && reminderPickerPanel.gameObject.activeSelf)
                 || (settingsPanel != null && settingsPanel.gameObject.activeSelf)
                 || (mainMenuRoot != null && mainMenuRoot.gameObject.activeSelf);
+        }
+
+        private bool StageDialogueOverlayOpen()
+        {
+            return stageDialoguePanel != null && stageDialoguePanel.gameObject.activeSelf;
+        }
+
+        private bool ProactiveWhisperBlockedByDialogue()
+        {
+            return StageDialogueOverlayOpen()
+                || stageDialogueQueue.Count > 0
+                || hasQueuedPhaseTransitionAfterDialogue;
+        }
+
+        private void HideProactiveWhisperForStageDialogue()
+        {
+            if (proactiveWhisperPanel != null) proactiveWhisperPanel.gameObject.SetActive(false);
+        }
+
+        private void ScheduleProactiveWhisperRenderAfterDialogue()
+        {
+            if (proactiveWhisperPanel == null) return;
+            StartCoroutine(RenderProactiveWhisperAfterDialogueSettles());
+        }
+
+        private IEnumerator RenderProactiveWhisperAfterDialogueSettles()
+        {
+            yield return null;
+            RenderProactiveWhisperPanel();
         }
 
         private ProactiveWhisperViewModel[] PendingProactiveOffers()
@@ -1606,11 +1663,31 @@ namespace BotcSolo.UnityPrototype
         {
             if (!gameplayEntered || HasPendingAction() || vm == null || vm.gameOver) return;
             if (vm.phase != "day" || vm.dayStage != "private") return;
+            if (PrivateExitPhasePendingOrConfirming()) return;
+            if (ProactiveWhisperBlockedByDialogue()) return;
             if (PendingProactiveOffers().Length > 0) return;
             var key = $"{vm.gameId}:{vm.day}:private";
             if (lastProactiveWhisperRequestKey == key) return;
             lastProactiveWhisperRequestKey = key;
             SendUnityAction("ai-proactive-whispers", trackPending: false);
+        }
+
+        private bool PrivateExitPhasePendingOrConfirming()
+        {
+            var confirmActive = !string.IsNullOrWhiteSpace(pendingPhaseConfirmStage)
+                && NormalizePhaseTransitionStage(pendingPhaseConfirmStage) != "private"
+                && Time.realtimeSinceStartup <= pendingPhaseConfirmUntil;
+            var actionExitPending = HasPendingAction()
+                && (pendingActionType == "phase" || pendingActionType == "public-discussion" || pendingActionType == "ai-public-step");
+            return confirmActive || actionExitPending;
+        }
+
+        private void HidePrivateStagePanelsForPhaseExit()
+        {
+            if (privateChatPanel != null) privateChatPanel.gameObject.SetActive(false);
+            if (proactiveWhisperPanel != null) proactiveWhisperPanel.gameObject.SetActive(false);
+            snoozedProactiveOfferId = "";
+            ApplyModalBackdropVisibility();
         }
 
         private void RenderProactiveWhisperPanel()
@@ -1622,6 +1699,8 @@ namespace BotcSolo.UnityPrototype
                 && offer != null
                 && vm?.phase == "day"
                 && vm?.dayStage == "private"
+                && !PrivateExitPhasePendingOrConfirming()
+                && !ProactiveWhisperBlockedByDialogue()
                 && !GameplayOverlayOpen();
             proactiveWhisperPanel.gameObject.SetActive(visible);
             if (!visible || offer == null) return;
@@ -1659,7 +1738,7 @@ namespace BotcSolo.UnityPrototype
             snoozedProactiveOfferId = "";
             selectedPlayerId = offer.playerId ?? "";
             privateChatStatus = $"已接受 {NameForPlayerId(selectedPlayerId)} 的主动私聊；完整内容会写入私聊时间线。";
-            SendUnityAction("accept-proactive-whisper", playerId: selectedPlayerId, trackPending: true, offerId: offer.id ?? "");
+            if (!SendUnityAction("accept-proactive-whisper", playerId: selectedPlayerId, trackPending: true, offerId: offer.id ?? "")) return;
             OpenPrivateChatPanel();
         }
 
@@ -1676,7 +1755,7 @@ namespace BotcSolo.UnityPrototype
             var offer = ActiveProactiveOffer();
             if (offer == null) return;
             snoozedProactiveOfferId = offer.id ?? "";
-            SendUnityAction("decline-proactive-whisper", playerId: offer.playerId ?? "", trackPending: true, offerId: offer.id ?? "");
+            if (!SendUnityAction("decline-proactive-whisper", playerId: offer.playerId ?? "", trackPending: true, offerId: offer.id ?? "")) return;
             if (proactiveWhisperPanel != null) proactiveWhisperPanel.gameObject.SetActive(false);
         }
 
@@ -2055,8 +2134,8 @@ namespace BotcSolo.UnityPrototype
     [Serializable] public sealed class NominationDebateViewModel { public bool active; public string nominationId; public int day; public string nominatorId; public string nominatorName; public string nomineeId; public string nomineeName; public string reason; public string nextAction; public bool canHumanRespond; public string humanSpeakerRole; public string responsePrompt; public NominationDebateLineViewModel[] lines; }
     [Serializable] public sealed class NominationDebateLineViewModel { public string speakerId; public string speakerName; public string role; public string text; public bool pending; }
     [Serializable] public sealed class GameOutcomeViewModel { public bool gameOver; public string winner; public string winnerLabel; public string title; public string reason; public string summary; public int alive; public int dead; public string[] finalEvents; }
-    [Serializable] public sealed class RoleActionViewModel { public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public bool allowSelf; public bool allowDead; public ActionModeViewModel[] modes; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public string[] selectedTargetIds; }
-    [Serializable] public sealed class ActionFormViewModel { public string id; public string title; public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public ActionModeViewModel[] modes; public string[] selectedTargetIds; }
+    [Serializable] public sealed class RoleActionViewModel { public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public bool allowSelf; public bool allowDead; public ActionModeViewModel[] modes; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public string[] selectedTargetIds; public PublicActionInteractionViewModel interaction; }
+    [Serializable] public sealed class ActionFormViewModel { public string id; public string title; public bool available; public string reason; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public int minTargetCount; public int maxTargetCount; public int targetCount; public ActionOptionViewModel[] options; public ActionRoleOptionViewModel[] roleOptions; public ActionModeViewModel[] modes; public string[] selectedTargetIds; public PublicActionInteractionViewModel interaction; }
     [Serializable] public sealed class StorytellerQueueItemViewModel { public string id; public string type; public string roleId; public string roleName; public string inputType; public string prompt; public string phaseLabel; public int createdDay; public int createdNight; public string createdPhase; public int minTargetCount; public int maxTargetCount; public int targetCount; public int optionCount; public bool current; }
     [Serializable] public sealed class ActionModeViewModel { public string id; public string label; }
     [Serializable] public sealed class ActionOptionViewModel { public string id; public string name; public int seat; public string roleId; public string roleName; public bool alive; public string team; public string category; }
@@ -2070,8 +2149,9 @@ namespace BotcSolo.UnityPrototype
     [Serializable] public sealed class ScriptRoleViewModel { public string id; public string name; public string category; public string team; public string ability; public string icon; public string firstNightReminder; public string otherNightReminder; public string[] reminders; public string[] remindersGlobal; public int firstNight; public int otherNight; }
     [Serializable] public sealed class LlmRendererViewModel { public bool enabled; public string provider; public string source; public string model; public int touched; public int fallback; public string reason; public string updatedAt; }
     [Serializable] public sealed class LlmRenderViewModel { public string source; public bool fallbackUsed; public string reason; }
-    [Serializable] public sealed class ActionStatusViewModel { public int revision; public string lastActionId; public string lastActionType; public string status; public string message; public string updatedAt; public string selectedPlayerId; public string selectedPlayerName; public LlmRendererViewModel llmRenderer; }
-    [Serializable] public sealed class TimelineEntryViewModel { public string id; public string mode; public string speakerId; public string targetId; public string focusId; public string intent; public string evidenceSummary; public string evidenceKind; public string questionToAsk; public string[] followUpPrompts; public string text; public LlmRenderViewModel llmRender; public int day; public int night; }
+    [Serializable] public sealed class PublicActionInteractionViewModel { public string title; public string subtitle; public string style; public string badge; public string[] targetLabels; public string helper; public string confirmText; public string skipText; }
+    [Serializable] public sealed class ActionStatusViewModel { public int revision; public string lastActionId; public string lastActionType; public string status; public string message; public bool resolvedImmediately; public bool publicAction; public string speechId; public string updatedAt; public string selectedPlayerId; public string selectedPlayerName; public LlmRendererViewModel llmRenderer; }
+    [Serializable] public sealed class TimelineEntryViewModel { public string id; public string mode; public string speakerId; public string targetId; public string focusId; public string intent; public string evidenceSummary; public string evidenceKind; public string abilityRoleId; public string abilityKind; public string questionToAsk; public string[] followUpPrompts; public string text; public LlmRenderViewModel llmRender; public int day; public int night; }
     [Serializable] public sealed class PlayerViewModel { public string id; public int seat; public string name; public string roleId; public string roleName; public string actualRoleId; public string perceivedRoleId; public string markedRoleId; public string markedRoleName; public bool revealed; public bool alive; public bool human; public bool ghostVoteAvailable; public int suspicion; public string[] reminders; }
     [Serializable] public sealed class UnitySaveMeta { public string savedAt; public string scriptName; public string phase; public int day; public int night; public int alive; public int dead; }
 }

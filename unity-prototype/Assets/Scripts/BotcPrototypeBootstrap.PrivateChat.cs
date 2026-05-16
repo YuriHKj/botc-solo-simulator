@@ -189,7 +189,7 @@ namespace BotcSolo.UnityPrototype
             if (!IsPendingPrivateChat()) return "";
             if (PendingActionTimedOut())
             {
-                return "暂时没有收到回复。请看左上同步状态，若持续超时可重启本局。";
+                return $"仍在等待对方回应（{PendingActionElapsed():0.0}s）。本地语言模型可能还在润色，请先不要连续发送。";
             }
             return $"等待对方回应（{PendingActionElapsed():0.0}s）。";
         }
@@ -313,7 +313,7 @@ namespace BotcSolo.UnityPrototype
             AddFrame(bubble.transform, "Private Pending Bubble Frame", 0.8f, border);
             var dots = new string('.', 1 + Mathf.FloorToInt(PendingActionElapsed() * 2f) % 3);
             var text = timedOut
-                ? "暂时没有收到回复；请留意左上同步状态。"
+                ? $"仍在等待回复；语言模型润色中 {PendingActionElapsed():0.0}s"
                 : $"等待对方回应{dots} {PendingActionElapsed():0.0}s";
             var label = AddText("Private Pending Text", bubble.transform, Vector2.zero, Vector2.one, new Vector2(12f, 4f), new Vector2(-12f, -4f), text, 14, TextAnchor.MiddleCenter, FontStyle.Bold);
             label.color = timedOut ? new Color(1f, 0.78f, 0.64f, 1f) : new Color(1f, 0.88f, 0.52f, 1f);
@@ -463,7 +463,7 @@ namespace BotcSolo.UnityPrototype
                 dialogueBody.text = "请先点击一名非主视角玩家 token。";
                 return;
             }
-            SendUnityAction("private-chat", selectedPlayerId, "", "你是什么身份？", "claim");
+            if (!SendUnityAction("private-chat", selectedPlayerId, "", "你是什么身份？", "claim")) return;
             privateChatStatus = $"已询问 {NameForPlayerId(selectedPlayerId)} 的身份，等待对方回应。";
             UpdatePrivateChatPanelText();
             dialogueTitle.text = "私聊：询问身份";
@@ -479,7 +479,7 @@ namespace BotcSolo.UnityPrototype
                 dialogueBody.text = "请先选择一名非主视角玩家作为私聊目标。";
                 return;
             }
-            SendUnityAction("private-chat", selectedPlayerId, "", question, intent);
+            if (!SendUnityAction("private-chat", selectedPlayerId, "", question, intent)) return;
             privateChatStatus = $"已追问 {NameForPlayerId(selectedPlayerId)}，等待对方回应。";
             UpdatePrivateChatPanelText();
             dialogueTitle.text = "私聊：继续追问";
@@ -499,7 +499,7 @@ namespace BotcSolo.UnityPrototype
             var askSecret = privateSecretToggle != null && privateSecretToggle.isOn;
             var intent = !string.IsNullOrWhiteSpace(claimRoleId) ? "claim" : !string.IsNullOrWhiteSpace(nightInfo) ? "night" : askSecret ? "trust" : "generic";
             var line = askSecret ? "这条信息先只在我们之间对齐。" : "我想和你私下交换一下信息。";
-            SendUnityAction("private-chat", selectedPlayerId, "", line, intent, claimRoleId: claimRoleId, nightInfo: nightInfo, askSecret: askSecret);
+            if (!SendUnityAction("private-chat", selectedPlayerId, "", line, intent, claimRoleId: claimRoleId, nightInfo: nightInfo, askSecret: askSecret)) return;
             privateChatStatus = $"已发送给 {NameForPlayerId(selectedPlayerId)}；等待对方回应。";
             UpdatePrivateChatPanelText();
             dialogueTitle.text = "私聊已发送";

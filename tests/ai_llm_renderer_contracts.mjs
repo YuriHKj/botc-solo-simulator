@@ -14,7 +14,7 @@ const basePayload = {
   audience: "public",
   intent: "pressure_question",
   persona: "steady",
-  candidateText: "7号可以进提名池，但我先听一句回应。发言要回看。",
+  candidateText: "7号可以进提名池，但我先听身份和昨晚信息，再决定。",
   evidence: ["7号公开身份和昨晚信息没对上"],
   requiredTerms: ["7号"],
   forbiddenTerms: ["PRIVATE_SECRET_MARKER", "洗衣妇真实身份"],
@@ -89,6 +89,8 @@ function testPromptOnlyContainsSafePayload() {
   assert.match(user, /render_botc_player_line_v2/);
   assert.equal(payload.targetName, "7号");
   assert.ok(payload.forbiddenTerms.includes("口径"), "system jargon should be forbidden by default");
+  assert.ok(payload.forbiddenTerms.includes("复核"), "stock review words should be forbidden by default");
+  assert.ok(payload.forbiddenTerms.includes("那件事"), "vague references should be forbidden by default");
   const userPayload = JSON.parse(user);
   assert.ok(
     userPayload.styleGuide.some((rule) => rule.includes("deterministic draft") || rule.includes("换一种句式")),
@@ -128,7 +130,7 @@ async function testMockRendererProducesSafeSpeech() {
   assert.equal(result.ok, true, result.reason);
   assert.equal(result.fallbackUsed, false);
   assert.match(result.text, /7号/);
-  assert.doesNotMatch(result.text, /口径|接前面一句|PRIVATE_SECRET_MARKER/);
+  assert.doesNotMatch(result.text, /口径|复核|硬信息|接前面一句|PRIVATE_SECRET_MARKER/);
 }
 
 async function testRendererRetriesNearCopy() {
@@ -161,6 +163,55 @@ async function testRendererRepairsMissingVisibleTarget() {
   assert.equal(result.fallbackUsed, false);
   assert.equal(result.repaired, true);
   assert.match(result.text, /7号/);
+}
+
+async function testRendererRepairsSpeakerPrefix() {
+  const result = await renderSpeechWithLocalLLM(basePayload, {
+    enabled: true,
+    provider: "openai-compatible",
+    transport: async () => JSON.stringify({ text: "9号：7号先说身份和昨晚信息，我再判断。" }),
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.repaired, true);
+  assert.equal(result.reason, "repaired:speaker-prefix:9号");
+  assert.match(result.text, /7号/);
+  assert.doesNotMatch(result.text, /^9号/);
+}
+
+async function testRendererGroundsVagueEvidenceLine() {
+  const result = await renderSpeechWithLocalLLM(basePayload, {
+    enabled: true,
+    provider: "openai-compatible",
+    transport: async () => JSON.stringify({ text: "7号这里我觉得有点怪，先听他说。" }),
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.repaired, true);
+  assert.equal(result.reason, "repaired:missing-evidence-anchor:身份/信息");
+  assert.match(result.text, /7号/);
+  assert.match(result.text, /身份|信息/);
+}
+
+async function testRendererRepairsVagueNoEvidenceLine() {
+  const result = await renderSpeechWithLocalLLM(
+    {
+      ...basePayload,
+      evidence: [],
+    },
+    {
+      enabled: true,
+      provider: "openai-compatible",
+      transport: async () => JSON.stringify({ text: "7号刚才那件事，先解释一下。" }),
+    }
+  );
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.fallbackUsed, false);
+  assert.equal(result.repaired, true);
+  assert.equal(result.reason, "repaired:forbidden-term:那件事");
+  assert.match(result.text, /7号/);
+  assert.match(result.text, /身份|信息/);
+  assert.doesNotMatch(result.text, /那件事/);
 }
 
 async function testRendererUsesLocalRewriteWhenRetryStillCopies() {
@@ -224,6 +275,9 @@ testSimilarityScoresNearCopies();
 await testMockRendererProducesSafeSpeech();
 await testRendererRetriesNearCopy();
 await testRendererRepairsMissingVisibleTarget();
+await testRendererRepairsSpeakerPrefix();
+await testRendererGroundsVagueEvidenceLine();
+await testRendererRepairsVagueNoEvidenceLine();
 await testRendererUsesLocalRewriteWhenRetryStillCopies();
 await testRendererFallsBackOnLeak();
 await testRendererFallsBackWhenDisabled();
