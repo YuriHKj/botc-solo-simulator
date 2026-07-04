@@ -7,6 +7,8 @@ This index points external contributors to the current project documentation. Hi
 - `README.md`: project overview, setup, testing, license, and release notes.
 - `docs/PROJECT_STRUCTURE.md`: repository layout and asset conventions.
 - `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`: current implementation status and open work.
+- `docs/PROGRESS_BASELINE_2026-06-01.md`: latest three-axis progress baseline for AI intelligence, UI polish, and rules completion.
+- `docs/PROGRESS_BASELINE_2026-05-31.md`: previous three-axis progress baseline snapshot.
 - `docs/requirements/PRODUCT_REQUIREMENTS.md`: product goals and acceptance direction.
 - `docs/requirements/CHANGE_REQUESTS.md`: chronological change-request log.
 
@@ -24,6 +26,7 @@ This index points external contributors to the current project documentation. Hi
 - `docs/design/ROLE_MODULE_REFACTOR_PHASE1.md`: role-module refactor status.
 - `docs/design/AI_AGENT_MVP.md`: AI perspective and private/public information model.
 - `docs/design/AI_EVIDENCE_BOOK.md`: evidence-book structure for AI reasoning.
+- `docs/design/AI_AGENT_LANGUAGE_REASONING_BASELINE_2026-06-01.md`: AI language quality and reasoning-depth baseline.
 - `docs/design/AI_AGENT_OPTIMIZATION_ROUND_2026-05-10.md`: latest AI evidence and dialogue improvements.
 
 ## Verification

@@ -584,11 +584,17 @@ export function ensureAIAgents(state) {
       const existing = state.aiAgents[player.id] ?? createAgent(player);
       existing.version = AGENT_SCHEMA_VERSION;
       existing.ownerId = player.id;
-      existing.knownSelfRoleId = existing.knownSelfRoleId ?? player.apparentRoleId ?? player.roleId ?? null;
-      existing.knownSelfTeam = existing.knownSelfTeam ?? player.apparentTeam ?? player.team ?? null;
+      existing.knownSelfRoleId = player.apparentRoleId ?? player.roleId ?? null;
+      existing.knownSelfTeam = player.apparentTeam ?? player.team ?? null;
       existing.knownAllyIds = unique(existing.knownAllyIds);
       existing.knownMinionIds = unique(existing.knownMinionIds);
       existing.knownBluffRoleIds = unique(existing.knownBluffRoleIds);
+      if (player.team !== "evil" && player.roleId !== "lunatic") {
+        existing.knownAllyIds = [];
+        existing.knownDemonId = null;
+        existing.knownMinionIds = [];
+        existing.knownBluffRoleIds = [];
+      }
       if (player.roleId === "lunatic" && state.bmr) {
         const fakeMinionIds = unique(state.bmr.lunaticFakeMinionIdsById?.[player.id] ?? []);
         const fakeBluffRoleIds = unique(state.bmr.lunaticFakeBluffRoleIdsById?.[player.id] ?? []);
@@ -1042,7 +1048,7 @@ export function recordPrivateInfoForAgent(state, player, text, metadata = {}) {
 
 export function recordEvilRecognitionForAgents(state) {
   ensureAIAgents(state);
-  const evilPlayers = (state.players ?? []).filter((entry) => entry.team === "evil");
+  const evilPlayers = (state.players ?? []).filter((entry) => entry.team === "evil" && entry.alive);
   const demon = evilPlayers.find((entry) => entry.category === "demon") ?? null;
   const minions = evilPlayers.filter((entry) => entry.category === "minion");
   const bluffRoleIds = unique((state.demonBluffs ?? []).map((entry) => entry.id));
@@ -1055,11 +1061,13 @@ export function recordEvilRecognitionForAgents(state) {
         return;
       }
       const allyIds = evilPlayers.filter((entry) => entry.id !== player.id).map((entry) => entry.id);
-      agent.knownAllyIds = unique([...agent.knownAllyIds, ...allyIds]);
-      agent.knownDemonId = demon?.id ?? agent.knownDemonId ?? null;
+      agent.knownAllyIds = unique(allyIds);
+      agent.knownDemonId = demon?.id ?? null;
       agent.knownMinionIds = unique(minions.map((entry) => entry.id));
       if (player.category === "demon") {
-        agent.knownBluffRoleIds = unique([...agent.knownBluffRoleIds, ...bluffRoleIds]);
+        agent.knownBluffRoleIds = unique(bluffRoleIds);
+      } else {
+        agent.knownBluffRoleIds = [];
       }
 
       addAgentObservation(state, player.id, {
@@ -1311,6 +1319,28 @@ function audienceRelationFor(state, viewerPlayer, targetPlayer) {
   return "unknown";
 }
 
+function agentViewEvidenceOptions(audience, evidenceOptions = {}) {
+  const publicOnly = audience === "public" || !!evidenceOptions.publicOnly;
+  return {
+    ...evidenceOptions,
+    publicOnly,
+    includePrivate: publicOnly ? false : evidenceOptions.includePrivate ?? true,
+  };
+}
+
+function publicSafeGraphForAgentView(audience, graph) {
+  if (audience !== "public") {
+    return graph;
+  }
+  const edges = (graph?.edges ?? []).filter((edge) => edge.visibility !== "private");
+  const nodeIds = new Set(edges.flatMap((edge) => [edge.from, edge.to]).filter(Boolean));
+  return {
+    version: graph?.version ?? 1,
+    nodes: (graph?.nodes ?? []).filter((node) => nodeIds.has(node.id)),
+    edges,
+  };
+}
+
 export function buildAgentView(state, viewerPlayerOrId, options = {}) {
   ensureAIAgents(state);
   const viewerPlayer =
@@ -1372,34 +1402,25 @@ export function buildAgentView(state, viewerPlayerOrId, options = {}) {
     targets,
     targetById: Object.fromEntries(targets.map((target) => [target.id, target])),
     evidenceForTarget(targetId, evidenceOptions = {}) {
-      const scopedOptions = {
-        ...evidenceOptions,
-        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
-        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
-      };
+      const scopedOptions = agentViewEvidenceOptions(audience, evidenceOptions);
       return getDialogueEvidenceForTarget(state, viewerPlayer, targetId, scopedOptions);
     },
     summariesForTarget(targetId, evidenceOptions = {}) {
-      const scopedOptions = {
-        ...evidenceOptions,
-        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
-        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
-      };
+      const scopedOptions = agentViewEvidenceOptions(audience, evidenceOptions);
       return summarizeEvidenceForDialogue(state, viewerPlayer, targetId, scopedOptions);
     },
     trailForTarget(targetId) {
       return getSuspicionTrailForTarget(state, viewerPlayer, targetId);
     },
     evidenceCountForTarget(targetId, evidenceOptions = {}) {
-      const scopedOptions = {
-        ...evidenceOptions,
-        publicOnly: evidenceOptions.publicOnly ?? audience === "public",
-        includePrivate: evidenceOptions.includePrivate ?? audience !== "public",
-      };
+      const scopedOptions = agentViewEvidenceOptions(audience, evidenceOptions);
       return getDialogueEvidenceForTarget(state, viewerPlayer, targetId, scopedOptions).length;
     },
     graphForTarget(targetId, graphOptions = {}) {
-      return getAgentKnowledgeGraph(state, viewerPlayer, { ...graphOptions, targetId });
+      return publicSafeGraphForAgentView(
+        audience,
+        getAgentKnowledgeGraph(state, viewerPlayer, { ...graphOptions, targetId })
+      );
     },
   };
   Object.defineProperty(view, "state", { value: state, enumerable: false });

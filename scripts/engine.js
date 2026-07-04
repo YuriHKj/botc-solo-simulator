@@ -135,11 +135,18 @@ function drawSetupRolesStandard(scriptId, playerCount, rng = Math.random) {
   };
 }
 
-function drawSetupRolesTB(playerCount, rng = Math.random) {
+function drawSetupRolesTB(playerCount, rng = Math.random, preferredRoleId = "") {
   const script = SCRIPT_MAP.tb;
   const baseCounts = roleCountsFor("tb", playerCount);
+  const requestedRoleId = `${preferredRoleId ?? ""}`.trim();
 
-  const selectedMinions = sample(script.roles.minion, baseCounts.minion, rng);
+  let selectedMinions = sample(script.roles.minion, baseCounts.minion, rng);
+  if (requestedRoleId === TB.BARON && !selectedMinions.some((entry) => entry.id === TB.BARON)) {
+    const baron = script.roles.minion.find((entry) => entry.id === TB.BARON);
+    if (baron) {
+      selectedMinions = selectedMinions.length > 0 ? [baron, ...selectedMinions.slice(1)] : [baron];
+    }
+  }
   const baronInPlay = selectedMinions.some((entry) => entry.id === TB.BARON);
 
   const adjustedTownsfolk = clamp(baseCounts.townsfolk - (baronInPlay ? 2 : 0), 0, script.roles.townsfolk.length);
@@ -157,6 +164,119 @@ function drawSetupRolesTB(playerCount, rng = Math.random) {
       minion: baseCounts.minion,
       demon: baseCounts.demon,
     },
+    baseCounts,
+  };
+}
+
+function forceRoleIntoSelection(script, category, selected, roleId) {
+  const requestedRoleId = `${roleId ?? ""}`.trim();
+  if (!requestedRoleId || selected.some((entry) => entry.id === requestedRoleId)) {
+    return selected;
+  }
+  const role = script.roles[category]?.find((entry) => entry.id === requestedRoleId);
+  if (!role) {
+    return selected;
+  }
+  return selected.length > 0 ? [role, ...selected.slice(1)] : [role];
+}
+
+function goodSetupCountsWithOutsiderDelta(baseCounts, script, outsiderDelta) {
+  const adjustedOutsider = clamp(baseCounts.outsider + outsiderDelta, 0, script.roles.outsider.length);
+  const outsiderChange = adjustedOutsider - baseCounts.outsider;
+  return {
+    townsfolk: clamp(baseCounts.townsfolk - outsiderChange, 0, script.roles.townsfolk.length),
+    outsider: adjustedOutsider,
+  };
+}
+
+function countPlayerSetupCategories(players) {
+  const counts = { townsfolk: 0, outsider: 0, minion: 0, demon: 0 };
+  players.forEach((player) => {
+    if (Object.prototype.hasOwnProperty.call(counts, player.category)) {
+      counts[player.category] += 1;
+    }
+  });
+  return counts;
+}
+
+function validOutsiderDeltas(baseCounts, script, deltas) {
+  return deltas.filter((delta) => {
+    const adjusted = baseCounts.outsider + delta;
+    const townsfolk = baseCounts.townsfolk - delta;
+    return adjusted >= 0 && adjusted <= script.roles.outsider.length && townsfolk >= 0 && townsfolk <= script.roles.townsfolk.length;
+  });
+}
+
+function chooseGodfatherOutsiderDelta(baseCounts, script, rng = Math.random) {
+  const valid = validOutsiderDeltas(baseCounts, script, [-1, 1]);
+  if (valid.length === 0) {
+    return 0;
+  }
+  if (valid.length === 1) {
+    return valid[0];
+  }
+  return valid[Math.floor(rng() * valid.length)];
+}
+
+function drawSetupRolesBMR(playerCount, rng = Math.random, preferredRoleId = "") {
+  const script = SCRIPT_MAP.bmr;
+  const baseCounts = roleCountsFor("bmr", playerCount);
+  const requestedRoleId = `${preferredRoleId ?? ""}`.trim();
+
+  let selectedTownsfolk = sample(script.roles.townsfolk, baseCounts.townsfolk, rng);
+  let selectedOutsiders = sample(script.roles.outsider, baseCounts.outsider, rng);
+  let selectedMinions = sample(script.roles.minion, baseCounts.minion, rng);
+  const selectedDemons = sample(script.roles.demon, baseCounts.demon, rng);
+
+  if (requestedRoleId === BMR.GODFATHER) {
+    selectedMinions = forceRoleIntoSelection(script, "minion", selectedMinions, BMR.GODFATHER);
+  }
+
+  const godfatherInPlay = selectedMinions.some((entry) => entry.id === BMR.GODFATHER);
+  const counts = { ...baseCounts };
+  if (godfatherInPlay) {
+    const outsiderDelta = chooseGodfatherOutsiderDelta(baseCounts, script, rng);
+    const adjusted = goodSetupCountsWithOutsiderDelta(baseCounts, script, outsiderDelta);
+    counts.townsfolk = adjusted.townsfolk;
+    counts.outsider = adjusted.outsider;
+    selectedTownsfolk = sample(script.roles.townsfolk, counts.townsfolk, rng);
+    selectedOutsiders = sample(script.roles.outsider, counts.outsider, rng);
+  }
+
+  return {
+    roleBag: [...selectedTownsfolk, ...selectedOutsiders, ...selectedMinions, ...selectedDemons],
+    counts,
+    baseCounts,
+  };
+}
+
+function drawSetupRolesSNV(playerCount, rng = Math.random, preferredRoleId = "") {
+  const script = SCRIPT_MAP.snv;
+  const baseCounts = roleCountsFor("snv", playerCount);
+  const requestedRoleId = `${preferredRoleId ?? ""}`.trim();
+
+  let selectedTownsfolk = sample(script.roles.townsfolk, baseCounts.townsfolk, rng);
+  let selectedOutsiders = sample(script.roles.outsider, baseCounts.outsider, rng);
+  const selectedMinions = sample(script.roles.minion, baseCounts.minion, rng);
+  let selectedDemons = sample(script.roles.demon, baseCounts.demon, rng);
+
+  if (requestedRoleId === SNV.FANG_GU) {
+    selectedDemons = forceRoleIntoSelection(script, "demon", selectedDemons, SNV.FANG_GU);
+  }
+
+  const fangGuInPlay = selectedDemons.some((entry) => entry.id === SNV.FANG_GU);
+  const counts = { ...baseCounts };
+  if (fangGuInPlay) {
+    const adjusted = goodSetupCountsWithOutsiderDelta(baseCounts, script, 1);
+    counts.townsfolk = adjusted.townsfolk;
+    counts.outsider = adjusted.outsider;
+    selectedTownsfolk = sample(script.roles.townsfolk, counts.townsfolk, rng);
+    selectedOutsiders = sample(script.roles.outsider, counts.outsider, rng);
+  }
+
+  return {
+    roleBag: [...selectedTownsfolk, ...selectedOutsiders, ...selectedMinions, ...selectedDemons],
+    counts,
     baseCounts,
   };
 }
@@ -406,7 +526,10 @@ function normalizeStorytellerTargetIds(action, input = {}) {
   const targetCount = Number.isFinite(action.targetCount) ? action.targetCount : 1;
   const min = Number.isFinite(action.minTargetCount) ? action.minTargetCount : targetCount;
   const max = Number.isFinite(action.maxTargetCount) ? action.maxTargetCount : targetCount;
-  const raw = input.auto ? firstAvailableTargets(action, max) : input.targetIds ?? [];
+  const defaultTargets = Array.isArray(action.selectedTargetIds) && action.selectedTargetIds.length > 0
+    ? action.selectedTargetIds
+    : firstAvailableTargets(action, max);
+  const raw = input.auto ? defaultTargets : input.targetIds ?? [];
   const unique = uniqueStrings(raw);
   if (unique.length < min) {
     return { ok: false, reason: min <= 1 ? "请选择 1 名目标。" : `请至少选择 ${min} 名目标。` };
@@ -455,6 +578,32 @@ function resolveMoonchildAction(state, action, targetIds) {
   if (!actor || !target || !state.bmr) {
     return { ok: false, reason: "月之子目标无效。" };
   }
+  if (action.createdPhase === "night") {
+    let died = false;
+    if (target.team === "good") {
+      const originalPhase = state.phase;
+      const originalDay = state.day;
+      const originalNight = state.night;
+      state.phase = "night";
+      state.day = Number.isFinite(action.createdDay) ? action.createdDay : state.day;
+      state.night = Number.isFinite(action.createdNight) ? action.createdNight : state.night;
+      try {
+        died = processNightDeath(state, target, "moonchild-trigger", { by: actor.id }, Math.random);
+      } finally {
+        state.phase = originalPhase;
+        state.day = originalDay;
+        state.night = originalNight;
+      }
+    }
+    delete state.bmr.moonchildPendingById[actor.id];
+    addLog(state, "death-trigger", `${actor.name} triggered Moonchild and chose ${target.name}.`, {
+      victimId: actor.id,
+      targetId: target.id,
+      immediateNight: true,
+      died,
+    });
+    return { ok: true, message: `Moonchild chose ${target.name}.`, immediateNight: true, died };
+  }
   state.bmr.moonchildPendingById[actor.id] = target.id;
   addLog(state, "death-trigger", `${actor.name} 触发 Moonchild，指定了 ${target.name}。`, {
     victimId: actor.id,
@@ -500,6 +649,14 @@ function resolveBarberAction(state, action, targetIds) {
   if (!swapped) {
     return { ok: false, reason: "角色交换失败。" };
   }
+  refreshEvilRecognitionAfterRoleChange(state, {
+    reason: "barber-swap",
+    changedPlayerIds: targetIds,
+  });
+  getScriptRuleHandlers("snv").onRoleChange?.(createSNVRoleContext(state), {
+    reason: "barber-swap",
+    changedPlayerIds: targetIds,
+  });
   state.snv.barberDiedToday = false;
   addLog(state, "death-trigger", `Barber 触发：恶魔选择交换 ${a.name} 与 ${b.name} 的角色。`, {
     barberId: action.actorId,
@@ -525,6 +682,14 @@ function resolvePitHagDemonBalanceAction(state, action, targetIds) {
   if (targets.length === 0) {
     return { ok: false, reason: "请选择至少一名需要死亡的额外恶魔。" };
   }
+  const targetSet = new Set(targets.map((target) => target.id));
+  const aliveDemons = state.players.filter((player) => player.alive && player.category === "demon");
+  if (targets.some((target) => !target.alive || target.category !== "demon")) {
+    return { ok: false, reason: "Pit-Hag balance targets must be currently living demons." };
+  }
+  if (aliveDemons.filter((demon) => !targetSet.has(demon.id)).length !== 1) {
+    return { ok: false, reason: "Pit-Hag balance must leave exactly one living demon." };
+  }
   targets.forEach((target) => {
     if (target.alive && target.category === "demon") {
       processNightDeath(
@@ -538,6 +703,10 @@ function resolvePitHagDemonBalanceAction(state, action, targetIds) {
     }
   });
   state.snv.pitHagDemonBalancePending = false;
+  refreshEvilRecognitionAfterRoleChange(state, {
+    reason: "pit-hag-demon-balance",
+    changedPlayerIds: targetIds,
+  });
   addLog(state, "night-effect", "Pit-Hag 多恶魔平衡由 Storyteller 处理。", {
     actionId: action.id,
     targetIds,
@@ -648,6 +817,45 @@ function deliverEvilRecognitionFirstNight(state) {
   addLog(state, "night-info", "第1夜已完成邪恶互认阶段。", { private: true, team: "evil" });
   recordEvilRecognitionForAgents(state);
   state.storyFlags.evilRecognitionDone = true;
+}
+
+function refreshEvilRecognitionAfterRoleChange(state, { reason = "role-change", changedPlayerIds = [] } = {}) {
+  ensureAIAgents(state);
+  const evilPlayers = state.players.filter((entry) => entry.team === "evil" && entry.alive);
+  if (evilPlayers.length === 0) {
+    return;
+  }
+  const demon = evilPlayers.find((entry) => entry.category === "demon") ?? null;
+  const minions = evilPlayers.filter((entry) => entry.category === "minion");
+  const bluffText = (state.demonBluffs ?? []).map((entry) => entry.name).filter(Boolean).join(" / ");
+  const changed = new Set(changedPlayerIds);
+
+  evilPlayers.forEach((player) => {
+    const marker = changed.has(player.id) ? "你的位置发生了变化。" : "邪恶阵营位置已更新。";
+    if (player.category === "demon") {
+      addPrivateInfo(state, player, `[第${state.night}夜] 邪恶阵营变动：${marker} 当前爪牙是 ${seatList(minions)}。`);
+      if (bluffText) {
+        addPrivateInfo(state, player, `[第${state.night}夜] 当前恶魔伪装（不在场）：${bluffText}。`);
+      }
+      return;
+    }
+    addPrivateInfo(
+      state,
+      player,
+      `[第${state.night}夜] 邪恶阵营变动：${marker} 当前恶魔是 ${demon ? seatName(demon) : "未知"}；其他爪牙是 ${seatList(
+        minions.filter((entry) => entry.id !== player.id)
+      )}。`
+    );
+  });
+
+  recordEvilRecognitionForAgents(state);
+  addLog(state, "night-info", "邪恶阵营变动后已刷新私有互认。", {
+    private: true,
+    team: "evil",
+    reason,
+    changedPlayerIds,
+    demonId: demon?.id ?? null,
+  });
 }
 
 export function getAlivePlayers(state) {
@@ -1123,8 +1331,11 @@ function humanActionPayload(state, human, roleId, roleName, rule, options, selec
     targetCount: rule.targetCount,
     minTargetCount: Number.isFinite(rule.minTargetCount) ? rule.minTargetCount : rule.targetCount,
     maxTargetCount: Number.isFinite(rule.maxTargetCount) ? rule.maxTargetCount : rule.targetCount,
+    minGuessCount: Number.isFinite(rule.minGuessCount) ? rule.minGuessCount : undefined,
+    maxGuessCount: Number.isFinite(rule.maxGuessCount) ? rule.maxGuessCount : undefined,
     allowSelf: rule.allowSelf,
     allowDead: rule.allowDead,
+    optional: !!rule.optional,
     prompt: rule.prompt,
     interaction: rule.interaction ?? null,
     usageKey,
@@ -1294,6 +1505,7 @@ function createSNVState() {
     seamstressUsedByIds: [],
     artistUsedByIds: [],
     pitHagTransforms: [],
+    pitHagTransformHistory: [],
     philosopherCopiedById: {},
     evilTwinPair: null,
     fangGuJumpUsed: false,
@@ -1439,6 +1651,11 @@ function normalizeHumanActionPlan(action, input = {}) {
     guesses: [],
   };
 
+  if (action.optional && (input.skip === true || mode === "skip" || mode === "none")) {
+    plan.mode = "skip";
+    return { ok: true, plan };
+  }
+
   if (inputType === "role") {
     const role = validateRoleForAction(action, input.roleId);
     if (!role.ok) {
@@ -1541,6 +1758,9 @@ function describeActionPlan(state, action, plan) {
   if (action.inputType === "guesses") {
     return `${plan.guesses.length} 组猜测`;
   }
+  if (plan.mode === "skip") {
+    return "skip this action tonight";
+  }
   if (action.inputType === "charge-or-targets" && (plan.mode === "charge" || plan.mode === "none")) {
     return "不击杀，蓄力";
   }
@@ -1614,6 +1834,17 @@ function recordPublicDayAbility(state, actor, { roleId, abilityKind, text, targe
   return speech;
 }
 
+function jugglerGuessPublicLine(state, guesses = []) {
+  const parts = (Array.isArray(guesses) ? guesses : [])
+    .map((entry) => {
+      const player = getPlayerById(state, entry.playerId);
+      const roleName = getRoleNameById(state, entry.roleId) ?? entry.roleId;
+      return `${player?.name ?? entry.playerId} as ${roleName}`;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? `Juggler guesses: ${parts.join("; ")}.` : "Juggler makes public guesses.";
+}
+
 export function setHumanNightActionPlan(state, input = {}) {
   const action = getHumanNightActionState(state);
   if (!action.available) {
@@ -1646,6 +1877,12 @@ export function setHumanNightActionPlan(state, input = {}) {
   addLog(state, "night-plan", `[夜间预设] 第${action.nightNumber}夜 ${action.roleName} -> ${targetNames}`, {
     private: true,
     playerId: human?.id,
+    roleId: action.roleId,
+    roleName: action.roleName,
+    night: action.nightNumber,
+    targetIds: Array.isArray(plan.targetIds) ? [...plan.targetIds] : [],
+    selectedRoleId: plan.roleId ?? "",
+    mode: plan.mode ?? "",
   });
 
   return {
@@ -1693,14 +1930,60 @@ export function setHumanDayActionPlan(state, input = {}, rng = Math.random) {
     roleId: action.roleId,
     selectedRoleId: plan.roleId,
   };
-  if (state.scriptId === "snv" && action.roleId === SNV.JUGGLER) {
+  if (state.scriptId === "snv" && action.roleId === SNV.ARTIST) {
     state.snv = state.snv ?? createSNVState();
+    const clue = generateInfoClueSimplified(state, human, null, rng, plan);
+    if (!clue) {
+      state.humanDayPlan = null;
+      return { ok: false, reason: "Artist question could not be answered." };
+    }
+    if (shouldCountAbnormalInfoForMathematician(state, human, clue)) {
+      addAbilityInterference(state, 1);
+      clue.countedByMathematician = true;
+    }
+    state.events.infoPings.push({ ...clue, type: clue.type ?? SNV.ARTIST, day: state.day, night: state.night });
+    addPrivateInfo(state, human, `[Day ${state.day}] ${clue.text}`);
+    markHumanAbilityUsed(state, action.usageKey ?? action.roleId);
+    state.humanDayPlan = null;
+    return {
+      ok: true,
+      dayNumber: action.dayNumber,
+      roleName: action.roleName,
+      targetIds: [],
+      plan,
+      targetNames: summary,
+      clue,
+      resolvedImmediately: true,
+      private: true,
+    };
+  } else if (state.scriptId === "snv" && action.roleId === SNV.JUGGLER) {
+    state.snv = state.snv ?? createSNVState();
+    const guesses = [...(plan.guesses ?? [])];
+    const speech = recordPublicDayAbility(state, human, {
+      roleId: SNV.JUGGLER,
+      abilityKind: "juggler-guesses",
+      text: jugglerGuessPublicLine(state, guesses),
+      targetIds: guesses.map((entry) => entry.playerId),
+    });
     state.snv.jugglerGuessesByDay[human.id] = {
       day: action.dayNumber,
       resolved: false,
-      guesses: [...(plan.guesses ?? [])],
+      guesses,
+      sourceSpeechId: speech?.id ?? "",
     };
     markHumanAbilityUsed(state, action.usageKey ?? action.roleId);
+    state.humanDayPlan = null;
+    return {
+      ok: true,
+      dayNumber: action.dayNumber,
+      roleName: action.roleName,
+      targetIds: plan.targetIds,
+      plan,
+      targetNames: summary,
+      speechId: speech?.id ?? "",
+      resolvedImmediately: true,
+      public: true,
+    };
   } else if (state.scriptId === "bmr" && action.roleId === BMR.GOSSIP) {
     state.bmr = state.bmr ?? createBMRState();
     state.bmr.gossipStatementsByDay = state.bmr.gossipStatementsByDay ?? {};
@@ -1834,6 +2117,19 @@ function consumeHumanNightPlan(state, actor, { allowSelf = false, allowDead = fa
     return null;
   }
 
+  const rule = normalizeActionRuleForState(state, plan.roleId, getHumanNightRule(state, plan.roleId, state.night));
+  if ((plan.mode === "skip" || plan.skip === true) && rule?.optional) {
+    state.humanNightPlan = null;
+    return {
+      ...plan,
+      mode: "skip",
+      targetIds: [],
+      targets: [],
+      skipped: true,
+      role: null,
+    };
+  }
+
   const unique = uniqueStrings(plan.targetIds);
   const min = minTargets === null ? unique.length : minTargets;
   const max = maxTargets === null ? unique.length : maxTargets;
@@ -1860,7 +2156,6 @@ function consumeHumanNightPlan(state, actor, { allowSelf = false, allowDead = fa
     return null;
   }
 
-  const rule = normalizeActionRuleForState(state, plan.roleId, getHumanNightRule(state, plan.roleId, state.night));
   if (rule && !resolved.every((entry) => actionTargetAllowedByRule(state, actor, rule, entry))) {
     return null;
   }
@@ -1892,7 +2187,25 @@ function isAbilityBlocked(player, state = null) {
   if (player.roleId === TB.DRUNK || player.poisoned) {
     return true;
   }
+  if (state?.snv?.sweetheartDrunkId === player.id) {
+    return true;
+  }
   if (state?.snv?.snakeCharmerPoisonedIds?.includes(player.id)) {
+    return true;
+  }
+  if (state?.snv?.vigormortisPoisonedIds?.includes(player.id)) {
+    return true;
+  }
+  if (state?.snv?.noDashiiPoisonedIds?.includes(player.id)) {
+    return true;
+  }
+  if (state?.bmr?.pukkaPoisonedId === player.id) {
+    return true;
+  }
+  if (state?.bmr?.sailorDrunkIds?.includes(player.id)) {
+    return true;
+  }
+  if (state?.bmr?.innkeeperDrunkId === player.id) {
     return true;
   }
   if (state?.bmr) {
@@ -2079,7 +2392,14 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
   const players = names.map((name, idx) => makePlayerBase(`p${idx + 1}`, name, seats[idx], idx === 0));
   applySeatNames(players);
 
-  const setupResult = scriptId === "tb" ? drawSetupRolesTB(playerCount, rng) : drawSetupRolesStandard(scriptId, playerCount, rng);
+  const setupResult =
+    scriptId === "tb"
+      ? drawSetupRolesTB(playerCount, rng, preferredHumanRoleId)
+      : scriptId === "bmr"
+      ? drawSetupRolesBMR(playerCount, rng, preferredHumanRoleId)
+      : scriptId === "snv"
+      ? drawSetupRolesSNV(playerCount, rng, preferredHumanRoleId)
+      : drawSetupRolesStandard(scriptId, playerCount, rng);
   const fittedRoleBag = fitPreferredRoleIntoBag(scriptId, setupResult.roleBag, preferredHumanRoleId);
   const shuffledRoles = shuffle(fittedRoleBag, rng);
   players.forEach((player, idx) => {
@@ -2092,7 +2412,7 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
     scriptId,
     scriptName: script.name,
     scriptDescription: script.description,
-    setupCounts: setupResult.counts,
+    setupCounts: countPlayerSetupCategories(players),
     baseSetupCounts: setupResult.baseCounts,
     phase: "setup",
     day: 0,
@@ -2126,7 +2446,10 @@ export function createNewGame({ scriptId, playerCount, preferredHumanRoleId = ""
       publicConversation: null,
       nominationClock: null,
       nominationDebate: null,
+      executionCandidate: null,
       privateTargets: [],
+      dayEndResolvedDay: null,
+      dayEndTriggersResolvedDay: null,
     },
     pendingHumanInfo: [],
     pendingStorytellerActions: [],
@@ -2235,6 +2558,11 @@ export function checkWin(state) {
     }
   }
 
+  const evilTwinGoodWinBlock = getScriptRuleHandlers("snv").evilTwinPairAliveBlocksGoodWin?.(createSNVRoleContext(state));
+  if (aliveDemons.length === 0 && evilTwinGoodWinBlock?.blocked) {
+    return null;
+  }
+
   if (aliveDemons.length === 0) {
     return finalizeWinner(state, "good", "恶魔已死亡。");
   }
@@ -2312,12 +2640,12 @@ function markExecutionDeath(state, victim, reason, payload = {}, { died = true }
     victim.alive = false;
   }
   state.events.executions.push({
+    ...payload,
     day: state.day,
     nomineeId: victim.id,
     roleId: victim.roleId,
     reason,
     died,
-    ...payload,
   });
   if (died) {
     recordDeathForAgents(state, {
@@ -2340,9 +2668,9 @@ function markExecutionDeath(state, victim, reason, payload = {}, { died = true }
   return true;
 }
 
-function handleDemonDeath(state, demon, source, rng = Math.random) {
+function handleDemonDeath(state, demon, source, rng = Math.random, metadata = {}) {
   if (state.tb) {
-    getScriptRuleHandlers("tb").onDemonDeath?.(createTBRoleContext(state, rng), { demon, source });
+    getScriptRuleHandlers("tb").onDemonDeath?.(createTBRoleContext(state, rng), { demon, source, ...metadata });
     return;
   }
 }
@@ -2367,6 +2695,7 @@ function processExecutionDeath(state, victim, reason, payload = {}, rng = Math.r
     payload,
   });
   const died = !bmrPrevention?.prevented;
+  const aliveCountBeforeDeath = getAlivePlayers(state).length;
   if (!markExecutionDeath(state, victim, reason, payload, { died })) {
     return false;
   }
@@ -2376,7 +2705,7 @@ function processExecutionDeath(state, victim, reason, payload = {}, rng = Math.r
     getScriptRuleHandlers("snv").onAfterExecutionDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload });
 
     if (victim.category === "demon") {
-      handleDemonDeath(state, victim, reason, rng);
+      handleDemonDeath(state, victim, reason, rng, { aliveCountBeforeDeath });
     }
     getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "day" });
     getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "day" });
@@ -2402,6 +2731,7 @@ export function processDayDeath(state, victim, reason, payload = {}, rng = Math.
     return false;
   }
 
+  const aliveCountBeforeDeath = getAlivePlayers(state).length;
   if (!markDayDeath(state, victim, reason, payload)) {
     return false;
   }
@@ -2411,7 +2741,7 @@ export function processDayDeath(state, victim, reason, payload = {}, rng = Math.
   getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "day" });
   getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "day" });
   if (victim.category === "demon") {
-    handleDemonDeath(state, victim, reason, rng);
+    handleDemonDeath(state, victim, reason, rng, { aliveCountBeforeDeath });
   }
   return true;
 }
@@ -2428,6 +2758,7 @@ export function processNightDeath(state, victim, reason, payload = {}, rng = Mat
     return false;
   }
 
+  const aliveCountBeforeDeath = getAlivePlayers(state).length;
   if (!markNightDeath(state, victim, reason, payload)) {
     return false;
   }
@@ -2436,7 +2767,7 @@ export function processNightDeath(state, victim, reason, payload = {}, rng = Mat
   getScriptRuleHandlers("snv").onAfterDeath?.(createSNVRoleContext(state, rng), { victim, reason, payload, phase: "night" });
   getScriptRuleHandlers("bmr").onAfterDeath?.(createBMRRoleContext(state, rng), { victim, reason, payload, phase: "night" });
   if (victim.category === "demon") {
-    handleDemonDeath(state, victim, reason, rng);
+    handleDemonDeath(state, victim, reason, rng, { aliveCountBeforeDeath });
   }
   return true;
 }
@@ -2456,7 +2787,10 @@ function startNightPhase(state) {
   state.dayStageMeta.publicConversation = null;
   state.dayStageMeta.nominationClock = null;
   state.dayStageMeta.nominationDebate = null;
+  state.dayStageMeta.executionCandidate = null;
   state.dayStageMeta.privateTargets = [];
+  state.dayStageMeta.dayEndResolvedDay = null;
+  state.dayStageMeta.dayEndTriggersResolvedDay = null;
   state.night += 1;
   state.narration = `第${state.night}夜降临。`;
   addLog(state, "night-start", state.narration);
@@ -2525,7 +2859,10 @@ function initDayStage(state) {
   state.dayStageMeta.publicConversation = null;
   state.dayStageMeta.nominationClock = null;
   state.dayStageMeta.nominationDebate = null;
+  state.dayStageMeta.executionCandidate = null;
   state.dayStageMeta.privateTargets = [];
+  state.dayStageMeta.dayEndResolvedDay = null;
+  state.dayStageMeta.dayEndTriggersResolvedDay = null;
   addLog(state, "hint", `白天流程：先私聊（${privateLimit}次）-> 再公聊 -> 最后提名。`, {});
 }
 
@@ -2533,7 +2870,9 @@ function emitSavantInfoForDay(state, rng = Math.random) {
   if (state.scriptId !== "snv") {
     return;
   }
-  const vortoxAlive = state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX);
+  const vortoxActive = state.players.some(
+    (entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX && !isAbilityBlocked(entry, state)
+  );
   state.players
     .filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.SAVANT)
     .forEach((savant) => {
@@ -2556,7 +2895,7 @@ function emitSavantInfoForDay(state, rng = Math.random) {
         },
       ];
       let pair = shuffle(statements, rng).slice(0, 2);
-      if (vortoxAlive) {
+      if (vortoxActive) {
         pair = pair.map((entry, idx) => ({
           text: idx === 0 ? `当前存活善良人数是 ${aliveGood + 1}。` : `当前存活邪恶人数是 ${Math.max(0, aliveEvil - 1)}。`,
           truth: false,
@@ -2569,7 +2908,7 @@ function emitSavantInfoForDay(state, rng = Math.random) {
         type: "savant",
         truth: pair.map((entry) => entry.truth),
         reported: pair.map((entry) => entry.text),
-        polluted: vortoxAlive,
+        polluted: vortoxActive,
         abnormal: pair.every((entry) => entry.truth === false),
         text: `${pair[0].text} / ${pair[1].text}`,
       });
@@ -2713,6 +3052,9 @@ export function openNominationWindow(state, { ticks = 4, actorId = null, intent 
   }
   if (state.dayStage !== "nomination") {
     return { ok: false, reason: "尚未进入提名阶段。" };
+  }
+  if (hasExecutionToday(state)) {
+    return { ok: false, reason: "今天已经发生过处决，不能再次开启提名窗口。" };
   }
   const totalTicks = clamp(Number(ticks) || 4, 1, 8);
   state.dayStageMeta.nominationClock = {
@@ -2940,6 +3282,7 @@ function createBMRRoleContext(state, rng = Math.random) {
     getEffectiveRoleId,
     getNightOrderRoleIds,
     getPlayerById,
+    getPubliclyAlivePlayers,
     getRoleById,
     playerChoiceOptions,
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
@@ -2974,6 +3317,7 @@ function createSNVRoleContext(state, rng = Math.random) {
     getPlayerById,
     getRoleById,
     playerChoiceOptions,
+    refreshEvilRecognitionAfterRoleChange,
     getTownsfolkRoles: (scriptId) => SCRIPT_MAP[scriptId]?.roles?.townsfolk ?? [],
     isAbilityBlocked: (player) => isAbilityBlocked(player, state),
     isRoleNightWindowOpen,
@@ -3223,7 +3567,7 @@ function isVortoxInfoActiveForActor(state, actor) {
   return (
     state.scriptId === "snv" &&
     actor?.category === "townsfolk" &&
-    state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX)
+    state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX && !isAbilityBlocked(entry, state))
   );
 }
 
@@ -3513,6 +3857,9 @@ function runPassiveInfoActorsSimplified(state, rng = Math.random) {
 
   infoActors.forEach((actor) => {
     const roleId = getEffectiveRoleId(actor);
+    if (state.scriptId === "snv" && roleId === SNV.ARTIST) {
+      return;
+    }
     const minInfoNight = PASSIVE_INFO_MIN_NIGHT[roleId] ?? 1;
     if (state.night < minInfoNight) {
       return;
@@ -3524,7 +3871,7 @@ function runPassiveInfoActorsSimplified(state, rng = Math.random) {
     const recurring = actor.tags.includes("recurring");
     const oneShotNightFlexible =
       state.scriptId === "snv" &&
-      (roleId === SNV.SEAMSTRESS || roleId === SNV.ARTIST || roleId === SNV.JUGGLER);
+      (roleId === SNV.SEAMSTRESS || roleId === SNV.JUGGLER);
     if (!recurring && state.night > 1 && !oneShotNightFlexible) {
       return;
     }
@@ -3534,20 +3881,23 @@ function runPassiveInfoActorsSimplified(state, rng = Math.random) {
     let plannedPlan = null;
     if (actor.isHuman && rule) {
       const inputType = actionInputType(rule);
-      if (inputType === "question" || inputType === "role") {
-        plannedPlan = consumeHumanNightPlan(state, actor, {
-          allowSelf: !!rule.allowSelf,
-          allowDead: !!rule.allowDead,
-          minTargets: 0,
-          maxTargets: 0,
+      const minTargets = inputType === "question" || inputType === "role" ? 0 : rule.targetCount;
+      const maxTargets = inputType === "question" || inputType === "role" ? 0 : rule.targetCount;
+      plannedPlan = consumeHumanNightPlan(state, actor, {
+        allowSelf: !!rule.allowSelf,
+        allowDead: !!rule.allowDead,
+        minTargets,
+        maxTargets,
+      });
+      if (plannedPlan?.skipped) {
+        addLog(state, "night-effect", `${actor.roleName} waits and keeps the once-per-game information ability for a later night.`, {
+          by: actor.id,
+          roleId,
+          skipped: true,
         });
-        plannedTargets = plannedPlan?.targets ?? null;
-      } else {
-        plannedTargets = consumeHumanNightPlanTargets(state, actor, rule.targetCount, {
-          allowSelf: !!rule.allowSelf,
-          allowDead: !!rule.allowDead,
-        });
+        return;
       }
+      plannedTargets = plannedPlan?.targets ?? null;
     }
     if (!plannedTargets && rule && rule.targetCount > 1) {
       plannedTargets = sample(
@@ -3579,22 +3929,232 @@ function resolveEndOfDaySnVPenalties(state, rng = Math.random) {
   getScriptRuleHandlers("snv").onEndOfDay?.(createSNVRoleContext(state, rng));
 }
 
+export function hasExecutionToday(state) {
+  return (state.events.executions ?? []).some((entry) => entry.day === state.day);
+}
+
+function pendingStorytellerStop(state) {
+  const pendingStorytellerActions = (state?.pendingStorytellerActions ?? []).length;
+  if (state?.gameOver || pendingStorytellerActions <= 0) {
+    return null;
+  }
+  return {
+    ok: true,
+    stage: "storyteller",
+    pendingStorytellerActions,
+    day: state.day,
+    night: state.night,
+  };
+}
+
+function pendingNominationDebateStop(state) {
+  const debate = state?.dayStageMeta?.nominationDebate;
+  if (state?.gameOver || !debate?.active) {
+    return null;
+  }
+  return {
+    ok: false,
+    stage: "nomination-debate",
+    reason: "请先结算当前提名投票。",
+    nominationId: debate.nominationId ?? "",
+    nominatorId: debate.nominatorId ?? "",
+    nomineeId: debate.nomineeId ?? "",
+  };
+}
+
+function currentExecutionCandidate(state) {
+  const candidate = state?.dayStageMeta?.executionCandidate ?? null;
+  if (!candidate || candidate.day !== state.day) {
+    return null;
+  }
+  return candidate;
+}
+
+function clearExecutionCandidate(state) {
+  if (state?.dayStageMeta) {
+    state.dayStageMeta.executionCandidate = null;
+  }
+}
+
+function putNomineeOnTheBlock(state, { voteEvent, nominee, nominatorId }) {
+  if (!voteEvent?.passed || !nominee) {
+    return { onBlock: false, replaced: false, previous: currentExecutionCandidate(state) };
+  }
+
+  const previous = currentExecutionCandidate(state);
+  const yesVotes = voteEvent.yesVotes ?? 0;
+  if (previous && yesVotes <= (previous.yesVotes ?? 0)) {
+    return { onBlock: false, replaced: false, previous };
+  }
+
+  const candidate = {
+    day: state.day,
+    nomineeId: nominee.id,
+    roleId: nominee.roleId,
+    nominatorId,
+    yesVotes,
+    threshold: voteEvent.threshold ?? 0,
+    voteIndex: Math.max(0, (state.events?.votes?.length ?? 1) - 1),
+  };
+  state.dayStageMeta = state.dayStageMeta ?? {};
+  state.dayStageMeta.executionCandidate = candidate;
+  addLog(
+    state,
+    "execution-candidate",
+    `${nominee.name} 暂时上处决台（${candidate.yesVotes}/${candidate.threshold}）。`,
+    { nomineeId: nominee.id, nominatorId, yesVotes: candidate.yesVotes, threshold: candidate.threshold, replacedNomineeId: previous?.nomineeId ?? null }
+  );
+  return { onBlock: true, replaced: !!previous, previous, candidate };
+}
+
+function resolveExecutionCandidateBeforeNight(state, rng = Math.random) {
+  const candidate = currentExecutionCandidate(state);
+  if (!candidate) {
+    return { executed: false, candidate: null };
+  }
+
+  const nominee = getPlayerById(state, candidate.nomineeId);
+  clearExecutionCandidate(state);
+  if (!nominee) {
+    return { executed: false, candidate, reason: "missing-nominee" };
+  }
+
+  const died = processExecutionDeath(
+    state,
+    nominee,
+    "vote-execution",
+    {
+      nominatorId: candidate.nominatorId,
+      yesVotes: candidate.yesVotes,
+      threshold: candidate.threshold,
+      deferred: true,
+    },
+    rng
+  );
+  checkWin(state);
+  return { executed: true, died, candidate, nominee };
+}
+
+function resolveDayEndBeforeNight(state, rng = Math.random, { logNoExecution = false } = {}) {
+  if (!state || state.phase !== "day" || state.day <= 0 || state.gameOver) {
+    return { ok: false, reason: "Current state is not an active day." };
+  }
+
+  state.dayStageMeta = state.dayStageMeta ?? {};
+  const pendingDebate = pendingNominationDebateStop(state);
+  if (pendingDebate) {
+    return pendingDebate;
+  }
+  if (state.dayStageMeta.dayEndResolvedDay === state.day) {
+    return { ok: true, alreadyResolved: true, executionToday: hasExecutionToday(state) };
+  }
+
+  const executionResolution = resolveExecutionCandidateBeforeNight(state, rng);
+  if (state.gameOver) {
+    state.dayStageMeta.dayEndResolvedDay = state.day;
+    return { ok: true, executionToday: hasExecutionToday(state), gameOver: true, winner: state.winner };
+  }
+  const pendingStorytellerActions = (state.pendingStorytellerActions ?? []).length;
+  if (executionResolution.executed && pendingStorytellerActions > 0) {
+    return {
+      ok: true,
+      executionToday: hasExecutionToday(state),
+      pendingStorytellerActions,
+      executionResolution,
+    };
+  }
+  if (state.dayStageMeta.dayEndTriggersResolvedDay !== state.day) {
+    resolveEndOfDayBMRTriggers(state, rng);
+    resolveEndOfDaySnVPenalties(state, rng);
+    state.dayStageMeta.dayEndTriggersResolvedDay = state.day;
+  }
+  if (state.gameOver) {
+    state.dayStageMeta.dayEndResolvedDay = state.day;
+    return { ok: true, executionToday: hasExecutionToday(state), gameOver: true, winner: state.winner };
+  }
+  const pendingEndOfDayStorytellerActions = (state.pendingStorytellerActions ?? []).length;
+  if (pendingEndOfDayStorytellerActions > 0) {
+    return {
+      ok: true,
+      executionToday: hasExecutionToday(state),
+      pendingStorytellerActions: pendingEndOfDayStorytellerActions,
+      executionResolution,
+    };
+  }
+  const executionToday = hasExecutionToday(state);
+  if (!executionToday && !state.gameOver) {
+    if (logNoExecution) {
+      addLog(state, "day-skip", "今天无人处决，进入夜晚。", {});
+    }
+    evaluateNoExecutionOutcomes(state);
+  }
+  state.dayStageMeta.dayEndResolvedDay = state.day;
+  checkWin(state);
+  return { ok: true, executionToday, gameOver: state.gameOver, winner: state.winner };
+}
+
+export function endDayAndBeginNight(state, rng = Math.random) {
+  if (!state || state.phase !== "day" || state.gameOver) {
+    return { ok: false, reason: "当前不在白天流程。" };
+  }
+  const pendingStop = pendingStorytellerStop(state);
+  if (pendingStop) {
+    return pendingStop;
+  }
+  if (state.dayStage && state.dayStage !== "nomination") {
+    return { ok: false, reason: "请先进入提名阶段，再结束白天。" };
+  }
+
+  const resolved = resolveDayEndBeforeNight(state, rng, { logNoExecution: true });
+  if (!resolved.ok) {
+    return resolved;
+  }
+  if (state.gameOver) {
+    return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
+  }
+  if ((resolved.pendingStorytellerActions ?? 0) > 0) {
+    return {
+      ok: true,
+      stage: "storyteller",
+      pendingStorytellerActions: resolved.pendingStorytellerActions,
+      executionToday: resolved.executionToday,
+    };
+  }
+  startNightPhase(state);
+  return {
+    ok: true,
+    stage: "night",
+    day: state.day,
+    night: state.night,
+    executionToday: resolved.executionToday,
+  };
+}
+
 function runNightSimplified(state, rng = Math.random) {
   if (state.gameOver) {
     return;
   }
 
   if (state.phase === "day" && state.day > 0) {
-    resolveEndOfDayBMRTriggers(state, rng);
-    resolveEndOfDaySnVPenalties(state, rng);
-    const executionToday = (state.events.executions ?? []).some((entry) => entry.day === state.day);
-    if (!executionToday && !state.gameOver) {
-      evaluateNoExecutionOutcomes(state);
+    const resolved = resolveDayEndBeforeNight(state, rng);
+    if (!resolved.ok) {
+      return resolved;
+    }
+    if (state.gameOver) {
+      return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
+    }
+    if ((resolved.pendingStorytellerActions ?? 0) > 0) {
+      return {
+        ok: true,
+        stage: "storyteller",
+        pendingStorytellerActions: resolved.pendingStorytellerActions,
+        executionToday: resolved.executionToday,
+      };
     }
   }
   checkWin(state);
   if (state.gameOver) {
-    return;
+    return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
   }
 
   startNightPhase(state);
@@ -3608,7 +4168,13 @@ function runNightSimplified(state, rng = Math.random) {
     addLog(state, "night-effect", "Pit-Hag 改变恶魔数量，今晚常规恶魔击杀暂停，等待 Storyteller 平衡。", {});
     transitionToDayPhase(state);
     checkWin(state);
-    return;
+    return {
+      ok: true,
+      stage: "storyteller",
+      pendingStorytellerActions: (state.pendingStorytellerActions ?? []).length,
+      day: state.day,
+      night: state.night,
+    };
   }
 
   const { demon, victims } = chooseDemonVictimsSimplified(state, rng);
@@ -3635,6 +4201,10 @@ function runNightSimplified(state, rng = Math.random) {
           addLog(state, "night-effect", "Fang Gu 命中外来者并完成跳转。", {
             from: demon.id,
             to: victim.id,
+          });
+          refreshEvilRecognitionAfterRoleChange(state, {
+            reason: "fang-gu-jump",
+            changedPlayerIds: [demon.id, victim.id],
           });
           return;
         }
@@ -3680,16 +4250,59 @@ function runNightSimplified(state, rng = Math.random) {
   applyThreatHeuristic(state);
   checkWin(state);
   if (state.gameOver) {
-    return;
+    return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
   }
   transitionToDayPhase(state);
+  if ((state.pendingStorytellerActions ?? []).length > 0) {
+    return {
+      ok: true,
+      stage: "storyteller",
+      pendingStorytellerActions: state.pendingStorytellerActions.length,
+      day: state.day,
+      night: state.night,
+    };
+  }
+  return { ok: true, stage: state.phase, day: state.day, night: state.night };
 }
 export function runNight(state, rng = Math.random) {
-  if (state.ruleMode === "tb-full") {
-    runNightTB(state, rng);
-    return;
+  const pendingStop = pendingStorytellerStop(state);
+  if (pendingStop) {
+    return pendingStop;
   }
-  runNightSimplified(state, rng);
+  if (state.ruleMode === "tb-full") {
+    if (state.phase === "day" && state.day > 0) {
+      const resolved = resolveDayEndBeforeNight(state, rng);
+      if (!resolved.ok) {
+        return resolved;
+      }
+      if (state.gameOver) {
+        return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
+      }
+      if ((resolved.pendingStorytellerActions ?? 0) > 0) {
+        return {
+          ok: true,
+          stage: "storyteller",
+          pendingStorytellerActions: resolved.pendingStorytellerActions,
+          executionToday: resolved.executionToday,
+        };
+      }
+    }
+    runNightTB(state, rng);
+    if (state.gameOver) {
+      return { ok: true, stage: "ended", gameOver: true, winner: state.winner };
+    }
+    if ((state.pendingStorytellerActions ?? []).length > 0) {
+      return {
+        ok: true,
+        stage: "storyteller",
+        pendingStorytellerActions: state.pendingStorytellerActions.length,
+        day: state.day,
+        night: state.night,
+      };
+    }
+    return { ok: true, stage: state.phase, day: state.day, night: state.night };
+  }
+  return runNightSimplified(state, rng);
 }
 
 export function registerClaim(state, playerId, roleId) {
@@ -3726,41 +4339,56 @@ function canButlerVote(state, player, intendedVote, allVotes) {
   }) ?? intendedVote;
 }
 
-export function resolveNominationAndVote(
-  state,
-  {
-    nominatorId,
-    nomineeId,
-    humanVoteYes,
-    decideAIVote,
-  },
-  rng = Math.random
-) {
-  if (state.phase !== "day" || state.gameOver) {
-    return { accepted: false, reason: "当前不在白天流程。" };
+function normalizeVoteDecision(decision) {
+  if (decision && typeof decision === "object") {
+    return {
+      vote: !!decision.vote,
+      voteRationale: decision.voteRationale ?? decision.rationale ?? null,
+    };
   }
+  return {
+    vote: !!decision,
+    voteRationale: null,
+  };
+}
 
+function acceptedNominationVoteMatches(state, nominatorId, nomineeId) {
+  const debate = state.dayStageMeta?.nominationDebate;
+  return !!(
+    debate?.active &&
+    debate.nominationAccepted === true &&
+    debate.nominatorId === nominatorId &&
+    debate.nomineeId === nomineeId
+  );
+}
+
+export function acceptNominationBeforeVote(state, { nominatorId, nomineeId } = {}, rng = Math.random) {
+  if (state.phase !== "day" || state.gameOver) {
+    return { accepted: false, reason: "Current phase cannot accept a nomination." };
+  }
   if (state.dayStage && state.dayStage !== "nomination") {
-    return { accepted: false, reason: "当前尚未进入提名阶段，请先完成私聊与公聊。" };
+    return { accepted: false, reason: "Nomination is only available during the nomination stage." };
   }
   if ((state.events.executions ?? []).some((entry) => entry.day === state.day)) {
-    return { accepted: false, reason: "今天已经发生过处决，不能再次处决。" };
+    return { accepted: false, reason: "An execution already happened today." };
   }
 
   const nominator = getPlayerById(state, nominatorId);
   const nominee = getPlayerById(state, nomineeId);
-
   if (!nominator || !nominee) {
-    return { accepted: false, reason: "提名者或被提名玩家不存在。" };
+    return { accepted: false, reason: "Nominator or nominee does not exist." };
+  }
+  if (nominator.id === nominee.id) {
+    return { accepted: false, reason: "A player cannot nominate themself." };
   }
   if (!registersAsAlive(state, nominator)) {
-    return { accepted: false, reason: "死亡玩家无法发起提名。" };
+    return { accepted: false, reason: "Dead players cannot nominate." };
   }
   if (nominator.nominatedToday) {
-    return { accepted: false, reason: `${nominator.name} 今天已提名过。` };
+    return { accepted: false, reason: `${nominator.name} has already nominated today.` };
   }
   if (nominee.beenNominatedToday) {
-    return { accepted: false, reason: `${nominee.name} 今天已被提名过。` };
+    return { accepted: false, reason: `${nominee.name} has already been nominated today.` };
   }
 
   const snvNomination = getScriptRuleHandlers("snv").onNomination?.(createSNVRoleContext(state, rng), {
@@ -3770,24 +4398,40 @@ export function resolveNominationAndVote(
   if (snvNomination?.blocked) {
     return { accepted: false, reason: snvNomination.reason };
   }
+  const nominationTriggerEndedGame = state.gameOver;
 
   nominator.nominatedToday = true;
   nominee.beenNominatedToday = true;
 
-  getScriptRuleHandlers("snv").onNominationAccepted?.(createSNVRoleContext(state, rng), { nominator, nominee });
-
-  addLog(state, "nomination", `${nominator.name} 提名了 ${nominee.name}。`, { nominatorId, nomineeId });
+  addLog(state, "nomination", `${nominator.name} nominated ${nominee.name}.`, { nominatorId, nomineeId });
   recordNominationForAgents(state, { nominatorId, nomineeId });
 
+  if (nominationTriggerEndedGame) {
+    return {
+      accepted: true,
+      terminal: true,
+      passed: false,
+      special: snvNomination?.triggered ? "nomination-trigger-game-over" : "game-over",
+      nominee,
+      yesVotes: 0,
+      threshold: Math.ceil(getPubliclyAlivePlayers(state).length / 2),
+      votes: [],
+    };
+  }
+
+  getScriptRuleHandlers("snv").onNominationAccepted?.(createSNVRoleContext(state, rng), { nominator, nominee });
+
   if (isVirginTrigger(state, nominator, nominee, rng)) {
-    processExecutionDeath(state, nominator, "virgin-trigger", { nomineeId: nominee.id }, rng);
-    addLog(state, "day-skill", "Virgin 触发：提名者被立即处决。", {
+    processExecutionDeath(state, nominator, "virgin-trigger", { triggerNomineeId: nominee.id }, rng);
+    closeNominationWindow(state, { status: "execution-resolved", actorId: nominator.id, intent: "virgin-trigger" });
+    addLog(state, "day-skill", "Virgin trigger: the nominator is executed immediately.", {
       nominatorId: nominator.id,
       nomineeId: nominee.id,
     });
     checkWin(state);
     return {
       accepted: true,
+      terminal: true,
       passed: true,
       special: "virgin",
       nominee,
@@ -3795,6 +4439,53 @@ export function resolveNominationAndVote(
       threshold: Math.ceil(getPubliclyAlivePlayers(state).length / 2),
       votes: [],
     };
+  }
+
+  return {
+    accepted: true,
+    terminal: false,
+    nominator,
+    nominee,
+    nominationTrigger: snvNomination?.triggered ? "snv-nomination" : null,
+  };
+}
+
+export function resolveNominationAndVote(
+  state,
+  {
+    nominatorId,
+    nomineeId,
+    humanVoteYes,
+    decideAIVote = () => false,
+    nominationAlreadyAccepted = false,
+  } = {},
+  rng = Math.random
+) {
+  if (state.phase !== "day" || state.gameOver) {
+    return { accepted: false, reason: "Current phase cannot resolve a nomination vote." };
+  }
+  if (state.dayStage && state.dayStage !== "nomination") {
+    return { accepted: false, reason: "Nomination votes are only available during the nomination stage." };
+  }
+  if ((state.events.executions ?? []).some((entry) => entry.day === state.day)) {
+    return { accepted: false, reason: "An execution already happened today." };
+  }
+
+  const nominator = getPlayerById(state, nominatorId);
+  const nominee = getPlayerById(state, nomineeId);
+  if (!nominator || !nominee) {
+    return { accepted: false, reason: "Nominator or nominee does not exist." };
+  }
+
+  if (nominationAlreadyAccepted) {
+    if (!acceptedNominationVoteMatches(state, nominatorId, nomineeId)) {
+      return { accepted: false, reason: "Nomination vote does not match an accepted pending nomination." };
+    }
+  } else {
+    const nomination = acceptNominationBeforeVote(state, { nominatorId, nomineeId }, rng);
+    if (!nomination.accepted || nomination.terminal) {
+      return nomination;
+    }
   }
 
   const aliveCount = getPubliclyAlivePlayers(state).length;
@@ -3814,7 +4505,10 @@ export function resolveNominationAndVote(
     } else if (player.id === nominatorId) {
       vote = true;
     } else {
-      vote = !!decideAIVote(player, nominee, state);
+      const decision = normalizeVoteDecision(decideAIVote(player, nominee, state));
+      vote = decision.vote;
+      votes.push({ voterId: player.id, vote, abstain: false, voteRationale: decision.voteRationale });
+      return;
     }
     votes.push({ voterId: player.id, vote, abstain: false });
   });
@@ -3829,7 +4523,17 @@ export function resolveNominationAndVote(
         entry.vote = false;
         return;
       }
+      const intendedVote = entry.vote;
       entry.vote = canButlerVote(state, voter, entry.vote, votes);
+      if (intendedVote && !entry.vote && entry.voteRationale) {
+        const nomineeName = entry.voteRationale.nomineeName || nominee.name || "the nominee";
+        entry.voteRationale = {
+          ...entry.voteRationale,
+          vote: false,
+          reasonKey: "butler-restricted",
+          line: `我本来想投 ${nomineeName}，但管家的投票限制让我这票不能投。`,
+        };
+      }
     });
   }
 
@@ -3863,16 +4567,16 @@ export function resolveNominationAndVote(
   state.events.votes.push(voteEvent);
   recordVoteForAgents(state, voteEvent);
 
-  addLog(
-    state,
-    "vote",
-    `投票结果：${yesVotes} 票赞成（阈值 ${threshold}）。${passed ? "提名通过" : "提名未通过"}。`,
-    { nomineeId, yesVotes, threshold, passed }
-  );
+  addLog(state, "vote", `Vote result: ${yesVotes} yes / threshold ${threshold}; ${passed ? "passed" : "failed"}.`, {
+    nomineeId,
+    yesVotes,
+    threshold,
+    passed,
+  });
 
-  if (passed && nominee.alive) {
-    processExecutionDeath(state, nominee, "vote-execution", { nominatorId }, rng);
-  }
+  const blockResult = passed
+    ? putNomineeOnTheBlock(state, { voteEvent, nominee, nominatorId })
+    : { onBlock: false, replaced: false, previous: currentExecutionCandidate(state) };
 
   checkWin(state);
   return {
@@ -3882,9 +4586,11 @@ export function resolveNominationAndVote(
     threshold,
     nominee,
     votes,
+    onBlock: !!blockResult.onBlock,
+    executionCandidate: currentExecutionCandidate(state),
+    replacedExecutionCandidate: blockResult.replaced ? blockResult.previous : null,
   };
 }
-
 export function useSlayerAbility(state, { shooterId, targetId }, rng = Math.random) {
   if (state.phase !== "day" || state.gameOver) {
     return { ok: false, reason: "当前不能发动 Slayer 技能。" };
@@ -3938,17 +4644,17 @@ function evaluateNoExecutionOutcomes(state) {
   getScriptRuleHandlers("snv").onNoExecution?.(createSNVRoleContext(state));
 }
 
-export function skipDay(state) {
+export function skipDay(state, rng = Math.random) {
   if (state.phase !== "day" || state.gameOver) {
+    return false;
+  }
+  if (pendingStorytellerStop(state)) {
     return false;
   }
   if (state.dayStage && state.dayStage !== "nomination") {
     return false;
   }
-  addLog(state, "day-skip", "今天无人处决，进入夜晚。", {});
-  evaluateNoExecutionOutcomes(state);
-  checkWin(state);
-  return true;
+  return resolveDayEndBeforeNight(state, rng, { logNoExecution: true }).ok;
 }
 
 export function summarizeRoleBag(state) {

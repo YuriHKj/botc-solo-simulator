@@ -15,6 +15,41 @@ const QUESTION_INTENT = {
   PLAN: "plan",
 };
 
+export const PLAYER_VISIBLE_FORBIDDEN_TERMS = [
+  "私下入口",
+  "定性",
+  "公开追问",
+  "自洽",
+  "降压",
+  "降权",
+  "主压力位",
+  "证据联动",
+  "判定标准",
+  "举证责任",
+  "世界分支",
+  "角色假说",
+];
+
+export function sanitizePlayerVisibleText(text) {
+  return normalizeChineseSeatSpacing(`${text ?? ""}`)
+    .replace(/私下入口/g, "私聊线索")
+    .replace(/公开追问/g, "当桌问清")
+    .replace(/自洽/g, "能对上")
+    .replace(/降压/g, "先放低")
+    .replace(/降权/g, "先打折")
+    .replace(/主压力位/g, "重点位置")
+    .replace(/证据联动/g, "几条线一起看")
+    .replace(/判定标准/g, "看点")
+    .replace(/举证责任/g, "该谁解释")
+    .replace(/世界分支/g, "两种可能")
+    .replace(/角色假说/g, "身份可能")
+    .replace(/不能只按传话定性/g, "不能只按传话下结论")
+    .replace(/定性/g, "下结论")
+    .replace(/身份口径|公开口径|私下口径|口径/g, "身份说法")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function pickCorpusLine(lines, rng = Math.random) {
   if (!Array.isArray(lines) || lines.length === 0) {
     return "";
@@ -109,6 +144,27 @@ export function joinSpeechFragments(fragments) {
     .map((entry) => `${entry ?? ""}`.trim())
     .filter(Boolean)
     .join(" ");
+}
+
+function normalizeChineseSeatSpacing(text) {
+  return `${text ?? ""}`
+    .replace(/([0-9]+)\s+号/gu, "$1号")
+    .replace(/(刚才|如果|昨天|今天|明天|前面)\s+([0-9]+号)/gu, "$1$2")
+    .replace(/([与和及])\s+([0-9]+号)/gu, "$1$2")
+    .replace(/(是|还是|为|按|报|跳|主线在|转到|转向|恶魔位|恶魔)\s+([0-9]+号)/gu, "$1$2")
+    .replace(/(点过|给|放下|放回|放低|丢给|交给)\s+([0-9]+号)/gu, "$1$2")
+    .replace(/(是|还是|为|按|报|跳)\s+([\u4e00-\u9fff]{1,12})(?=[，。；！？：、\s]|$)/gu, "$1$2")
+    .replace(/(爪牙同伴|其他爪牙)\s+(暂无)/gu, "$1$2")
+    .replace(/理由还是\s*可见记录：/gu, "理由还是这条可见记录：")
+    .replace(/卡在\s+在/gu, "卡在")
+    .replace(/卡在\s+(?=前面|推低|身份|公开|两条|[0-9]+号)/gu, "卡在")
+    .replace(/换线\s+台面理由/gu, "换线。台面理由")
+    .replace(/((?:我|你|大家|今天|这轮|票前)?(?:会|先|暂时|直接|继续|不)?(?:让|问|看|盯|对|排|压|转到|转|沿着|把|放过|放掉|提|举|投|跟|出|在))\s+([0-9]+号)/gu, "$1$2")
+    .replace(/([0-9]+号)\s+(?=[\u4e00-\u9fff])/gu, "$1")
+    .replace(/\s+([，。；！？：、])/gu, "$1")
+    .replace(/([。！？；])\s+(?=\S)/gu, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const HUMAN_CADENCE_MARKERS = ["换个说法", "说白了", "我的意思是", "换句话说", "先说清楚"];
@@ -288,7 +344,7 @@ function contextAlreadyHasEmotion(text, context) {
 
 function stripGenericBridgeForEmotion(text, context) {
   const value = `${text ?? ""}`;
-  if (!["on-block", "contaminated", "low-evidence", "vote", "night-info"].includes(context)) {
+  if (!["on-block", "contaminated", "low-evidence", "vote", "night-info", "strong-pressure"].includes(context)) {
     return value;
   }
   return value.replace(/^(换个说法|说白了|我的意思是|换句话说|先说清楚)，\s*/u, "");
@@ -339,7 +395,7 @@ function applyEmotionalTexture(text, state, aiPlayer, rng = Math.random, options
   if (contextAlreadyHasEmotion(value, context)) {
     return value;
   }
-  if (/^(换个说法|说白了|我的意思是|换句话说|先说清楚|我直说|我直接说|公开身份|先跳)/.test(value)) {
+  if (context !== "strong-pressure" && /^(换个说法|说白了|我的意思是|换句话说|先说清楚|我直说|我直接说|公开身份|先跳)/.test(value)) {
     return value;
   }
   const force = options.emotionalTexture === "force";
@@ -374,11 +430,13 @@ export function differentiateRepeatedSpeech(text, aiPlayer, rng = Math.random, o
   }
   const memory = ensureSpeechStyleMemory(aiPlayer);
   const recent = memory.recentLines ?? [];
-  const exactRepeats = recent.filter((line) => line === value).length;
+  const audience = options.audience ?? "private";
+  const repeatComparable = (line) => (audience === "public" ? normalizePublicSpeechText(line) : `${line ?? ""}`.trim());
+  const comparableValue = repeatComparable(value);
+  const exactRepeats = recent.filter((line) => repeatComparable(line) === comparableValue).length;
   if (exactRepeats <= 0) {
     return value;
   }
-  const audience = options.audience ?? "private";
   const replacements = [
     [/我先不把话说死/g, "我换个说法"],
     [/我暂时不换目标/g, "这条我先不撤"],
@@ -466,6 +524,154 @@ function reduceClauseStacking(text) {
     .trim();
 }
 
+function dedupePrivateEvidenceMentions(text) {
+  return `${text ?? ""}`
+    .replace(/因为\s+有人/g, "因为有人")
+    .replace(/(有人私下提到\s*([0-9]+)\s*号。(?:[^。！？]*[。！？]){0,2})有人私下提到\s*\2\s*号。?/g, "$1")
+    .replace(/但这条可能被醉酒或中毒影响，先别当铁证/g, "但这条可能被醉酒或中毒影响")
+    .replace(/这条可能被醉酒或中毒影响，先别当铁证/g, "这条可能被醉酒或中毒影响")
+    .replace(/但这条可能有醉酒或中毒风险，先别当铁证/g, "但这条可能有醉酒或中毒风险")
+    .replace(/这条可能有醉酒或中毒风险，先别当铁证/g, "这条可能有醉酒或中毒风险")
+    .replace(/([，：。！？；])\s+/g, "$1")
+    .replace(/\s+([，。；！？：])/g, "$1")
+    .replace(/([0-9]+号)\s+这边/g, "$1这边")
+    .replace(/([0-9]+号)\s+那条/g, "$1那条")
+    .replace(/([0-9]+号)\s+(放进|进|被|先|需要|可以|把|回应|解释|讲|说|问)/g, "$1$2")
+    .replace(/我跳\s+([^，。；！？\s]+)(?=[，。；！？])/g, "我跳$1")
+    .replace(/先跳一下[，,]\s*([^，。；！？\s]+)(?=[，。；！？])/g, "先跳$1")
+    .replace(/我会往\s+([^，。；！？\s]+)\s+这类/g, "我会往$1这类")
+    .replace(/，?接…[。！？；]?$/u, "，先听回应。")
+    .replace(/[，：；]\s*$/u, "。")
+    .replace(/\s+号/g, "号")
+    .replace(/\s+([，。；！？])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupePublicFollowUpCues(text) {
+  return `${text ?? ""}`
+    .replace(
+      /(接下来先问\s*([0-9]+号)\s*：\s*身份和昨晚信息[。！？；]?)(?:\s*让\s*\2\s*把身份和昨晚信息说清楚[。！？；]?)+/g,
+      "$1"
+    )
+    .replace(
+      /(先问\s*([0-9]+号)\s*：\s*身份和昨晚信息[。！？；]?)(?:\s*让\s*\2\s*把身份和昨晚信息说清楚[。！？；]?)+/g,
+      "$1"
+    )
+    .replace(
+      /(我会问\s*([0-9]+号)\s*：\s*身份和昨晚信息[。！？；]?)(?:\s*让\s*\2\s*把身份和昨晚信息说清楚[。！？；]?)+/g,
+      "$1"
+    )
+    .replace(
+      /(让\s*([0-9]+号)\s*把身份和昨晚信息说清楚[。！？；]?)(?:\s*让\s*\2\s*把身份和昨晚信息说清楚[。！？；]?)+/g,
+      "$1"
+    )
+    .replace(/\s+([，。；！？：])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanClippedPublicEvidenceFragments(text) {
+  return `${text ?? ""}`
+    .replace(/当前压(?:\.{3,}|…)/g, "台面压力")
+    .replace(/可见记录：\s*([0-9]+号)\s*刚才投票(?:\.{3,}|…)/g, "可见记录：$1刚才投票态度要解释")
+    .replace(/可见记录：\s*([0-9]+号)\s*的投票和(?:\.{3,}|…)/g, "可见记录：$1的投票和身份解释要对")
+    .replace(/可见记录：\s*([0-9]+号)\s*身份解释(?:\.{3,}|…)/g, "可见记录：$1身份解释要补清")
+    .replace(/投票态度摇摆，压(?:\.{3,}|…)/g, "投票态度摇摆，压力变化要解释")
+    .replace(/需要把昨(?:\.{3,}|…)/g, "需要把昨晚信息补清")
+    .replace(/刚才投票(?:\.{3,}|…)/g, "刚才投票态度要解释")
+    .replace(/([0-9]+号)\s*的投票和(?:\.{3,}|…)/g, "$1的投票和身份解释要对")
+    .replace(/投票和(?:\.{3,}|…)/g, "投票和身份解释要对")
+    .replace(/身份解释(?:\.{3,}|…)/g, "身份解释要补清")
+    .replace(/身份(?:\.{3,}|…)/g, "身份要对")
+    .replace(/可见(?:\.{3,}|…)/g, "可见记录还要对")
+    .replace(/([0-9]+号)\s+的/g, "$1的")
+    .replace(/([0-9]+号)\s+刚才/g, "$1刚才")
+    .replace(/\s+([，。；！？：、])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function evidenceSpecificPublicFollowUp(target, context, mode = "direct") {
+  const prefix = mode === "listen" ? `先听${target}` : target;
+  if (/刚才投票态度要解释|投票和身份解释要对/.test(context)) {
+    return `${prefix}解释票型，再补身份和昨晚信息`;
+  }
+  if (/身份要对|身份对不上|身份解释要补清/.test(context)) {
+    return `${prefix}把身份对上，再补昨晚信息`;
+  }
+  if (/前面发言没讲清楚/.test(context)) {
+    return `${prefix}把没讲清的点补清，再说昨晚信息`;
+  }
+  if (/在推低证据位|推低证据位/.test(context)) {
+    return `${prefix}解释为什么压低证据位，再补昨晚信息`;
+  }
+  return mode === "listen" ? `先听${target}补身份和昨晚信息` : `${target}先补身份和昨晚信息`;
+}
+
+function specializePublicFollowUpByEvidence(text) {
+  let value = `${text ?? ""}`;
+  value = value.replace(/([0-9]+号)先补身份和昨晚信息/g, (match, target, offset, fullText) =>
+    evidenceSpecificPublicFollowUp(target, fullText.slice(0, offset), "direct")
+  );
+  value = value.replace(/你先补身份和昨晚信息/g, (match, offset, fullText) =>
+    evidenceSpecificPublicFollowUp("你", fullText.slice(0, offset), "direct")
+  );
+  return value.replace(/先听([0-9]+号)补身份和昨晚信息/g, (match, target, offset, fullText) =>
+    evidenceSpecificPublicFollowUp(target, fullText.slice(0, offset), "listen")
+  );
+}
+
+function ensurePublicSentenceClosure(text) {
+  const value = `${text ?? ""}`.trim();
+  if (!value || /[。！？]$/u.test(value)) {
+    return value;
+  }
+  return `${value}。`;
+}
+
+function cleanPublicSurfaceWording(text, options = {}) {
+  const value = specializePublicFollowUpByEvidence(`${text ?? ""}`
+    .replace(/^我的意思是，(?=先跳)/u, "先说清楚，")
+    .replace(/^我的意思是，我先公开身份：/u, "先说清楚，公开身份：")
+    .replace(/^我的意思是，我先给范围：/u, "先说清楚，我先给范围：")
+    .replace(/^我的意思是，(?=先说清楚|我先看|我不是空白位|公开身份|说实话|我有点)/u, "")
+    .replace(/^我的意思是，公开身份：/u, "先说清楚，公开身份：")
+    .replace(/(^|。)公开身份：([^。！？；]+)。我的意思是，/gu, "$1先说清楚，公开身份：$2。")
+    .replace(/。我的意思是，/g, "。")
+    .replace(/让\s*你\s*把身份和昨晚信息说清楚/g, "你先补身份和昨晚信息")
+    .replace(/让([0-9]+号)把身份和昨晚信息说清楚/g, "$1先补身份和昨晚信息")
+    .replace(/接下来先问([0-9]+号)：身份和昨晚信息/g, "先听$1补身份和昨晚信息")
+    .replace(/(先听([0-9]+号)补身份和昨晚信息)(?:[，,]\s*\1)+/g, "$1")
+    .replace(/([0-9]+号先补身份和昨晚信息)(?:[，,]\s*\1)+/g, "$1")
+    .replace(
+      /((?:先听)?[0-9]+号(?:解释票型，再补身份和昨晚信息|把身份对上，再补昨晚信息|把没讲清的点补清，再说昨晚信息|解释为什么压低证据位，再补昨晚信息))(?:[，,]\s*\1)+/g,
+      "$1"
+    )
+    .replace(/卡在\s+在/g, "卡在")
+    .replace(/卡在\s+(?=前面|推低|身份|公开|两条|[0-9]+号)/g, "卡在")
+    .replace(/([0-9]+号这边)，在/g, "$1在")
+    .replace(/([0-9]+号)\s+(这条|这边|那条|也|的|刚才)/g, "$1$2")
+    .replace(/([0-9]+号)\s+(我(?:先|会|再|得|要))/g, "$1，$2")
+    .replace(/(让|问|看|盯|对|排|压|转到|沿着|先把|把|放过)\s+([0-9]+号)/g, "$1$2")
+    .replace(/([0-9]+号)\s+(是|也|把|可以|需要|继续|先)/g, "$1$2")
+    .replace(/\s+([，。；！？：、])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim())
+    .replace(
+      /((?:先听)?[0-9]+号(?:解释票型，再补身份和昨晚信息|把身份对上，再补昨晚信息|把没讲清的点补清，再说昨晚信息|解释为什么压低证据位，再补昨晚信息))(?:[，,]\s*\1)+/g,
+      "$1"
+    )
+    .replace(/(先听([0-9]+号)[^，。；！？]+)(?:[，,]\s*\1)+/g, "$1")
+    .replace(/([0-9]+号[^，。；！？]+)(?:[，,]\s*\1)+/g, "$1")
+    .trim();
+  return options.closeSentence === false ? value : ensurePublicSentenceClosure(value);
+}
+
+function normalizePublicSpeechText(text) {
+  return sanitizePlayerVisibleText(cleanPublicSurfaceWording(cleanClippedPublicEvidenceFragments(text), { closeSentence: false }));
+}
+
 export function polishConversationalText(text) {
   const value = `${text ?? ""}`
     .replace(/\.{3,}/g, "…")
@@ -484,6 +690,10 @@ export function polishConversationalText(text) {
     .replace(/身份我现在不想直接裸跳。你可以先记我不是空白位；如果今天真的要推我，我会补完整口径。?/g, "我现在先不把身份说死。真要推到我身上，我会把身份和信息补完整。")
     .replace(/给你完整口径：我是\s*/g, "我直接说：我是 ")
     .replace(/给你底牌式口径：我是\s*/g, "我直接跟你说：我是 ")
+    .replace(/身份我先不给死，只给你可公开的说法范围：/g, "身份我先不说满，对外先按 ")
+    .replace(/我会往\s*([^，。；！？\s]+)\s*这类好人位上靠/g, "$1 这个方向聊")
+    .replace(/低信息好人位/g, "低信息身份")
+    .replace(/按\s+([^，。；！？\s]+)\s+这个方向聊/g, "按$1这个方向聊")
     .replace(/身份我先不给死，只给你可公开的口径范围：/g, "我先不把身份说满，只告诉你大概方向：")
     .replace(/身份我先不给死，只给你口径范围：/g, "我先不把身份说满，只给你大概方向：")
     .replace(/先按\s*([^，。；]+)\s*这条口径聊信息/g, "先按 $1 的身份聊信息")
@@ -517,7 +727,8 @@ export function polishConversationalText(text) {
     .replace(/摊太满/g, "说太满")
     .replace(/全摊/g, "全说")
     .replace(/目前能交代的是/g, "我现在能说的是")
-    .replace(/卡点是：/g, "我卡在这儿：")
+    .replace(/卡点是：/g, "我过不去的是：")
+    .replace(/我卡的点：/g, "我过不去的是：")
     .replace(/证据还薄：/g, "现在还不够：")
     .replace(/我卡在这儿：公开信息还不够，先听…/g, "现在还不够，先听回应")
     .replace(/现在还不够：公开信息还不够，先听…/g, "现在还不够，先听回应")
@@ -542,6 +753,8 @@ export function polishConversationalText(text) {
     .replace(/核心还是\s*/g, "主要还是")
     .replace(/主要还是\s+有人私下提到/g, "因为有人私下提到")
     .replace(/因为\s+有人私下提到/g, "因为有人私下提到")
+    .replace(/因为\s+有人/g, "因为有人")
+    .replace(/有人私下提到\s*([0-9]+)\s*号。([^。！？]*。)?有人私下提到\s*\1\s*号。?/g, "有人私下提到 $1号。$2")
     .replace(/我私下听到的口径把焦点指向\s*([0-9]+)\s*号/g, "有人私下提到 $1 号")
     .replace(/但别只盯身份，眼下我更想听\s*([^。]+?)\s*怎么解释。/g, "但先别只盯我的身份，我更想听 $1 怎么说。")
     .replace(/可互相对得上的信息/g, "能互相对上的信息")
@@ -558,7 +771,7 @@ export function polishConversationalText(text) {
     .replace(/\s+。/g, "。")
     .replace(/\s+/g, " ")
     .trim();
-  return reduceClauseStacking(value);
+  return sanitizePlayerVisibleText(reduceClauseStacking(dedupePrivateEvidenceMentions(value)));
 }
 
 function rememberSpeechStyle(aiPlayer, text) {
@@ -584,7 +797,7 @@ function rememberSpeechStyle(aiPlayer, text) {
 function reducePublicSelfDensity(text, options = {}) {
   let value = `${text ?? ""}`.trim();
   if (options.audience !== "public" || (value.match(/我/g) ?? []).length < 5) {
-    return value;
+    return sanitizePlayerVisibleText(value);
   }
   value = value
     .replace(/我公开报身份：我是\s*([^。；，！？\s]+)[。；，！？]?/g, "公开身份：$1。")
@@ -615,7 +828,131 @@ function reducePublicSelfDensity(text, options = {}) {
   if ((value.match(/我/g) ?? []).length >= 5) {
     value = value.replace(/我/g, (match, offset) => (offset === value.indexOf("我") ? match : ""));
   }
-  return value;
+  return sanitizePlayerVisibleText(value);
+}
+
+function normalizePriorityFragment(fragment) {
+  if (!fragment) {
+    return null;
+  }
+  const aliases = Array.isArray(fragment.aliases) ? fragment.aliases : [];
+  const texts = [fragment.text, ...aliases]
+    .map((entry) => priorityComparableText(entry))
+    .filter(Boolean);
+  const appendText = normalizePublicSpeechText(
+    `${fragment.appendText ?? fragment.text ?? ""}`.replace(/\s+/g, " ").trim()
+  );
+  if (texts.length === 0 && !appendText) {
+    return null;
+  }
+  return {
+    key: fragment.key ?? "",
+    priority: Number.isFinite(Number(fragment.priority)) ? Number(fragment.priority) : 0,
+    placement: fragment.placement === "prefix" ? "prefix" : "append",
+    texts,
+    appendText,
+  };
+}
+
+function priorityComparableText(text) {
+  return normalizePublicSpeechText(text).replaceAll("…", "...").replace(/\s+/g, " ").trim();
+}
+
+function followUpTargetFromPriorityText(text) {
+  return `${text ?? ""}`.match(/([0-9]+号).*(?:身份和昨晚信息|昨晚信息|身份)/u)?.[1] ?? "";
+}
+
+function hasPublicFollowUpForTarget(text, target) {
+  if (!target) {
+    return false;
+  }
+  return [
+    `${target}先补身份和昨晚信息`,
+    `先听${target}补身份和昨晚信息`,
+    `${target}解释票型，再补身份和昨晚信息`,
+    `先听${target}解释票型，再补身份和昨晚信息`,
+    `${target}把身份对上，再补昨晚信息`,
+    `先听${target}把身份对上，再补昨晚信息`,
+    `${target}把没讲清的点补清，再说昨晚信息`,
+    `先听${target}把没讲清的点补清，再说昨晚信息`,
+    `${target}解释为什么压低证据位，再补昨晚信息`,
+    `先听${target}解释为什么压低证据位，再补昨晚信息`,
+  ].some((entry) => text.includes(entry));
+}
+
+function hasPriorityFragment(text, fragment) {
+  const value = priorityComparableText(text);
+  if (fragment.key === "question") {
+    const target = fragment.texts.map(followUpTargetFromPriorityText).find(Boolean);
+    if (target && hasPublicFollowUpForTarget(value, target)) {
+      return true;
+    }
+  }
+  return fragment.texts.some((entry) => entry && value.includes(entry));
+}
+
+function priorityCoverageCount(text, fragments) {
+  return fragments.filter((fragment) => hasPriorityFragment(text, fragment)).length;
+}
+
+function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) {
+  const normalized = (fragments ?? []).map(normalizePriorityFragment).filter(Boolean);
+  if (normalized.length === 0 || !Number.isFinite(Number(minCoverage)) || minCoverage <= 0) {
+    return `${text ?? ""}`.trim();
+  }
+  let value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
+  const targetCoverage = Math.min(normalized.length, Math.max(0, Number(minCoverage)));
+  if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+    return value;
+  }
+
+  const missing = normalized
+    .filter((fragment) => !hasPriorityFragment(value, fragment))
+    .sort((a, b) => b.priority - a.priority);
+  for (const fragment of missing) {
+    if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+      break;
+    }
+    const addition = fragment.appendText || fragment.texts[0] || "";
+    if (!addition || value.includes(addition)) {
+      continue;
+    }
+    const appended = fragment.placement === "prefix"
+      ? joinSpeechFragments([addition, value])
+      : joinSpeechFragments([value, addition]);
+    if (appended.length <= maxChars) {
+      value = appended;
+      continue;
+    }
+    const room = Math.max(0, maxChars - addition.length - 1);
+    if (room > 12) {
+      const clipped = value.slice(0, room).replace(/[,.!?;:\s]+$/u, "").trim();
+      const candidate = fragment.placement === "prefix"
+        ? joinSpeechFragments([addition, clipped])
+        : joinSpeechFragments([clipped, addition]);
+      if (candidate.length <= maxChars && priorityCoverageCount(candidate, normalized) >= priorityCoverageCount(value, normalized)) {
+        value = candidate;
+      }
+    }
+  }
+
+  if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+    return value;
+  }
+  const compact = normalized
+    .sort((a, b) => {
+      if (a.placement === "prefix" && b.placement !== "prefix") return -1;
+      if (b.placement === "prefix" && a.placement !== "prefix") return 1;
+      return b.priority - a.priority;
+    })
+    .map((fragment) => fragment.appendText || fragment.texts[0] || "")
+    .filter(Boolean)
+    .filter((entry, index, arr) => arr.indexOf(entry) === index)
+    .slice(0, targetCoverage)
+    .join(" ");
+  return compact && compact.length <= maxChars && priorityCoverageCount(compact, normalized) >= targetCoverage
+    ? compact
+    : value;
 }
 
 export function applySpeechBudget(text, options = {}) {
@@ -623,16 +960,21 @@ export function applySpeechBudget(text, options = {}) {
   if (!value) {
     return value;
   }
+  value = dedupePrivateEvidenceMentions(value);
   const audience = options.audience ?? "private";
   const maxSentences =
     options.maxSentences ?? (audience === "public" ? 2 : audience === "nomination" ? 2 : 3);
   const maxChars = options.maxChars ?? (audience === "public" ? 150 : audience === "nomination" ? 120 : 180);
   const sentences = value.match(/[^。！？；]+[。！？；]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [value];
-  const evidenceSentence = sentences.find((entry) => /(我现在抓的点|这条还弱|卡点是|我卡在这儿|证据还薄|短线|弱证据说明|证据线)：|进提名池|提名前|如果今天提/.test(entry));
+  const evidenceSentence = sentences.find((entry) => /(我现在抓的点|这条还弱|卡点是|我卡的点|我过不去的是|我卡在这儿|证据还薄|这点还不够|短线|弱证据说明|证据线)：|进提名池|提名前|如果今天提/.test(entry));
   const followUpSentence = sentences.find((entry) => /(反问一句|下一句我会|下一步|票前我会问|我下|追问)/.test(entry));
+  const tableStateSentence = sentences.find((entry) => /(我已经死了|我现在在台上|票型你们自己看|能验证的部分)/.test(entry));
   if (sentences.length > maxSentences) {
     const kept = sentences.slice(0, maxSentences);
-    const requiredSentence = audience === "private" ? followUpSentence ?? evidenceSentence : evidenceSentence ?? followUpSentence;
+    const requiredSentence =
+      audience === "private"
+        ? followUpSentence ?? evidenceSentence ?? tableStateSentence
+        : tableStateSentence ?? evidenceSentence ?? followUpSentence;
     if (requiredSentence && !kept.includes(requiredSentence)) {
       kept[Math.max(0, kept.length - 1)] = requiredSentence;
     }
@@ -640,19 +982,29 @@ export function applySpeechBudget(text, options = {}) {
   }
   if (value.length > maxChars) {
     const suffix = "…";
-    if (evidenceSentence && value.includes(evidenceSentence) && evidenceSentence.length < maxChars - 12) {
-      const prefixBudget = Math.max(0, maxChars - evidenceSentence.length - suffix.length - 1);
+    const preservedSentence = tableStateSentence && value.includes(tableStateSentence) ? tableStateSentence : evidenceSentence;
+    if (preservedSentence && value.includes(preservedSentence) && preservedSentence.length < maxChars - 12) {
+      const prefixBudget = Math.max(0, maxChars - preservedSentence.length - suffix.length - 1);
       const prefix = value.slice(0, prefixBudget).trim();
-      value = `${prefix}${suffix}${evidenceSentence}`;
+      value = `${prefix}${suffix}${preservedSentence}`;
     } else {
       value = `${value.slice(0, Math.max(0, maxChars - suffix.length)).trim()}${suffix}`;
     }
   }
-  return value
+  value = ensurePriorityFragmentCoverage(
+    value,
+    options.priorityFragments,
+    options.minPriorityFragments ?? (audience === "public" ? 3 : 0),
+    maxChars
+  );
+  const finalValue = dedupePublicFollowUpCues(dedupePrivateEvidenceMentions(value))
     .replace(/我卡在这儿：[^。！？；]*…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。")
     .replace(/我卡在这儿：(?:发言)?…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。")
-    .replace(/我卡在这儿：发言…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。")
-    .trim();
+    .replace(/我卡在这儿：发言…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。");
+  return sanitizePlayerVisibleText(audience === "public"
+    ? cleanPublicSurfaceWording(cleanClippedPublicEvidenceFragments(finalValue))
+    : cleanClippedPublicEvidenceFragments(finalValue)
+  );
 }
 
 export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random, options = {}) {
@@ -664,6 +1016,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
     value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
     value = applySpeechBudget(value, options);
     value = reducePublicSelfDensity(value, options);
+    value = sanitizePlayerVisibleText(value);
     rememberSpeechStyle(aiPlayer, value);
     return value;
   }
@@ -681,6 +1034,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
     value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
     value = applySpeechBudget(value, options);
     value = reducePublicSelfDensity(value, options);
+    value = sanitizePlayerVisibleText(value);
     rememberSpeechStyle(aiPlayer, value);
     return value;
   }
@@ -691,6 +1045,7 @@ export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random
   value = differentiateRepeatedSpeech(value, aiPlayer, rng, options);
   value = applySpeechBudget(value, options);
   value = reducePublicSelfDensity(value, options);
+  value = sanitizePlayerVisibleText(value);
   rememberSpeechStyle(aiPlayer, value);
   return value;
 }

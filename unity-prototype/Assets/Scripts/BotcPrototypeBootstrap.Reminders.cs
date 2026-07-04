@@ -33,19 +33,26 @@ namespace BotcSolo.UnityPrototype
             AddImage("Reminder Picker Header Wash", reminderPickerPanel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, -88f), new Vector2(-1f, -1f), new Color(0.76f, 0.48f, 0.18f, 0.075f));
             reminderPickerTitle = AddText("Reminder Picker Title", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 688f), new Vector2(-138f, -14f), "选择提醒标记", 36, TextAnchor.UpperCenter, FontStyle.Bold);
             AddToolActionButton("关", "关闭", reminderPickerPanel, new Vector2(1450f, 714f), new Vector2(100f, 36f), CloseReminderPicker, true);
-            reminderPickerStatusText = AddText("Reminder Picker Status", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 628f), new Vector2(-48f, -94f), "右键玩家 token 可快速打开此面板。", 16, TextAnchor.UpperCenter, FontStyle.Normal);
+            reminderPickerStatusText = AddText("Reminder Picker Status", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(48f, 628f), new Vector2(-48f, -94f), "右键玩家可快速打开此面板。", 16, TextAnchor.UpperCenter, FontStyle.Normal);
 
             reminderPickerPreviewRoot = AddPanel("Reminder Picker Preview", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(34f, 118f), new Vector2(-1224f, -130f), new Color(0.006f, 0.010f, 0.014f, 0.52f)).GetComponent<RectTransform>();
             AddFrame(reminderPickerPreviewRoot, "Reminder Preview Frame", 0.9f, new Color(0.86f, 0.58f, 0.26f, 0.20f));
             reminderPickerGridRoot = AddPanel("Reminder Picker Grid", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(324f, 118f), new Vector2(-34f, -130f), new Color(0.006f, 0.010f, 0.014f, 0.44f)).GetComponent<RectTransform>();
             AddFrame(reminderPickerGridRoot, "Reminder Grid Frame", 0.8f, new Color(0.86f, 0.58f, 0.26f, 0.16f));
 
-            AddText("Reminder Custom Label", reminderPickerPanel, Vector2.zero, Vector2.one, new Vector2(334f, 78f), new Vector2(-1054f, -660f), "自定义注释", 16, TextAnchor.MiddleLeft, FontStyle.Bold);
-            reminderCustomInput = AddInputField("Reminder Custom Input", reminderPickerPanel, new Vector2(454f, 42f), new Vector2(936f, 82f), "例如：硬保 5 号 / 第2天口径矛盾 / 可能中毒");
-            AddButton("添加", reminderPickerPanel, new Vector2(1004f, 62f), new Vector2(104f, 36f), ApplyCustomReminder);
-            AddButton("标记角色", reminderPickerPanel, new Vector2(1132f, 62f), new Vector2(124f, 36f), OpenRoleMarkPickerFromReminderPicker);
-            AddButton("清空备注", reminderPickerPanel, new Vector2(1274f, 62f), new Vector2(124f, 36f), ClearActiveReminderNote);
-            AddButton("关闭", reminderPickerPanel, new Vector2(1404f, 62f), new Vector2(104f, 36f), CloseReminderPicker);
+            reminderPickerCustomRoot = AddPanel("Reminder Custom Composer", reminderPickerPanel, Vector2.zero, Vector2.zero, new Vector2(324f, 24f), new Vector2(1486f, 100f), new Color(0.014f, 0.020f, 0.026f, 0.72f)).GetComponent<RectTransform>();
+            AddImage("Reminder Composer Accent", reminderPickerCustomRoot, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.96f, 0.64f, 0.24f, 0.54f));
+            AddImage("Reminder Composer Wash", reminderPickerCustomRoot, new Vector2(0f, 0.48f), Vector2.one, new Vector2(5f, -2f), new Vector2(-5f, -4f), new Color(0.72f, 0.48f, 0.18f, 0.070f));
+            AddFrame(reminderPickerCustomRoot, "Reminder Composer Frame", 0.85f, new Color(0.94f, 0.66f, 0.30f, 0.26f));
+            AddText("Reminder Custom Label", reminderPickerCustomRoot, Vector2.zero, Vector2.zero, new Vector2(20f, 42f), new Vector2(176f, 66f), "自定义注释", 16, TextAnchor.MiddleLeft, FontStyle.Bold);
+            reminderPickerCustomHintText = AddText("Reminder Custom Hint", reminderPickerCustomRoot, Vector2.zero, Vector2.zero, new Vector2(20f, 16f), new Vector2(176f, 40f), "写一条短备注，再点击添加。", 12, TextAnchor.MiddleLeft, FontStyle.Normal);
+            reminderPickerCustomHintText.color = new Color(0.76f, 0.84f, 0.86f, 0.80f);
+            AddImage("Reminder Composer Divider", reminderPickerCustomRoot, Vector2.zero, Vector2.zero, new Vector2(178f, 16f), new Vector2(179f, 62f), new Color(0.92f, 0.62f, 0.28f, 0.22f));
+            reminderCustomInput = AddInputField("Reminder Custom Input", reminderPickerCustomRoot, new Vector2(196f, 20f), new Vector2(664f, 58f), "例如：硬保 5 号 / 第2天口径矛盾 / 可能中毒");
+            AddButton("添加", reminderPickerCustomRoot, new Vector2(730f, 39f), new Vector2(96f, 36f), ApplyCustomReminder);
+            AddButton("标记角色", reminderPickerCustomRoot, new Vector2(852f, 39f), new Vector2(112f, 36f), OpenRoleMarkPickerFromReminderPicker);
+            AddButton("清空备注", reminderPickerCustomRoot, new Vector2(982f, 39f), new Vector2(112f, 36f), ClearActiveReminderNote);
+            AddButton("关闭", reminderPickerCustomRoot, new Vector2(1096f, 39f), new Vector2(86f, 36f), CloseReminderPicker);
             reminderPickerPanel.gameObject.SetActive(false);
         }
 
@@ -55,7 +62,7 @@ namespace BotcSolo.UnityPrototype
             if (target == null)
             {
                 dialogueTitle.text = "提醒标记";
-                dialogueBody.text = "请先选择一名玩家 token，或直接右键 token 打开提醒选择器。";
+                dialogueBody.text = "请先选择一名玩家，或直接右键玩家打开提醒选择器。";
                 return;
             }
             OpenReminderPickerForPlayer(target);
@@ -106,16 +113,24 @@ namespace BotcSolo.UnityPrototype
             if (reminderPickerTitle != null) reminderPickerTitle.text = target == null ? "选择提醒标记" : $"为 {target.name} 选择提醒标记";
             if (reminderPickerStatusText != null)
             {
-                var reminders = target?.reminders ?? Array.Empty<string>();
-                var roleSourceCount = VisibleClaimedOrMarkedRoles(target).Count();
                 reminderPickerStatusText.text = target == null
-                    ? "先选择玩家 token。"
-                    : $"官方式提醒 token · 已有提醒 {reminders.Length}/5 · 可用角色来源 {roleSourceCount} 个 · 点击已有标记可移除";
+                    ? "先选择玩家。"
+                    : "点击提醒标记添加；已有勾选的标记再点一次即可移除。";
+            }
+            if (reminderPickerCustomHintText != null)
+            {
+                var reminderCount = target?.reminders == null ? 0 : target.reminders.Length;
+                reminderPickerCustomHintText.text = target == null
+                    ? "先选玩家，再写备注。"
+                    : reminderCount >= 5
+                        ? "已满 5 条，先清理。"
+                        : $"{target.name} 当前 {reminderCount}/5";
             }
 
             RenderReminderPreview(target);
 
             var choices = ReminderChoicesForPlayer(target);
+            RenderReminderPickerSummary(target, choices.Length);
             activeReminderPage = ClampPage(activeReminderPage, choices.Length, ReminderPickerPageSize);
             var pageStart = activeReminderPage * ReminderPickerPageSize;
             var pageChoices = choices.Skip(pageStart).Take(ReminderPickerPageSize).ToArray();
@@ -141,6 +156,34 @@ namespace BotcSolo.UnityPrototype
             }
 
             RenderReminderPickerPager(choices.Length);
+        }
+
+        private void RenderReminderPickerSummary(PlayerViewModel target, int totalChoices)
+        {
+            if (reminderPickerGridRoot == null) return;
+            var reminders = target?.reminders ?? Array.Empty<string>();
+            var roleSourceCount = target == null ? 0 : VisibleClaimedOrMarkedRoles(target).Count();
+            var capacityTone = reminders.Length >= 5
+                ? new Color(0.92f, 0.42f, 0.16f, 0.92f)
+                : new Color(0.94f, 0.68f, 0.30f, 0.92f);
+            var strip = AddPanel("Reminder Picker Summary", reminderPickerGridRoot, Vector2.zero, Vector2.zero, new Vector2(18f, 444f), new Vector2(1128f, 496f), new Color(0.018f, 0.026f, 0.033f, 0.74f));
+            AddImage("Reminder Summary Accent", strip.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.96f, 0.64f, 0.24f, 0.50f));
+            AddFrame(strip.transform, "Reminder Summary Frame", 0.75f, new Color(0.94f, 0.66f, 0.30f, 0.24f));
+
+            AddReminderSummaryField(strip.transform, "目标", target == null ? "未选择" : target.name, target == null ? "先选玩家" : "当前玩家", new Vector2(18f, 8f), new Vector2(244f, 44f), new Color(0.38f, 0.66f, 0.94f, 0.42f));
+            AddReminderSummaryField(strip.transform, "已提醒", $"{reminders.Length}/5", reminders.Length >= 5 ? "已满，先移除" : "可继续添加", new Vector2(256f, 8f), new Vector2(482f, 44f), capacityTone);
+            AddReminderSummaryField(strip.transform, "角色来源", $"{roleSourceCount} 个", totalChoices > 0 ? $"可选 {totalChoices}" : "暂无可选", new Vector2(494f, 8f), new Vector2(720f, 44f), new Color(0.20f, 0.58f, 0.72f, 0.42f));
+            AddReminderSummaryField(strip.transform, "操作", "点选添加", "勾选再点移除", new Vector2(732f, 8f), new Vector2(1092f, 44f), new Color(0.58f, 0.82f, 0.38f, 0.38f));
+        }
+
+        private void AddReminderSummaryField(Transform parent, string label, string value, string helper, Vector2 offsetMin, Vector2 offsetMax, Color accent)
+        {
+            var field = AddPanel($"Reminder Summary {label}", parent, Vector2.zero, Vector2.zero, offsetMin, offsetMax, new Color(0.004f, 0.010f, 0.016f, 0.58f));
+            AddImage("Reminder Summary Field Accent", field.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(4f, 0f), accent);
+            AddFrame(field.transform, "Reminder Summary Field Frame", 0.6f, new Color(accent.r, accent.g, accent.b, 0.24f));
+            AddText("Reminder Summary Label", field.transform, Vector2.zero, Vector2.one, new Vector2(12f, 18f), new Vector2(-102f, -4f), label, 11, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.42f, 0.94f);
+            AddText("Reminder Summary Value", field.transform, Vector2.zero, Vector2.one, new Vector2(88f, 16f), new Vector2(-10f, -3f), Ellipsize(value, 10), 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.98f, 0.93f, 0.82f, 0.98f);
+            AddText("Reminder Summary Helper", field.transform, Vector2.zero, Vector2.one, new Vector2(12f, 4f), new Vector2(-10f, -22f), Ellipsize(helper, 14), 10, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.72f, 0.82f, 0.86f, 0.78f);
         }
 
         private void RenderReminderPreview(PlayerViewModel target)
@@ -273,7 +316,7 @@ namespace BotcSolo.UnityPrototype
             var target = ActiveReminderPlayer();
             if (target == null)
             {
-                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一个玩家 token。";
+                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一名玩家。";
                 return;
             }
 
@@ -303,7 +346,7 @@ namespace BotcSolo.UnityPrototype
             var target = ActiveReminderPlayer();
             if (target == null)
             {
-                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一个玩家 token。";
+                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一名玩家。";
                 return;
             }
             SendUnityAction("grimoire-reminder", playerId: target.id, mode: "clear");
@@ -315,7 +358,7 @@ namespace BotcSolo.UnityPrototype
             var target = ActiveReminderPlayer();
             if (target == null)
             {
-                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一个玩家 token。";
+                if (reminderPickerStatusText != null) reminderPickerStatusText.text = "请先选择一名玩家。";
                 return;
             }
 
@@ -330,7 +373,9 @@ namespace BotcSolo.UnityPrototype
         {
             if (reminderPickerGridRoot == null) return;
             var totalPages = PageCount(totalCount, ReminderPickerPageSize);
-            AddText("Reminder Picker Page", reminderPickerGridRoot, Vector2.zero, Vector2.zero, new Vector2(370f, 20f), new Vector2(790f, 52f), $"第 {activeReminderPage + 1}/{totalPages} 页 · {totalCount} 个提醒", 13, TextAnchor.MiddleCenter, FontStyle.Normal).color = new Color(0.84f, 0.88f, 0.90f, 0.86f);
+            var visibleStart = totalCount == 0 ? 0 : activeReminderPage * ReminderPickerPageSize + 1;
+            var visibleEnd = Mathf.Min(totalCount, (activeReminderPage + 1) * ReminderPickerPageSize);
+            AddText("Reminder Picker Page", reminderPickerGridRoot, Vector2.zero, Vector2.zero, new Vector2(344f, 20f), new Vector2(816f, 52f), $"第 {activeReminderPage + 1}/{totalPages} 页 · 显示 {visibleStart}-{visibleEnd}/{totalCount}", 13, TextAnchor.MiddleCenter, FontStyle.Normal).color = new Color(0.84f, 0.88f, 0.90f, 0.86f);
             if (totalPages <= 1) return;
             var prev = AddToolActionButton("上", "上一页", reminderPickerGridRoot, new Vector2(310f, 36f), new Vector2(96f, 28f), () => ChangeReminderPickerPage(-1), true);
             var next = AddToolActionButton("下", "下一页", reminderPickerGridRoot, new Vector2(850f, 36f), new Vector2(96f, 28f), () => ChangeReminderPickerPage(1), true);

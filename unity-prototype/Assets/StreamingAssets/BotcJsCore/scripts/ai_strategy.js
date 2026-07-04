@@ -1,16 +1,20 @@
 import { clamp, getAllRoles } from "./data.js";
-import { getAlivePlayers, getPlayerById } from "./engine.js";
+import { getAlivePlayers, getEffectiveRoleId, getPlayerById } from "./engine.js";
 import {
   areKnownAllies,
   buildAgentView,
   countAgentEvidence,
   getAIAgent,
+  getDialogueEvidenceForTarget,
   getKnownAllyIds,
+  getSuspicionTrailForTarget,
 } from "./ai_agents.js";
 
 const MAX_EVIL_PLAN_HISTORY = 6;
 const MAX_NARRATIVE_ANCHORS = 5;
 const MAX_WORLD_CANDIDATES = 4;
+const MAX_EVIL_TEAM_PLAN_HISTORY = 6;
+const SNV_EVIL_TWIN = "evil-twin";
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -21,12 +25,139 @@ function knownSelfTeam(state, aiPlayer) {
   return agent?.knownSelfTeam ?? aiPlayer?.team ?? "";
 }
 
+function isKnownCurrentDemon(state, aiPlayer, player) {
+  if (!state || !aiPlayer || !player || player.alive === false || player.category !== "demon") {
+    return false;
+  }
+  if (aiPlayer.id === player.id && aiPlayer.team === "evil") {
+    return true;
+  }
+  const agent = getAIAgent(state, aiPlayer);
+  return agent?.knownDemonId === player.id;
+}
+
 function round2(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function voteThresholdForAlive(aliveCount) {
   return Math.ceil(Math.max(0, Number(aliveCount) || 0) / 2);
+}
+
+export function countPriorNoExecutionVoteDays(state, currentDay = Number(state?.day) || 0) {
+  if (!state || !Number.isFinite(Number(currentDay))) {
+    return 0;
+  }
+  const executionDays = new Set(
+    safeArray(state.events?.executions)
+      .filter((entry) => Number(entry?.day ?? 0) > 0 && Number(entry.day) < currentDay)
+      .map((entry) => Number(entry.day))
+  );
+  const voteDays = new Set(
+    safeArray(state.events?.votes)
+      .filter((entry) => Number(entry?.day ?? 0) > 0 && Number(entry.day) < currentDay)
+      .map((entry) => Number(entry.day))
+  );
+  let count = 0;
+  voteDays.forEach((day) => {
+    if (!executionDays.has(day)) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function noExecutionWinWindowStillOpen(state) {
+  if ((state?.events?.executions ?? []).some((entry) => entry.day === state.day)) {
+    return false;
+  }
+  const currentExecutionCandidate = state?.dayStageMeta?.executionCandidate ?? null;
+  return !(currentExecutionCandidate?.day === state?.day && currentExecutionCandidate.nomineeId);
+}
+
+function publicMayorNoExecutionWinCandidate(state, aiPlayer, window) {
+  if (state?.scriptId !== "tb" || window?.aliveCount !== 3) {
+    return null;
+  }
+  if (!noExecutionWinWindowStillOpen(state)) {
+    return null;
+  }
+  const agent = state && aiPlayer ? getAIAgent(state, aiPlayer) : null;
+  return getAlivePlayers(state).find((player) => {
+    if (player.publicClaimRoleId === "mayor") {
+      return true;
+    }
+    if (player.id !== aiPlayer?.id) {
+      return false;
+    }
+    return [agent?.knownSelfRoleId, player.apparentRoleId, player.roleId].includes("mayor");
+  }) ?? null;
+}
+
+function activeEvilTwinPairForStrategy(state) {
+  const pair = state?.snv?.evilTwinPair;
+  if (state?.scriptId !== "snv" || !pair?.evilTwinId || !pair?.goodTwinId) {
+    return null;
+  }
+  const evilTwin = getPlayerById(state, pair.evilTwinId);
+  const goodTwin = getPlayerById(state, pair.goodTwinId);
+  const opposingTwin = getPlayerById(state, pair.opposingTwinId ?? pair.goodTwinId);
+  const blocked =
+    !!evilTwin?.poisoned ||
+    (state.snv?.snakeCharmerPoisonedIds ?? []).includes(evilTwin?.id);
+  if (!evilTwin?.alive || !goodTwin?.alive || !opposingTwin?.alive || blocked) {
+    return null;
+  }
+  if (getEffectiveRoleId(evilTwin) !== SNV_EVIL_TWIN) {
+    return null;
+  }
+  return {
+    evilTwinId: pair.evilTwinId,
+    goodTwinId: pair.goodTwinId,
+    opposingTwinId: pair.opposingTwinId ?? pair.goodTwinId,
+  };
+}
+
+function viewerKnowsEvilTwinPair(state, aiPlayer, pair) {
+  if (!aiPlayer?.id || !pair?.evilTwinId || !pair?.goodTwinId) {
+    return false;
+  }
+  const participantIds = new Set([pair.evilTwinId, pair.goodTwinId, pair.opposingTwinId].filter(Boolean));
+  if (participantIds.has(aiPlayer.id)) {
+    return true;
+  }
+  return knownSelfTeam(state, aiPlayer) === "evil" && getKnownAllyIds(state, aiPlayer).includes(pair.evilTwinId);
+}
+
+export function evilTwinExecutionRiskForTarget(state, aiPlayer, targetPlayer) {
+  if (!targetPlayer?.id) {
+    return null;
+  }
+  const pair = activeEvilTwinPairForStrategy(state);
+  if (!pair || targetPlayer.id !== pair.goodTwinId || !viewerKnowsEvilTwinPair(state, aiPlayer, pair)) {
+    return null;
+  }
+  const viewerTeam = knownSelfTeam(state, aiPlayer);
+  return {
+    kind: "evil-twin-execution-risk",
+    active: true,
+    knownByViewer: true,
+    viewerTeam,
+    targetId: targetPlayer.id,
+    evilTwinId: pair.evilTwinId,
+    goodTwinId: pair.goodTwinId,
+    opposingTwinId: pair.opposingTwinId,
+    protectsGood: viewerTeam === "good",
+    evilExecutionWin: viewerTeam === "evil",
+    reason: "good-twin-execution-evil-win",
+  };
+}
+
+function mastermindNoExecutionWinWindow(state) {
+  if (state?.scriptId !== "bmr" || state?.bmr?.mastermindPendingDay !== state?.day) {
+    return false;
+  }
+  return noExecutionWinWindowStillOpen(state);
 }
 
 export function evaluateGameWindow(state, actor = null, options = {}) {
@@ -39,6 +170,7 @@ export function evaluateGameWindow(state, actor = null, options = {}) {
   const nomineesRemaining = alivePlayers.filter((player) => !player.beenNominatedToday).length;
   const nominatorsRemaining = alivePlayers.filter((player) => !player.nominatedToday).length;
   const nominationScarcity = aliveCount > 0 ? 1 - nomineesRemaining / aliveCount : 1;
+  const priorNoExecutionVoteDays = countPriorNoExecutionVoteDays(state, day);
   const lateGame = aliveCount <= 5;
   const midGame = aliveCount <= 7;
   const mustExecute = lateGame || day >= 3 || nominationScarcity >= 0.65;
@@ -62,6 +194,7 @@ export function evaluateGameWindow(state, actor = null, options = {}) {
     nomineesRemaining,
     nominatorsRemaining,
     nominationScarcity,
+    priorNoExecutionVoteDays,
     lateGame,
     midGame,
     mustExecute,
@@ -81,6 +214,8 @@ export function evaluateGoodDayStrategy(state, aiPlayer, options = {}) {
   const hasUndertaker = roleIds.has("undertaker");
   const hasVirgin = roleIds.has("virgin");
   const hasVortox = roleIds.has("vortox");
+  const mayorWinCandidate = publicMayorNoExecutionWinCandidate(state, aiPlayer, window);
+  const mastermindNoExecutionWin = mastermindNoExecutionWinWindow(state);
   const lowInfoRole =
     !selfRole ||
     (!selfRole.tags?.includes("info") && !selfRole.tags?.includes("recurring") && !selfRole.tags?.includes("firstNight"));
@@ -97,6 +232,9 @@ export function evaluateGoodDayStrategy(state, aiPlayer, options = {}) {
       selfDisclosureBias: 0,
       nominationBias: 0,
       voteBias: 0,
+      mayorNoExecutionWin: false,
+      mastermindNoExecutionWin: false,
+      mayorCandidateId: "",
       recommendedPublicAct: "none",
       reasons,
     };
@@ -121,6 +259,18 @@ export function evaluateGoodDayStrategy(state, aiPlayer, options = {}) {
   if (lowInfoRole) {
     reasons.push("low-info-role-can-spend-social-capital");
   }
+  if (mayorWinCandidate) {
+    executionValue = Math.max(0, executionValue - 0.34);
+    noExecutionRisk = Math.max(0, noExecutionRisk - 0.42);
+    verificationValue = Math.max(0, verificationValue - 0.12);
+    reasons.push("mayor-final-three-no-execution-win");
+  }
+  if (mastermindNoExecutionWin) {
+    executionValue = Math.max(0, executionValue - 0.42);
+    noExecutionRisk = 0;
+    verificationValue = Math.max(0, verificationValue - 0.12);
+    reasons.push("mastermind-extra-day-no-execution-win");
+  }
 
   const selfDisclosureBias = clamp(
     (lowInfoRole ? 0.08 : 0) +
@@ -133,7 +283,11 @@ export function evaluateGoodDayStrategy(state, aiPlayer, options = {}) {
   const nominationBias = clamp(executionValue * 0.24 + noExecutionRisk * 0.2 + verificationValue * 0.18, 0, 0.22);
   const voteBias = clamp(executionValue * 0.12 + noExecutionRisk * 0.18, 0, 0.16);
   let recommendedPublicAct = "hold";
-  if (hasVirgin && isTownsfolk && lowInfoRole && verificationValue >= 0.2) {
+  if (mayorWinCandidate) {
+    recommendedPublicAct = "hold-for-mayor-win";
+  } else if (mastermindNoExecutionWin) {
+    recommendedPublicAct = "hold-for-mastermind-win";
+  } else if (hasVirgin && isTownsfolk && lowInfoRole && verificationValue >= 0.2) {
     recommendedPublicAct = "offer-virgin-check";
   } else if (hasVortox && noExecutionRisk >= 0.36) {
     recommendedPublicAct = "avoid-no-execution";
@@ -152,6 +306,10 @@ export function evaluateGoodDayStrategy(state, aiPlayer, options = {}) {
     selfDisclosureBias: round2(selfDisclosureBias),
     nominationBias: round2(nominationBias),
     voteBias: round2(voteBias),
+    mayorNoExecutionWin: !!mayorWinCandidate,
+    mastermindNoExecutionWin,
+    mayorCandidateId: mayorWinCandidate?.id ?? "",
+    mayorCandidateName: mayorWinCandidate?.name ?? "",
     recommendedPublicAct,
     reasons,
   };
@@ -162,12 +320,69 @@ function targetEvidenceCount(agentView, agent, targetId, options = {}) {
     return 0;
   }
   if (agentView?.evidenceCountForTarget) {
+    const forcePublicOnly = !!options.publicOnly || agentView.audience === "public";
     return agentView.evidenceCountForTarget(targetId, {
-      publicOnly: !!options.publicOnly,
-      includePrivate: !options.publicOnly,
+      publicOnly: forcePublicOnly,
+      includePrivate: !forcePublicOnly,
     });
   }
   return countAgentEvidence(agent, targetId);
+}
+
+function evilPriorForViewer(state, viewer) {
+  const evilSlots = Number(state?.setupCounts?.minion ?? 0) + Number(state?.setupCounts?.demon ?? 0);
+  const denominator = Math.max(1, (state?.players?.length ?? 0) - 1);
+  if (knownSelfTeam(state, viewer) === "evil") {
+    return clamp((evilSlots - 1) / denominator, 0.05, 0.85);
+  }
+  return clamp(evilSlots / denominator, 0.05, 0.85);
+}
+
+function publicSuspicionBaseline(state, viewer, target) {
+  if (!target?.id || target.id === viewer?.id) {
+    return 0.01;
+  }
+  if (areKnownAllies(state, viewer, target)) {
+    return 0.08;
+  }
+  return evilPriorForViewer(state, viewer);
+}
+
+function publicSuspicionForTarget(state, viewer, target) {
+  if (!target?.id) {
+    return 0.5;
+  }
+  const rawSuspicion = Number(viewer?.suspicion?.[target.id]);
+  const fallback = Number.isFinite(rawSuspicion)
+    ? rawSuspicion
+    : publicSuspicionBaseline(state, viewer, target);
+  const trail = getSuspicionTrailForTarget(state, viewer, target.id);
+  const biasMeta = viewer?.dialogueBiasMeta?.[target.id] ?? null;
+
+  if (trail.length === 0 && !biasMeta) {
+    return target.id === viewer?.id ? 0.01 : clamp(fallback, 0.08, 0.88);
+  }
+
+  let score = publicSuspicionBaseline(state, viewer, target);
+  trail
+    .filter((entry) => entry.visibility === "public")
+    .forEach((entry) => {
+      score = clamp(score + (Number(entry.appliedDelta) || 0), 0.01, 0.99);
+    });
+
+  if (!biasMeta || ["public", "mechanic"].includes(biasMeta.visibility)) {
+    score = clamp(score + (Number(viewer?.dialogueBias?.[target.id]) || 0) * 0.6, 0.01, 0.99);
+  }
+
+  return target.id === viewer?.id ? 0.01 : clamp(score, 0.08, 0.88);
+}
+
+function suspicionForStrategyAudience(state, viewer, target, audience = "public") {
+  if (audience === "public") {
+    return publicSuspicionForTarget(state, viewer, target);
+  }
+  const rawSuspicion = Number(viewer?.suspicion?.[target?.id]);
+  return Number.isFinite(rawSuspicion) ? rawSuspicion : publicSuspicionBaseline(state, viewer, target);
 }
 
 function playerName(player) {
@@ -192,12 +407,14 @@ function candidateReasons({ suspicion, publicEvidenceCount, totalEvidenceCount, 
   return reasons;
 }
 
-function candidateRiskFlags({ publicEvidenceCount, totalEvidenceCount, isKnownAlly, selfTeam, planKind }) {
+function candidateRiskFlags({ publicEvidenceCount, totalEvidenceCount, isKnownAlly, selfTeam, planKind, evilTwinRisk = null }) {
   const flags = [];
   if (publicEvidenceCount <= 0) flags.push("weak-public-evidence");
   if (totalEvidenceCount > publicEvidenceCount) flags.push("has-private-context");
   if (isKnownAlly) flags.push("known-ally");
   if (selfTeam === "evil" && planKind) flags.push("evil-plan-internal");
+  if (evilTwinRisk?.protectsGood) flags.push("evil-twin-good-execution-loss");
+  if (evilTwinRisk?.evilExecutionWin) flags.push("evil-twin-win-target");
   return flags;
 }
 
@@ -297,6 +514,165 @@ function pushPlanHistory(previous, snapshot) {
   return history;
 }
 
+function uniqueStrings(values) {
+  return [...new Set(safeArray(values).filter((value) => typeof value === "string" && value.trim()))];
+}
+
+function sharedEvilPlanTargetIsValid(state, aiPlayer, plan) {
+  if (!plan?.framingTargetId) {
+    return false;
+  }
+  const target = getPlayerById(state, plan.framingTargetId);
+  return !!target?.alive && target.id !== aiPlayer?.id && !areKnownAllies(state, aiPlayer, target);
+}
+
+function latestVoteForTarget(state, targetId, sinceDay = 0) {
+  if (!targetId) {
+    return null;
+  }
+  return safeArray(state?.events?.votes)
+    .filter((entry) => entry?.nomineeId === targetId && Number(entry.day ?? 0) >= sinceDay)
+    .at(-1) ?? null;
+}
+
+function planTargetOutcome(state, plan) {
+  if (!plan?.framingTargetId) {
+    return null;
+  }
+  const vote = latestVoteForTarget(state, plan.framingTargetId, Number(plan.day ?? 0) || 0);
+  if (!vote) {
+    return null;
+  }
+  const yesVotes = Number(vote.yesVotes ?? 0) || 0;
+  const threshold = Number(vote.threshold ?? 0) || 0;
+  const margin = yesVotes - threshold;
+  if (vote.passed) {
+    return {
+      kind: "vote-passed",
+      release: false,
+      commitmentDelta: 0.04,
+      margin,
+    };
+  }
+  if (margin <= -2) {
+    return {
+      kind: "failed-vote-release",
+      release: true,
+      commitmentDelta: -0.24,
+      margin,
+    };
+  }
+  return {
+    kind: "failed-vote-soften",
+    release: false,
+    commitmentDelta: -0.08,
+    margin,
+  };
+}
+
+function currentSharedEvilTeamPlan(state, aiPlayer) {
+  const plan = state?.aiDialogue?.evilTeamWorldPlan ?? null;
+  if (!sharedEvilPlanTargetIsValid(state, aiPlayer, plan)) {
+    return null;
+  }
+  const outcome = planTargetOutcome(state, plan);
+  if (outcome?.release) {
+    return null;
+  }
+  if (outcome) {
+    return {
+      ...plan,
+      commitment: clamp((Number(plan.commitment) || 0.34) + outcome.commitmentDelta, 0.16, 0.86),
+      outcome,
+    };
+  }
+  return plan;
+}
+
+function previousPlanWithSharedTeamTarget(previous, sharedPlan) {
+  if (!sharedPlan?.framingTargetId) {
+    return previous ?? null;
+  }
+  const sharedCommitment = Number(sharedPlan.commitment) || 0.36;
+  if (!previous) {
+    return {
+      framingTargetId: sharedPlan.framingTargetId,
+      commitment: clamp(sharedCommitment - 0.02, 0.22, 0.82),
+      teamPlanSourceAgentIds: safeArray(sharedPlan.sourceAgentIds),
+    };
+  }
+  if (previous.framingTargetId === sharedPlan.framingTargetId) {
+    return {
+      ...previous,
+      commitment: Math.max(Number(previous.commitment) || 0, sharedCommitment),
+      teamPlanSourceAgentIds: safeArray(sharedPlan.sourceAgentIds),
+    };
+  }
+  return {
+    ...previous,
+    localPreviousFramingTargetId: previous.framingTargetId ?? "",
+    framingTargetId: sharedPlan.framingTargetId,
+    commitment: clamp(Math.max(Number(previous.commitment) || 0.28, sharedCommitment), 0.22, 0.82),
+    teamPlanSourceAgentIds: safeArray(sharedPlan.sourceAgentIds),
+  };
+}
+
+function pushTeamPlanHistory(previous, snapshot) {
+  const history = safeArray(previous?.history).slice(-MAX_EVIL_TEAM_PLAN_HISTORY + 1);
+  const key = [
+    snapshot.day,
+    snapshot.framingTargetId,
+    snapshot.secondaryFrameTargetId,
+    snapshot.protectAllyIds.join(","),
+    snapshot.continuity,
+    snapshot.pivotReason,
+  ].join(":");
+  const last = history.at(-1);
+  if (last?.key !== key) {
+    history.push({ ...snapshot, key });
+  }
+  return history;
+}
+
+function writeSharedEvilTeamPlan(state, aiPlayer, plan, previousSharedPlan) {
+  if (!state || !aiPlayer || !plan?.framingTargetId) {
+    return null;
+  }
+  state.aiDialogue = state.aiDialogue ?? {};
+  const sameTarget = previousSharedPlan?.framingTargetId === plan.framingTargetId;
+  const protectAllyIds = sameTarget
+    ? uniqueStrings([...(previousSharedPlan?.protectAllyIds ?? []), ...(plan.protectAllyIds ?? [])]).slice(0, 3)
+    : safeArray(plan.protectAllyIds).slice(0, 3);
+  const sourceAgentIds = uniqueStrings([...(sameTarget ? previousSharedPlan?.sourceAgentIds ?? [] : []), aiPlayer.id]).slice(-4);
+  const teamPlan = {
+    version: 1,
+    day: state.day ?? 0,
+    framingTargetId: plan.framingTargetId,
+    secondaryFrameTargetId: plan.secondaryFrameTargetId ?? "",
+    protectAllyIds,
+    sacrificeAllyId: plan.sacrificeAllyId ?? "",
+    commitment: clamp(
+      Math.max(Number(plan.commitment) || 0.34, sameTarget ? (Number(previousSharedPlan?.commitment) || 0.34) + 0.03 : 0.34),
+      0.22,
+      0.86
+    ),
+    sourceAgentIds,
+    lastUpdatedBy: aiPlayer.id,
+    continuity: sameTarget ? "team-hold" : previousSharedPlan?.framingTargetId ? "team-pivot" : "seed",
+    pivotReason: plan.pivotReason ?? "",
+    history: pushTeamPlanHistory(previousSharedPlan, {
+      day: state.day ?? 0,
+      framingTargetId: plan.framingTargetId,
+      secondaryFrameTargetId: plan.secondaryFrameTargetId ?? "",
+      protectAllyIds,
+      continuity: plan.continuity ?? "",
+      pivotReason: plan.pivotReason ?? "",
+    }),
+  };
+  state.aiDialogue.evilTeamWorldPlan = teamPlan;
+  return teamPlan;
+}
+
 function buildNarrativeAnchors(planDraft) {
   const anchors = [];
   if (planDraft.bluffRoleId) {
@@ -348,7 +724,19 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
   }
   state.aiDialogue = state.aiDialogue ?? {};
   state.aiDialogue.evilWorldPlansByAgentId = state.aiDialogue.evilWorldPlansByAgentId ?? {};
-  const previous = state.aiDialogue.evilWorldPlansByAgentId[aiPlayer.id] ?? null;
+  const previousRaw = state.aiDialogue.evilWorldPlansByAgentId[aiPlayer.id] ?? null;
+  const previousOutcome = planTargetOutcome(state, previousRaw);
+  const previous = previousOutcome?.release
+    ? {
+        ...previousRaw,
+        framingTargetId: "",
+        staleFramingTargetId: previousRaw?.framingTargetId ?? "",
+        staleReason: previousOutcome.kind,
+        commitment: 0.22,
+      }
+    : previousRaw;
+  const sharedTeamPlan = currentSharedEvilTeamPlan(state, aiPlayer);
+  const coordinationPrevious = previousPlanWithSharedTeamTarget(previous, sharedTeamPlan);
   const agentView = options.agentView ?? buildAgentView(state, aiPlayer, { audience: "public" });
   const window = options.window ?? evaluateGameWindow(state, aiPlayer, options);
   const allyIds = getKnownAllyIds(state, aiPlayer).filter((id) => id !== aiPlayer.id);
@@ -363,8 +751,8 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
   const nonAllies = getAlivePlayers(state).filter(
     (candidate) => candidate.id !== aiPlayer.id && !areKnownAllies(state, aiPlayer, candidate)
   );
-  const previousTargetValid = previous?.framingTargetId
-    ? nonAllies.some((candidate) => candidate.id === previous.framingTargetId)
+  const previousTargetValid = coordinationPrevious?.framingTargetId
+    ? nonAllies.some((candidate) => candidate.id === coordinationPrevious.framingTargetId)
     : false;
   const sortedTargets = nonAllies
     .map((candidate) => ({
@@ -374,21 +762,25 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
         aiPlayer,
         candidate,
         agentView,
-        previousTargetValid ? previous.framingTargetId : ""
+        previousTargetValid ? coordinationPrevious.framingTargetId : ""
       ),
     }))
     .sort((a, b) => b.score - a.score);
-  const flexibleTarget = chooseFlexibleFramingTarget(sortedTargets, previous, window, alliesUnderPressure);
+  const flexibleTarget = chooseFlexibleFramingTarget(sortedTargets, coordinationPrevious, window, alliesUnderPressure);
   const framingTarget = flexibleTarget.target;
   const secondaryFrameTarget = flexibleTarget.secondary;
-  const sacrificeCandidate = alliesUnderPressure[0]?.score >= 0.78 && window.lateGame
-    ? allies.find((ally) => ally.id === alliesUnderPressure[0].playerId)
+  const sacrificePool = alliesUnderPressure.filter((entry) => {
+    const ally = allies.find((candidate) => candidate.id === entry.playerId);
+    return ally && !isKnownCurrentDemon(state, aiPlayer, ally);
+  });
+  const sacrificeCandidate = sacrificePool[0]?.score >= 0.78 && window.lateGame
+    ? allies.find((ally) => ally.id === sacrificePool[0].playerId)
     : null;
   const commitment = clamp(
     flexibleTarget.continuity === "hold"
-      ? (Number(previous?.commitment) || 0.34) + 0.1
-      : previous
-        ? (Number(previous.commitment) || 0.36) - 0.06 + (alliesUnderPressure.length > 0 ? 0.08 : 0)
+      ? (Number(coordinationPrevious?.commitment) || 0.34) + 0.1
+      : coordinationPrevious
+        ? (Number(coordinationPrevious.commitment) || 0.36) - 0.06 + (alliesUnderPressure.length > 0 ? 0.08 : 0)
         : 0.36,
     0.22,
     0.82
@@ -401,7 +793,10 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
     bluffRoleId: aiPlayer.publicClaimRoleId ?? previous?.bluffRoleId ?? "",
     framingTargetId: framingTarget?.id ?? "",
     secondaryFrameTargetId: secondaryFrameTarget?.id ?? "",
-    previousFramingTargetId: previousTargetValid ? previous?.framingTargetId ?? "" : "",
+    previousFramingTargetId: previousTargetValid ? coordinationPrevious?.framingTargetId ?? "" : "",
+    localPreviousFramingTargetId: previous?.framingTargetId ?? "",
+    staleFramingTargetId: previous?.staleFramingTargetId ?? "",
+    staleReason: previous?.staleReason ?? sharedTeamPlan?.outcome?.kind ?? "",
     protectAllyIds: alliesUnderPressure.map((entry) => entry.playerId),
     sacrificeAllyId: sacrificeCandidate?.id ?? "",
     continuity: flexibleTarget.continuity,
@@ -415,7 +810,7 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
         ? "reduce-ally-heat"
         : "hold-cover",
   };
-  const plan = {
+  const basePlan = {
     ...draft,
     narrativeAnchors: buildNarrativeAnchors(draft),
     history: pushPlanHistory(previous, {
@@ -427,6 +822,15 @@ export function buildEvilWorldPlan(state, aiPlayer, options = {}) {
       pivotReason: draft.pivotReason,
       continuity: draft.continuity,
     }),
+  };
+  const teamPlan = writeSharedEvilTeamPlan(state, aiPlayer, basePlan, sharedTeamPlan);
+  const plan = {
+    ...basePlan,
+    teamPlanTargetId: teamPlan?.framingTargetId ?? "",
+    teamPlanAdopted: !!sharedTeamPlan?.framingTargetId && basePlan.framingTargetId === sharedTeamPlan.framingTargetId,
+    teamPlanSourceAgentIds: safeArray(teamPlan?.sourceAgentIds),
+    coordinationMode: teamPlan?.continuity ?? (sharedTeamPlan ? "team-pivot" : "seed"),
+    teamPlanOutcome: sharedTeamPlan?.outcome ?? null,
   };
   state.aiDialogue.evilWorldPlansByAgentId[aiPlayer.id] = plan;
   return plan;
@@ -501,26 +905,34 @@ export function buildLightweightWorldCandidates(state, aiPlayer, options = {}) {
     .filter((candidate) => candidate.id !== aiPlayer.id)
     .forEach((candidate) => {
       const isKnownAlly = areKnownAllies(state, aiPlayer, candidate);
+      if (isKnownCurrentDemon(state, aiPlayer, candidate)) {
+        return;
+      }
       if (isKnownAlly && evilWorldPlan?.sacrificeAllyId !== candidate.id) {
         return;
       }
 
-      const suspicion = aiPlayer?.suspicion?.[candidate.id] ?? 0.5;
+      const suspicion = suspicionForStrategyAudience(state, aiPlayer, candidate, audience);
       const publicEvidenceCount = targetEvidenceCount(agentView, agent, candidate.id, { publicOnly: true });
       const totalEvidenceCount = targetEvidenceCount(agentView, agent, candidate.id, { publicOnly: false });
       let planKind = "";
       if (evilWorldPlan?.framingTargetId === candidate.id) planKind = "evil-frame-line";
       else if (evilWorldPlan?.secondaryFrameTargetId === candidate.id) planKind = "evil-backup-line";
       else if (evilWorldPlan?.sacrificeAllyId === candidate.id) planKind = "evil-sacrifice-window";
+      const evilTwinRisk = evilTwinExecutionRiskForTarget(state, aiPlayer, candidate);
+      if (evilTwinRisk?.evilExecutionWin) planKind = "evil-twin-win-target";
+      else if (evilTwinRisk?.protectsGood) planKind = "evil-twin-do-not-execute";
       const planBias = selfTeam === "evil"
         ? evilWorldPlanTargetBias(evilWorldPlan, candidate.id, { isKnownAlly })
         : 0;
+      const evilTwinBias = evilTwinRisk?.evilExecutionWin ? 0.12 : evilTwinRisk?.protectsGood ? -0.5 : 0;
       const score = clamp(
         suspicion +
           Math.min(0.16, publicEvidenceCount * 0.04) +
           Math.min(0.1, Math.max(0, totalEvidenceCount - publicEvidenceCount) * 0.025) +
           (window.mustExecute ? 0.025 : 0) +
-          planBias,
+          planBias +
+          evilTwinBias,
         0,
         1
       );
@@ -535,7 +947,8 @@ export function buildLightweightWorldCandidates(state, aiPlayer, options = {}) {
         publicEvidenceCount,
         totalEvidenceCount,
         reasons: candidateReasons({ suspicion, publicEvidenceCount, totalEvidenceCount, planKind, window }),
-        riskFlags: candidateRiskFlags({ publicEvidenceCount, totalEvidenceCount, isKnownAlly, selfTeam, planKind }),
+        riskFlags: candidateRiskFlags({ publicEvidenceCount, totalEvidenceCount, isKnownAlly, selfTeam, planKind, evilTwinRisk }),
+        evilTwinExecutionRisk: evilTwinRisk,
       });
     });
 
@@ -565,6 +978,7 @@ export function buildAIStrategyContext(state, aiPlayer, options = {}) {
   const target = options.targetId ? getPlayerById(state, options.targetId) : null;
   const publicEvidenceCount = target ? targetEvidenceCount(agentView, agent, target.id, { publicOnly: true }) : 0;
   const totalEvidenceCount = target ? targetEvidenceCount(agentView, agent, target.id, { publicOnly: false }) : 0;
+  const evilTwinExecutionRisk = target ? evilTwinExecutionRiskForTarget(state, aiPlayer, target) : null;
   const evilWorldPlan = selfTeam === "evil"
     ? buildEvilWorldPlan(state, aiPlayer, { ...options, agentView, window })
     : null;
@@ -604,10 +1018,12 @@ export function buildAIStrategyContext(state, aiPlayer, options = {}) {
           id: target.id,
           name: target.name,
           alive: !!target.alive,
-          suspicion: aiPlayer?.suspicion?.[target.id] ?? 0.5,
+          suspicion: suspicionForStrategyAudience(state, aiPlayer, target, audience),
           publicEvidenceCount,
           totalEvidenceCount,
           isKnownAlly: areKnownAllies(state, aiPlayer, target),
+          evilTwinGoodExecutionRisk: !!evilTwinExecutionRisk,
+          evilTwinExecutionRisk,
         }
       : null,
     evilWorldPlan,
@@ -629,6 +1045,65 @@ function voteProbabilityFromSuspicion(suspicion, threshold) {
   return clamp(0.5 + (suspicion - threshold) * 3.1, 0.05, 0.95);
 }
 
+function publicCaseEvidenceCountForVotePressure(state, voter, nominee) {
+  const currentDay = state?.day ?? 0;
+  return getDialogueEvidenceForTarget(state, voter, nominee.id, { publicOnly: true, includePrivate: false })
+    .filter((entry) => (entry.day ?? currentDay) === currentDay)
+    .filter((entry) => !["nomination", "vote"].includes(entry.kind))
+    .length;
+}
+
+function formalNominationPressureBoost(state, voter, nominee, options = {}) {
+  if (!state || !voter?.id || !nominee?.id || voter.id === nominee.id) {
+    return 0;
+  }
+  const nomination = options.formalNomination ?? null;
+  if (!nomination) {
+    return 0;
+  }
+  const aliveCount = getAlivePlayers(state).length;
+  const window = options.window ?? options.strategyContext?.window ?? evaluateGameWindow(state, voter, {
+    stage: "nomination",
+  });
+  const priorNoExecutionVoteDays = Number(window?.priorNoExecutionVoteDays ?? 0) || 0;
+  const currentDayFailedVotes = safeArray(state.events?.votes)
+    .filter((entry) => entry?.day === state.day && !entry.passed).length;
+  const sameDayExecutionPressure =
+    voter.alive !== false &&
+    !options.strategyContext?.goodDayStrategy?.mayorNoExecutionWin &&
+    !options.strategyContext?.goodDayStrategy?.mastermindNoExecutionWin &&
+    (window?.mustExecute || Number(options.strategyContext?.goodDayStrategy?.noExecutionRisk ?? 0) >= 0.36) &&
+    currentDayFailedVotes >= 2;
+  let boost = 0.08;
+  if (nomination.nominatorId) {
+    const nominator = getPlayerById(state, nomination.nominatorId);
+    if (nominator?.isHuman) {
+      boost += 0.06;
+      const publicCaseEvidenceCount = publicCaseEvidenceCountForVotePressure(state, voter, nominee);
+      if (publicCaseEvidenceCount > 0) {
+        boost += Math.min(0.2, 0.11 + publicCaseEvidenceCount * 0.09);
+      }
+    }
+  }
+  if (aliveCount <= 5) boost += 0.15;
+  if (aliveCount <= 3) boost += 0.06;
+  if ((state.day ?? 0) >= 3) boost += 0.04;
+  if (window?.mustExecute && priorNoExecutionVoteDays >= 2) {
+    boost += Math.min(0.12, priorNoExecutionVoteDays * 0.035);
+  }
+  if (sameDayExecutionPressure) {
+    boost += Math.min(0.12, currentDayFailedVotes * 0.035);
+  }
+  const current = state.dayStageMeta?.executionCandidate ?? null;
+  if (current?.day === state.day && current.nomineeId && current.nomineeId !== nominee.id) {
+    boost += 0.08;
+  }
+  if (areKnownAllies(state, voter, nominee)) {
+    boost *= 0.25;
+  }
+  return clamp(boost, 0, 0.36);
+}
+
 export function simulateCoalitionVote(state, actor, nominee, options = {}) {
   if (!state || !nominee) {
     return {
@@ -647,10 +1122,14 @@ export function simulateCoalitionVote(state, actor, nominee, options = {}) {
     stage: "nomination",
   });
   const threshold = Number(window.voteThreshold) || voteThresholdForAlive(getAlivePlayers(state).length);
+  const currentDayFailedVotes = safeArray(state.events?.votes)
+    .filter((entry) => entry?.day === state.day && !entry.passed).length;
   const estimates = getAlivePlayers(state).map((voter) => {
     const selfTeam = knownSelfTeam(state, voter);
     const isKnownAlly = areKnownAllies(state, voter, nominee);
-    const suspicion = voter?.suspicion?.[nominee.id] ?? 0.5;
+    const baseSuspicion = publicSuspicionForTarget(state, voter, nominee);
+    const nominationPressure = formalNominationPressureBoost(state, voter, nominee, { ...options, window });
+    const suspicion = clamp(baseSuspicion + nominationPressure, 0.01, 0.99);
     const agentView = buildAgentView(state, voter, { audience: "public", targetId: nominee.id });
     const strategyContext = buildAIStrategyContext(state, voter, {
       agentView,
@@ -666,20 +1145,31 @@ export function simulateCoalitionVote(state, actor, nominee, options = {}) {
       suspicion,
       evidenceCount,
       isKnownAlly,
+      voterPubliclyAlive: true,
+      currentDayFailedVotes,
     });
     if (window.mustExecute) voteThreshold -= 0.025;
     if (voter.id === actor?.id) voteThreshold -= 0.02;
     if (isKnownAlly) voteThreshold += 0.28;
+    const evilTwinRisk = strategyContext?.target?.evilTwinExecutionRisk ?? null;
+    if (evilTwinRisk?.protectsGood) voteThreshold = Math.max(voteThreshold, 1.12);
+    if (evilTwinRisk?.evilExecutionWin) voteThreshold = Math.min(voteThreshold, 0.26);
 
-    const probability = voteProbabilityFromSuspicion(suspicion, clamp(voteThreshold, 0.18, 0.92));
+    const probabilityThreshold = evilTwinRisk?.protectsGood
+      ? clamp(voteThreshold, 0.18, 1.12)
+      : clamp(voteThreshold, 0.18, 0.92);
+    const probability = voteProbabilityFromSuspicion(suspicion, probabilityThreshold);
     return {
       voterId: voter.id,
       voterName: playerName(voter),
       probability: round2(probability),
       projectedYes: probability >= 0.5,
       suspicion: round2(suspicion),
+      baseSuspicion: round2(baseSuspicion),
+      nominationPressure: round2(nominationPressure),
       threshold: round2(voteThreshold),
       isKnownAlly,
+      evilTwinExecutionRisk: evilTwinRisk,
     };
   });
   const expectedYesVotes = round2(estimates.reduce((sum, entry) => sum + entry.probability, 0));
@@ -718,16 +1208,48 @@ export function voteThresholdAdjustment(strategyContext, details = {}) {
   const publicEvidenceCount = Number(target.publicEvidenceCount ?? 0) || 0;
   const suspicion = Number(details.suspicion ?? target.suspicion ?? 0.5);
   const isKnownAlly = !!(details.isKnownAlly ?? target.isKnownAlly);
+  const evilTwinRisk = target.evilTwinExecutionRisk ?? null;
+  const voterPubliclyAlive = details.voterPubliclyAlive !== false;
+  const protectedNoExecutionWin =
+    !!strategyContext?.goodDayStrategy?.mayorNoExecutionWin ||
+    !!strategyContext?.goodDayStrategy?.mastermindNoExecutionWin;
+  const priorNoExecutionVoteDays = Number(window.priorNoExecutionVoteDays ?? 0) || 0;
+  const currentDayFailedVotes = Number(details.currentDayFailedVotes ?? 0) || 0;
+  const repeatedNoExecutionVotePressure =
+    voterPubliclyAlive && window.mustExecute && !protectedNoExecutionWin && priorNoExecutionVoteDays >= 2;
+  const sameDayExecutionPressure =
+    voterPubliclyAlive &&
+    !protectedNoExecutionWin &&
+    (window.mustExecute || Number(strategyContext?.goodDayStrategy?.noExecutionRisk ?? 0) >= 0.36) &&
+    currentDayFailedVotes >= 2;
   let adjustment = 0;
 
   if (isKnownAlly) {
     return 0.45;
   }
+  if (evilTwinRisk?.protectsGood) {
+    return 0.45;
+  }
+  if (evilTwinRisk?.evilExecutionWin) {
+    return -0.08;
+  }
   if (window.mustExecute) adjustment -= 0.035;
+  if (repeatedNoExecutionVotePressure) {
+    adjustment -= Math.min(0.09, priorNoExecutionVoteDays * 0.03);
+  }
+  if (sameDayExecutionPressure) {
+    adjustment -= Math.min(0.12, currentDayFailedVotes * 0.035);
+  }
+  if (window.mustExecute && voterPubliclyAlive && !protectedNoExecutionWin && (window.day ?? 0) >= 4 && evidenceCount > 0) {
+    adjustment -= 0.025;
+  }
   if (window.lateGame) adjustment -= 0.02;
   if (window.urgency >= 0.62 && evidenceCount > 0) adjustment -= 0.015;
   if (strategyContext?.goodDayStrategy?.active) {
     adjustment -= Number(strategyContext.goodDayStrategy.voteBias ?? 0) * 0.28;
+  }
+  if (strategyContext?.goodDayStrategy?.mayorNoExecutionWin || strategyContext?.goodDayStrategy?.mastermindNoExecutionWin) {
+    adjustment += 0.22;
   }
   if (evidenceCount <= 0 && suspicion < 0.6) adjustment += window.day <= 1 ? 0.035 : 0.02;
   if (publicEvidenceCount <= 0 && suspicion < 0.56 && !window.mustExecute) adjustment += 0.015;
@@ -739,7 +1261,7 @@ export function voteThresholdAdjustment(strategyContext, details = {}) {
   } else if (plan?.protectAllyIds?.length && !isKnownAlly) {
     adjustment -= 0.012;
   }
-  return clamp(adjustment, -0.08, 0.12);
+  return clamp(adjustment, repeatedNoExecutionVotePressure || sameDayExecutionPressure ? -0.2 : -0.08, 0.12);
 }
 
 export function nominationIntentForCandidate(strategyContext, details = {}) {
@@ -757,6 +1279,14 @@ export function nominationIntentForCandidate(strategyContext, details = {}) {
   }
   const evidenceCount = Number(details.evidenceCount ?? 0) || 0;
   const candidateScore = Number(details.candidateScore ?? 0) || 0;
+  const threshold = Number(details.threshold ?? window.voteThreshold ?? 0) || 0;
+  const support = Number(details.support ?? 0) || 0;
+  if (details.likelyPasses && window.mustExecute) {
+    return "execution-push";
+  }
+  if (details.likelyPasses && support >= Math.max(1, threshold - 1)) {
+    return "coalition-check";
+  }
   if (details.forcePressure || (details.evidenceCount ?? 0) <= 0) {
     return "pressure-test";
   }
@@ -772,7 +1302,7 @@ export function nominationIntentForCandidate(strategyContext, details = {}) {
   if (details.highConfidence && (window.mustExecute || (details.candidateScore ?? 0) >= 0.62)) {
     return "execution-push";
   }
-  if (details.support >= Math.max(1, (window.voteThreshold ?? 0) - 1) && evidenceCount > 0) {
+  if (support >= Math.max(1, (window.voteThreshold ?? 0) - 1) && evidenceCount > 0) {
     return "coalition-check";
   }
   return "information-pressure";

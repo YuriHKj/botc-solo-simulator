@@ -284,6 +284,8 @@ const BAD_TASTE_RULES = [
   { id: "table-jargon", pattern: /口径|无理由改口|身份说法|可复核|信息来源|交叉验证|身份范围|身份链|裸跳|摊开|硬信息|当前主线|可信度|污染风险/i, advice: "把复盘/魔典整理词换成玩家会顺口说出的身份、昨晚信息、能对上、直接跳身份等表达。" },
   { id: "numeric-label", pattern: /暂时偏清白|高度可疑|低信息量位置|怀疑度\s*\d+%|\d+%\s*vs/i, advice: "不要把 UI/评分标签直接说出口。" },
   { id: "private-leak-style", pattern: /我私下听到的口径把焦点指向|私聊原文|未参与私聊/i, advice: "私聊影响只能模糊表达为有人提到/有人私下说过，不能复述原文。" },
+  { id: "generic-evidence-placeholder", pattern: /这条行为和我手里的信息对不上|手里的信息对不上/i, advice: "不要用占位式理由，改成具体桌边焦点，如发言、站边、身份或票型。" },
+  { id: "evil-cover-jargon", pattern: /说法范围|口径范围|好人位上靠|低信息好人位/i, advice: "邪恶方伪装也要像玩家说话，改成“按 X 方向聊/低信息身份”。" },
   { id: "report-tone", pattern: /本轮|当前主线|低证据提名|压力提名|自动提名|可信度|污染风险/i, advice: "把复盘报告词改成玩家发言词。" },
   { id: "stock-ending", pattern: /一句结论更值钱|问出反应比|先看票型和回应。?$/i, advice: "尾句需要更短、更像临场补一句。" },
   { id: "hidden-truth-risk", pattern: /真实身份|邪恶互认|恶魔伪装|爪牙|魔典|bluff/i, advice: "确认是否只出现在邪恶私聊；公开或好人视角必须禁用。" },
@@ -291,7 +293,9 @@ const BAD_TASTE_RULES = [
   { id: "abstract-subject", pattern: /该玩家|当前目标|这个位置(?=.*(行为|信息|口径))/i, advice: "把抽象主体换成具体座位，避免像系统摘要。" },
   { id: "empty-transition", pattern: /简单讲，我现在是这么看|我尽量不绕，先把我的判断摊开/i, advice: "删除空转过渡句，直接说判断和原因。" },
   { id: "future-script", pattern: /下一句我会|我会问\s*\d+号|票前我会问/i, advice: "不要把内部下一步计划说成脚本，改成“接下来先问 X”。" },
-  { id: "cleanup-remnant", pattern: /先复核|先再对一下|…（先对一下）|\s他\s回应/i, advice: "去掉整理残留和断裂空格，改成自然短句。" },
+  { id: "cleanup-remnant", pattern: /先复核|先再对一下|…（先对一下）|\s他\s回应|接…|[：。！？；]\s+|[0-9]+号\s+(这边|那条|放进|进|被|先|需要|可以|把|回应|解释|讲|说|问)|我跳\s+[^，。；！？\s]+|我会往\s+[^，。；！？\s]+\s+这类/i, advice: "去掉整理残留和断裂空格，改成自然短句。" },
+  { id: "role-spacing", pattern: /按\s+[^，。；！？\s]+\s+这个方向聊/i, advice: "角色名和句子不要断裂成“按 X 这个”，改成“按X这个方向聊”。" },
+  { id: "compressed-nomination-reason", pattern: /没讲清楚过不去|对不上过不去|还不够过不去/i, advice: "提名理由不要把证据和“过不去”硬粘在一起，改成“这点过不去”。" },
 ];
 
 function sentenceCount(text) {
@@ -323,6 +327,42 @@ function inspectOutput(output) {
     warnings.push({
       rule: "mechanical-dialogue",
       advice: "把信息链/ta/围着你这类模板残留改成座位号和短玩家话。",
+    });
+  }
+  if (output.audience === "public" && /(?:接下来先问你|我会问你|问你：)/.test(text)) {
+    warnings.push({
+      rule: "public-target-pronoun",
+      advice: "公聊追问具体目标时使用座位号，不要保留像私聊一样的“问你”。",
+    });
+  }
+  if (/有人私下提到\s*([0-9]+)\s*号.*有人私下提到\s*\1\s*号/.test(text)) {
+    warnings.push({
+      rule: "duplicate-private-evidence",
+      advice: "同一句里不要重复同一个私聊线索，合并成一次证据描述。",
+    });
+  }
+  if ((text.match(/别当铁证/g) ?? []).length >= 2) {
+    warnings.push({
+      rule: "duplicate-caution",
+      advice: "同一句里不要重复“别当铁证”，保留一次提醒即可。",
+    });
+  }
+  if (/第一关注还是\s*[0-9]+号/.test(text)) {
+    warnings.push({
+      rule: "stale-focus-switch",
+      advice: "明确换目标时不要说“还是”，改成“你问到 X，我先看 X”。",
+    });
+  }
+  if (/但\s+[^，。；！？]{1,24}\s+过不去/.test(text)) {
+    warnings.push({
+      rule: "spaced-nomination-reason",
+      advice: "提名理由不要把“但”和“过不去”拆成生硬模板，改成自然短句。",
+    });
+  }
+  if (/[，：；]\s*$/.test(text)) {
+    warnings.push({
+      rule: "dangling-ending",
+      advice: "发言不能停在逗号、冒号或分号上，需要收成一句完整桌边话。",
     });
   }
   if (output.audience === "private" && /\d+号，\s*你/.test(text)) {

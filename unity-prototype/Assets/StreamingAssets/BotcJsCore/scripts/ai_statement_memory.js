@@ -281,7 +281,7 @@ function continuityLineForPrivateStatement(state, speaker, viewer, composed, ana
   }
   const explicit = mentionedPlayerIds(analysis).has(focusId);
   return explicit
-    ? `我先把 ${previousName} 那条暂放一边，换到 ${currentName}，是因为你明确问到这个位置；不是说前面那条作废。`
+    ? `我先把 ${previousName} 那条暂放一边，换到 ${currentName}，是因为你明确问到 ${currentName}。不是说前面那条作废。`
     : `我从 ${previousName} 换到 ${currentName}，是因为现在这条线更集中${currentReason ? `：${currentReason}` : ""}；前面那条先暂放。`;
 }
 
@@ -299,10 +299,10 @@ function continuityLineForPublicStatement(state, speaker, composed, roundInDay) 
   const previousReason = shortReasonText(previous.evidenceSummary || previous.previousEvidenceSummary || "", 18);
   if (previous.focusId === focusId) {
     return previousReason
-      ? `我的意思是，公开口径我先不换，还是围绕 ${currentName} 看；上一轮卡点也是 ${previousReason}。`
-      : `我的意思是，公开口径我先不换，还是围绕 ${currentName} 看。`;
+      ? `先说清楚，公开口径先不换，我这轮还是看 ${currentName}；上一轮过不去的也是 ${previousReason}。`
+      : `先说清楚，公开口径先不换，我这轮还是看 ${currentName}。`;
   }
-  return `我的意思是，我公开从 ${previousName} 换到 ${currentName}，不是洗前面那条，是这轮压力更集中。`;
+  return `先说清楚，我从 ${previousName} 换到 ${currentName}，不是洗前面那条，是这轮压力更集中。`;
 }
 
 function prependContinuityLine(response, line) {

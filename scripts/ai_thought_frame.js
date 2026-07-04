@@ -151,21 +151,28 @@ export function rememberAIThoughtFrame(state, frame) {
 export function buildAIThoughtFrameCore(state, aiPlayer, options = {}, deps = {}) {
   state.aiDialogue = state.aiDialogue ?? {};
   state.aiDialogue.thoughtFramesByAgentId = state.aiDialogue.thoughtFramesByAgentId ?? {};
+  const audience = options.audience ?? "public";
   const agentView = options.agentView ?? buildAgentView(state, aiPlayer, {
-    audience: options.audience ?? "public",
+    audience,
   });
   const rankTargets = deps.rankTargets ?? (() => []);
   const expectedSupportFor = deps.expectedSupportFor ?? (() => 0);
   const excludeConcernIds = new Set(options.excludeConcernIds ?? []);
-  const ranked = rankTargets(aiPlayer, state, Math.min(4, state.players.length))
+  const ranked = rankTargets(aiPlayer, state, Math.min(4, state.players.length), options)
     .filter((entry) => entry.player.alive && !excludeConcernIds.has(entry.player.id) && !areKnownAllies(state, aiPlayer, entry.player));
   const primary = ranked[0] ?? null;
   const secondary = ranked.find((entry) => entry.player.id !== primary?.player.id) ?? null;
   const evidenceReasons = primary
-    ? summarizeEvidenceForDialogue(agentView ?? state, aiPlayer, primary.player.id, {
+    ? agentView?.summariesForTarget
+      ? agentView.summariesForTarget(primary.player.id, {
+          limit: 2,
+          publicOnly: audience === "public",
+          redactPrivate: audience === "public",
+        })
+      : summarizeEvidenceForDialogue(state, aiPlayer, primary.player.id, {
         limit: 2,
-        publicOnly: options.audience === "public",
-        redactPrivate: options.audience === "public",
+        publicOnly: audience === "public",
+        redactPrivate: audience === "public",
       })
     : [];
   const evidenceCount = primary
@@ -183,7 +190,7 @@ export function buildAIThoughtFrameCore(state, aiPlayer, options = {}, deps = {}
     goodDayStrategy?.active &&
     selfDisclosureNeed === "none" &&
     goodDayStrategy.selfDisclosureBias >= 0.16 &&
-    (options.audience === "public" || state.dayStage === "public")
+    (audience === "public" || state.dayStage === "public")
   ) {
     selfDisclosureNeed = goodDayStrategy.recommendedPublicAct === "offer-virgin-check" ? "hard_claim" : "range";
   }

@@ -849,8 +849,8 @@ function convertToImp(ctx, player) {
   ctx.addLog(ctx.state, "night-effect", `${player.name} 成为了新的 Imp。`, { playerId: player.id });
 }
 
-function tryScarletWomanTakeover(ctx) {
-  const aliveCount = ctx.getAlivePlayers(ctx.state).length;
+function tryScarletWomanTakeover(ctx, { aliveCountBeforeDeath } = {}) {
+  const aliveCount = Number.isFinite(aliveCountBeforeDeath) ? aliveCountBeforeDeath : ctx.getAlivePlayers(ctx.state).length;
   if (aliveCount < 5) {
     return false;
   }
@@ -867,7 +867,7 @@ function tryScarletWomanTakeover(ctx) {
   return true;
 }
 
-function onDemonDeath(ctx, { demon, source }) {
+function onDemonDeath(ctx, { demon, source, aliveCountBeforeDeath }) {
   if (source === "imp-self-kill") {
     const minions = ctx.state.players.filter(
       (entry) => entry.alive && entry.category === "minion" && entry.id !== demon.id
@@ -882,7 +882,7 @@ function onDemonDeath(ctx, { demon, source }) {
     return true;
   }
 
-  return tryScarletWomanTakeover(ctx);
+  return tryScarletWomanTakeover(ctx, { aliveCountBeforeDeath });
 }
 
 function onExecutionDeath(ctx, { victim }) {

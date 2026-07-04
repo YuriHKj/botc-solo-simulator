@@ -12,6 +12,8 @@ import { getAllRoles, SCRIPT_DEFINITIONS } from "./data.js";
 import { createEmptyUtteranceArchive, ensureUtteranceArchive } from "./dialogue_schema.js";
 import {
   addLog,
+  beginNightPhase,
+  endDayAndBeginNight,
   getHumanNightActionState,
   getPendingStorytellerActionState,
   advanceDayStage,
@@ -27,7 +29,6 @@ import {
   setHumanDayActionPlan,
   setGrimoireMarkedRole,
   setHumanNightActionPlan,
-  skipDay,
   useSlayerAbility,
   withSeededRandom,
 } from "./engine.js";
@@ -126,7 +127,26 @@ function syncAudioScene() {
   setMusicMood("day");
 }
 
-function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = false } = {}) {
+function shouldAutoResumeDayEndAfterStorytellerQueue(action) {
+  return (
+    action?.createdPhase === "day" &&
+    state?.phase === "day" &&
+    state?.dayStage === "nomination" &&
+    !state?.gameOver
+  );
+}
+
+function handleStorytellerQueueDrained({ onDrained = null, lastAction = null } = {}) {
+  if (onDrained) {
+    onDrained();
+    return;
+  }
+  if (shouldAutoResumeDayEndAfterStorytellerQueue(lastAction)) {
+    beginNextNightWithStorytellerPrompt();
+  }
+}
+
+function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = false, lastAction = null } = {}) {
   if (!state || state.gameOver) {
     refresh();
     return false;
@@ -135,10 +155,11 @@ function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = 
   if (!action.available) {
     refresh();
     if (drainedFromQueue) {
-      onDrained?.();
+      handleStorytellerQueueDrained({ onDrained, lastAction });
     }
     return false;
   }
+  const queuedAction = state.pendingStorytellerActions?.[0] ?? null;
 
   refresh();
   playCue("storyteller");
@@ -152,14 +173,14 @@ function handlePendingStorytellerActions({ onDrained = null, drainedFromQueue = 
       }
       showToast(result.message ?? "Storyteller 操作已处理。");
       refresh();
-      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true }), 0);
+      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true, lastAction: queuedAction }), 0);
       return { ok: true };
     },
     onSkip: () => {
       const result = resolvePendingStorytellerAction(state, { auto: true });
       showToast(result.ok ? result.message ?? "已自动处理 Storyteller 操作。" : result.reason);
       refresh();
-      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true }), 0);
+      setTimeout(() => handlePendingStorytellerActions({ onDrained, drainedFromQueue: true, lastAction: queuedAction }), 0);
     },
   });
   return true;
@@ -360,6 +381,7 @@ function hydrateLoadedState(loadedState) {
   loadedState.aiDialogue.publicRoundByDay = loadedState.aiDialogue.publicRoundByDay ?? {};
   loadedState.aiDialogue.dailyFocusLock = loadedState.aiDialogue.dailyFocusLock ?? {};
   loadedState.aiDialogue.dayStanceMemory = loadedState.aiDialogue.dayStanceMemory ?? {};
+  loadedState.aiDialogue.stanceHistoryBySpeakerId = loadedState.aiDialogue.stanceHistoryBySpeakerId ?? {};
   loadedState.aiDialogue.activeSpeech = loadedState.aiDialogue.activeSpeech ?? null;
   loadedState.aiDialogue.lastPublicFocusBySpeaker = loadedState.aiDialogue.lastPublicFocusBySpeaker ?? {};
   loadedState.aiDialogue.lastPublicTemplateBySpeaker = loadedState.aiDialogue.lastPublicTemplateBySpeaker ?? {};
@@ -421,6 +443,7 @@ function hydrateLoadedState(loadedState) {
       seamstressUsedByIds: [],
       artistUsedByIds: [],
       pitHagTransforms: [],
+      pitHagTransformHistory: [],
       philosopherCopiedById: {},
       evilTwinPair: null,
       fangGuJumpUsed: false,
@@ -501,6 +524,26 @@ function runNightWithStorytellerPrompt() {
   });
 }
 
+function beginNextNightWithStorytellerPrompt() {
+  const result = endDayAndBeginNight(state, rng);
+  if (!result.ok) {
+    showToast(result.reason ?? "当前无法进入夜晚。");
+    refresh();
+    return false;
+  }
+  if (state.gameOver) {
+    refresh();
+    return true;
+  }
+  if (result.stage === "storyteller" || (state.pendingStorytellerActions ?? []).length > 0) {
+    handlePendingStorytellerActions({ onDrained: beginNextNightWithStorytellerPrompt });
+    refresh();
+    return true;
+  }
+  runNightWithStorytellerPrompt();
+  return true;
+}
+
 function beginGame({ scriptId, playerCount, preferredHumanRoleId = "" }) {
   try {
     const parsed = Number.isFinite(playerCount) ? playerCount : Number.parseInt(playerCount, 10);
@@ -515,6 +558,7 @@ function beginGame({ scriptId, playerCount, preferredHumanRoleId = "" }) {
     playCue("phase");
 
     initializeAI(state);
+    beginNightPhase(state);
     closeSettingsModal();
     document.getElementById("btnCloseScriptSheet")?.click();
     hideStartMenu();
@@ -714,19 +758,12 @@ function executeNomination({ nominatorId, nomineeId, humanVoteYes }) {
     }
 
     if (!state.gameOver) {
-      showToast(`投票通过：${result.yesVotes}/${result.threshold}。结算处决后进入夜晚。`);
+      const candidateName = result.executionCandidate?.nomineeId
+        ? state.players.find((entry) => entry.id === result.executionCandidate.nomineeId)?.name
+        : state.players.find((entry) => entry.id === nomineeId)?.name;
+      showToast(`投票通过：${result.yesVotes}/${result.threshold}。${candidateName ?? "该玩家"}暂时上处决台，可继续提名或结束白天。`);
       playCue("phase");
       refresh();
-      window.setTimeout(() => {
-        if (!state || state.gameOver) {
-          refresh();
-          return;
-        }
-        if (handlePendingStorytellerActions({ onDrained: runNightWithStorytellerPrompt })) {
-          return;
-        }
-        runNightWithStorytellerPrompt();
-      }, 1500);
       return;
     }
     refresh();
@@ -771,16 +808,11 @@ function passDay() {
       showToast("跳过白天只在提名阶段可用。");
       return;
     }
-    if (!skipDay(state)) {
-      showToast("当前无法跳过白天。");
-      return;
-    }
-
     if (!state.gameOver) {
-      if (handlePendingStorytellerActions({ onDrained: runNightWithStorytellerPrompt })) {
+      if (handlePendingStorytellerActions({ onDrained: beginNextNightWithStorytellerPrompt })) {
         return;
       }
-      runNightWithStorytellerPrompt();
+      beginNextNightWithStorytellerPrompt();
       return;
     }
     refresh();

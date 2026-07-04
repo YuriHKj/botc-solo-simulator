@@ -126,6 +126,302 @@ function claimDisclosureReason({ pressure, day, signature, trustScore, alive }) 
   return "balanced_disclosure";
 }
 
+function activeMadnessRoleId(state, aiPlayer) {
+  const forcedRoleId = `${state?.snv?.cerenovusForcedByPlayerId?.[aiPlayer?.id] ?? ""}`.trim();
+  if (!forcedRoleId) {
+    return "";
+  }
+  const enforceDay = state?.snv?.cerenovusEnforceDayByPlayerId?.[aiPlayer.id];
+  const currentDay = Math.max(1, Number(state?.day) || 1);
+  if (Number.isFinite(Number(enforceDay)) && Number(enforceDay) !== currentDay) {
+    return "";
+  }
+  return forcedRoleId;
+}
+
+function claimDisclosureRoleConstraint(state, aiPlayer, role, options = {}) {
+  const publicAudience = options.private === false || options.audience === "public";
+  if (!publicAudience || !aiPlayer || aiPlayer.alive === false) {
+    return null;
+  }
+  const forcedRoleId = activeMadnessRoleId(state, aiPlayer);
+  if (forcedRoleId) {
+    return {
+      reasonKey: "madness_pressure_cover",
+      maxLevel: "range",
+    };
+  }
+  if (role?.id === "mutant") {
+    return {
+      reasonKey: "mutant_outsider_claim_risk",
+      maxLevel: "withhold",
+    };
+  }
+  if (role?.id === "sweetheart") {
+    return {
+      reasonKey: "sweetheart_death_drunk_risk",
+      maxLevel: "range",
+    };
+  }
+  if (role?.id === "barber") {
+    return {
+      reasonKey: "barber_swap_timing",
+      maxLevel: "range",
+    };
+  }
+  const profile = getAIScriptPressureProfile(state);
+  if (role?.category === "outsider" && profile.outsiderClaimsRisky) {
+    return {
+      reasonKey: "outsider_execution_risk",
+      maxLevel: "range",
+    };
+  }
+  const day = Math.max(1, Number(state?.day) || 1);
+  if (role?.tags?.includes("onDeath") && day <= 2) {
+    return {
+      reasonKey: "death_trigger_timing",
+      maxLevel: "range",
+    };
+  }
+  return null;
+}
+
+function roundDisclosureScore(value) {
+  return Number.isFinite(value) ? Math.round(value * 1000) / 1000 : 0;
+}
+
+function claimDisclosureReasonLine(reasonKey) {
+  return {
+    dead_players_should_dump: "已经出局，继续藏身份的收益很低",
+    self_on_block_or_high_pressure: "压力已经到自己身上，需要给桌面一个可验证口径",
+    late_game_information_value: "天数变深，信息价值高于继续保留身份",
+    first_night_role_can_cash_out: "首夜信息已经可以拿出来交叉复核",
+    listener_not_trusted: "听者或桌面对我仍有风险，所以要控制披露深度",
+    recurring_role_survival_value: "持续信息位早期还需要保留生存价值",
+    madness_pressure_cover: "当前有必须维持的公开口径，先避免把身份线说乱",
+    mutant_outsider_claim_risk: "外来者口径容易被当成处决借口，先只给可验证边界",
+    sweetheart_death_drunk_risk: "死亡后会制造醉酒风险，太早交死会让邪恶方更好安排",
+    barber_swap_timing: "这个身份死亡后会给恶魔换位窗口，公开时不能把触发时机送得太早",
+    outsider_execution_risk: "这个剧本里外来者容易被邪恶方利用，不能把自己当免费出处决位",
+    death_trigger_timing: "活着时价值还没兑现，过早摊开会让夜里更好处理",
+    private_claim: "已经在私聊中形成身份口径",
+    public_claim: "已经公开形成身份口径",
+    balanced_disclosure: "当前适合给可追问口径，但不一定一次交死",
+  }[reasonKey] ?? "当前披露深度取决于压力、天数和可验证信息价值";
+}
+
+function claimRangeLabelForRole(role) {
+  if (!role) {
+    return "非空白身份";
+  }
+  const category = `${role.category ?? ""}`;
+  if (category === "outsider") {
+    return "外来者/低信息身份";
+  }
+  if (category === "townsfolk" && isLikelyEarlyInfoRole(role)) {
+    return "有信息的好人身份";
+  }
+  if (category === "townsfolk") {
+    return "有技能的好人身份";
+  }
+  return "保守身份";
+}
+
+function normalizeClaimRangeLabel(label, role = null) {
+  const value = `${label ?? ""}`
+    .replace(/[“”"']/gu, "")
+    .replace(/[。！？；\s]+$/gu, "")
+    .trim()
+    .replace(/范围$/u, "");
+  if (!value) {
+    return claimRangeLabelForRole(role);
+  }
+  if (value.length <= 16 && !/[：，。；！？]/u.test(value) && !/^我(?:先|可以)/u.test(value)) {
+    return value;
+  }
+  if (/外来者|低信息/u.test(value)) {
+    return "外来者/低信息身份";
+  }
+  if (/有信息|信息可以聊|首夜|持续信息|查验|二选一|邻座|结构|说书人/u.test(value)) {
+    return "有信息的好人身份";
+  }
+  if (/有技能|技能细节|功能/u.test(value)) {
+    return "有技能的好人身份";
+  }
+  if (/不是完全没信息|不适合裸跳/u.test(value)) {
+    return "非空白身份";
+  }
+  if (/保守|压力真的到/u.test(value)) {
+    return "保守身份";
+  }
+  return claimRangeLabelForRole(role);
+}
+
+function claimDisclosureActionLine({ level, reasonKey, visibleRoleName, rangeLabel, audience, continuity, day, channel }) {
+  const reason =
+    reasonKey === "balanced_disclosure"
+      ? claimDisclosureBalancedReasonLine({ level, visibleRoleName, rangeLabel, audience, continuity, day, channel })
+      : claimDisclosureReasonLine(reasonKey);
+  if (level === "hard") {
+    return visibleRoleName
+      ? `我选择明跳${visibleRoleName}，因为${reason}。`
+      : `我选择明跳身份，因为${reason}。`;
+  }
+  if (level === "range") {
+    const normalizedRangeLabel = normalizeClaimRangeLabel(rangeLabel);
+    const range = normalizedRangeLabel ? `${normalizedRangeLabel}范围` : "身份范围";
+    const rangeVariants = {
+      madness_pressure_cover: `今天先只给${range}，${reason}。`,
+      mutant_outsider_claim_risk: `这条我只说功能风险，不把具体身份坐实，${reason}。`,
+      sweetheart_death_drunk_risk: `我先给${range}这层边界，${reason}。`,
+      barber_swap_timing: `这条我先说到${range}，${reason}。`,
+      outsider_execution_risk: `这局我先把身份压在${range}里，${reason}。`,
+      death_trigger_timing: `我先把身份放在${range}里，${reason}。`,
+    };
+    if (rangeVariants[reasonKey]) {
+      return rangeVariants[reasonKey];
+    }
+    return `我只给${range}，因为${reason}。`;
+  }
+  if (level === "withhold") {
+    if (reasonKey === "mutant_outsider_claim_risk") {
+      return `这条我只承认可验证信息，不公开坐实具体身份，${reason}。`;
+    }
+    return `我暂时只承认可验证信息，不交具体身份，因为${reason}。`;
+  }
+  const vagueVariants = {
+    madness_pressure_cover: `今天这条我先不摊具体身份，${reason}。`,
+    mutant_outsider_claim_risk: `这条我只说功能风险，不公开坐实具体身份，${reason}。`,
+    sweetheart_death_drunk_risk: `我先讲风险边界，不急着公开具体身份，${reason}。`,
+    barber_swap_timing: `这身份线我先收住触发细节，${reason}。`,
+    outsider_execution_risk: `这局我先不把具体身份交出来，${reason}。`,
+    death_trigger_timing: `我先不把死亡触发身份摊开，${reason}。`,
+  };
+  if (vagueVariants[reasonKey]) {
+    return vagueVariants[reasonKey];
+  }
+  return `我暂时保留具体身份，因为${reason}。`;
+}
+
+function buildClaimDisclosureRationale({
+  state,
+  aiPlayer,
+  level,
+  previousLevel,
+  roleId,
+  roleName,
+  signature,
+  rangeLabel,
+  exposure,
+  reason,
+  trustScore,
+  selfHeat,
+  pressure,
+  day,
+  alreadyClaimed,
+  alive,
+  channel,
+  previousDisclosure,
+  options = {},
+}) {
+  const hardVisible = level === "hard" || alreadyClaimed;
+  const visibleRoleId = hardVisible ? roleId || aiPlayer?.publicClaimRoleId || "" : "";
+  const visibleRoleName = hardVisible ? roleName || roleNameById(state, visibleRoleId) : "";
+  const audience = options.audience ?? (options.private === false ? "public" : "private");
+  const previousHardVisible = hardVisible && previousDisclosure?.level === "hard";
+  const previousRoleId = previousHardVisible ? previousDisclosure?.roleId ?? "" : "";
+  const previousRoleName = previousHardVisible
+    ? previousDisclosure?.roleName || roleNameById(state, previousRoleId)
+    : "";
+  const rangeRole = getRoleById(state?.scriptId, roleId || visibleRoleId || aiPlayer?.publicClaimRoleId || aiPlayer?.roleId) ?? null;
+  const normalizedRangeLabel = normalizeClaimRangeLabel(rangeLabel, rangeRole);
+  const previousRangeLabel = !previousHardVisible && previousDisclosure?.rangeLabel
+    ? normalizeClaimRangeLabel(previousDisclosure.rangeLabel, rangeRole)
+    : "";
+  const continuity = claimDisclosureContinuity(previousDisclosure, {
+    level,
+    roleId: roleId || visibleRoleId,
+  });
+  const continuityLine = claimDisclosureContinuityLine({
+    continuity,
+    level,
+    reasonKey: reason,
+    visibleRoleName,
+    rangeLabel: normalizedRangeLabel,
+    previousRoleName,
+    previousRangeLabel,
+    audience,
+    day,
+    channel,
+  });
+  const continuitySummary = claimDisclosureContinuitySummary({
+    continuity,
+    visibleRoleName,
+    rangeLabel: normalizedRangeLabel,
+    previousRoleName,
+    previousRangeLabel,
+  });
+  return {
+    kind: "claim-disclosure-rationale",
+    audience,
+    publicOnly: options.private === false || audience === "public",
+    speakerId: aiPlayer?.id ?? "",
+    speakerName: aiPlayer?.name ?? "",
+    level,
+    previousLevel: previousLevel ?? "none",
+    previousRoleId,
+    previousRoleName,
+    previousRangeLabel,
+    roleId: visibleRoleId,
+    roleName: visibleRoleName,
+    rangeLabel: normalizedRangeLabel,
+    family: signature?.family ?? "",
+    exposure: exposure ?? signature?.exposure ?? "low",
+    reasonKey: reason,
+    day: Math.max(1, Number(day) || 1),
+    trustScore: roundDisclosureScore(trustScore),
+    selfHeat: roundDisclosureScore(selfHeat),
+    pressure: roundDisclosureScore(pressure),
+    alreadyClaimed: !!alreadyClaimed,
+    canRevealRole: hardVisible,
+    channel,
+    continuity,
+    continuityLine,
+    continuitySummary,
+    line: claimDisclosureActionLine({
+      level,
+      reasonKey: reason,
+      visibleRoleName,
+      rangeLabel: normalizedRangeLabel,
+      audience,
+      continuity,
+      day,
+      channel,
+    }),
+    spokenLine: "",
+  };
+}
+
+export function attachClaimDisclosureRationaleSpokenLine(rationale, spokenText) {
+  if (!rationale) {
+    return null;
+  }
+  const text = `${spokenText ?? ""}`.replace(/\s+/g, " ").trim();
+  const candidates = text.match(/[^。！？；.!?;]+[。！？；.!?;]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+  const roleName = `${rationale.roleName ?? ""}`.trim();
+  const rangeLabel = `${rationale.rangeLabel ?? ""}`.trim();
+  const selected =
+    candidates.find((entry) => roleName && entry.includes(roleName)) ??
+    candidates.find((entry) => rangeLabel && entry.includes(rangeLabel)) ??
+    candidates.find((entry) => /身份|范围|信息|公开|先跳|先给|保留|摊/.test(entry)) ??
+    candidates[0] ??
+    "";
+  return {
+    ...rationale,
+    spokenLine: selected || rationale.spokenLine || rationale.line || "",
+  };
+}
+
 const DISCLOSURE_LEVEL_RANK = {
   none: 0,
   vague: 1,
@@ -136,6 +432,160 @@ const DISCLOSURE_LEVEL_RANK = {
 
 function disclosureLevelRank(level) {
   return DISCLOSURE_LEVEL_RANK[level] ?? 0;
+}
+
+function claimDisclosureContinuity(previousDisclosure, current = {}) {
+  if (!previousDisclosure?.level) {
+    return "new";
+  }
+  const previousRank = disclosureLevelRank(previousDisclosure.level);
+  const currentRank = disclosureLevelRank(current.level);
+  const previousRoleId = `${previousDisclosure.roleId ?? ""}`.trim();
+  const currentRoleId = `${current.roleId ?? ""}`.trim();
+  if (previousRoleId && currentRoleId && previousRoleId !== currentRoleId && Math.max(previousRank, currentRank) >= 3) {
+    return "revise";
+  }
+  if (currentRank > previousRank) {
+    return "escalate";
+  }
+  if (currentRank < previousRank) {
+    return "revise";
+  }
+  return "hold";
+}
+
+function claimDisclosureVariantIndex(key, count) {
+  if (count <= 1) {
+    return 0;
+  }
+  const text = `${key ?? ""}`;
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash += text.charCodeAt(index) * (index + 1);
+  }
+  return Math.abs(hash) % count;
+}
+
+function claimDisclosureHoldVariantIndex(key, count) {
+  if (count <= 1) {
+    return 0;
+  }
+  const text = `${key ?? ""}`;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return Math.abs(hash) % count;
+}
+
+function claimDisclosureBalancedReasonLine({ level, visibleRoleName, rangeLabel, audience, continuity, day, channel }) {
+  const hardVariants = [
+    "现在需要把身份口径交到能被追问的程度",
+    "这轮要让桌面有具体口径可以复核",
+    "身份线已经到该给可验证落点的时候",
+    "继续含糊只会让后续追问失焦",
+  ];
+  const cautiousVariants = [
+    "先给桌面能追问的边界，不把具体身份一次说死",
+    "现在适合交可核范围，具体身份还留一点余地",
+    "这轮先让口径可追问，身份细节等压力再补",
+    "先把可验证边界放出来，不急着把整条身份线摊完",
+  ];
+  const variants = level === "hard" ? hardVariants : cautiousVariants;
+  const key = [
+    level,
+    visibleRoleName ?? "",
+    rangeLabel ?? "",
+    audience ?? "",
+    continuity ?? "",
+    day ?? "",
+    channel ?? "",
+  ].join(":");
+  return variants[claimDisclosureVariantIndex(key, variants.length)] ?? variants[0];
+}
+
+function claimDisclosureHoldLine({ level, visibleRoleName, rangeLabel, reasonKey, audience, day, channel }) {
+  if (level === "hard" && visibleRoleName) {
+    const variants = [
+      `${visibleRoleName}这条身份线不改，今天仍按它来聊。`,
+      `${visibleRoleName}这条我先不换，继续按前面口径说。`,
+      `${visibleRoleName}口径这轮不改，还是沿着这条聊。`,
+      `我不无理由改口，${visibleRoleName}这条继续放桌面上。`,
+      `${visibleRoleName}这条身份先沿用，让后续追问接着核。`,
+      `${visibleRoleName}身份线今天不重开，这条继续留给桌面核。`,
+      `我先稳住${visibleRoleName}口径，不为了压力临时换说法。`,
+      `${visibleRoleName}前面报过先不撤，后续按这条继续验。`,
+    ];
+    const variantKey = [level, visibleRoleName, reasonKey ?? "", audience ?? "", day ?? "", channel ?? ""].join(":");
+    return variants[claimDisclosureHoldVariantIndex(variantKey, variants.length)] ?? variants[0];
+  }
+  if (level === "range" && rangeLabel) {
+    const variants = [
+      `前面的“${rangeLabel}”范围我先不改，除非桌面给新理由。`,
+      `身份范围暂时沿用“${rangeLabel}”，不无理由改口。`,
+      `我还按“${rangeLabel}”这个范围说，先让桌面继续追问。`,
+    ];
+    return variants[claimDisclosureVariantIndex(rangeLabel, variants.length)] ?? variants[0];
+  }
+  return "身份口径我先不无理由改口。";
+}
+
+function claimDisclosureContinuityLine({
+  continuity,
+  level,
+  reasonKey,
+  visibleRoleName,
+  rangeLabel,
+  previousRoleName,
+  previousRangeLabel,
+  audience,
+  day,
+  channel,
+}) {
+  if (continuity === "hold") {
+    return claimDisclosureHoldLine({ level, visibleRoleName, rangeLabel, reasonKey, audience, day, channel });
+  }
+  if (continuity === "escalate") {
+    if (level === "hard" && visibleRoleName) {
+      return `从前面的范围推进到具体身份，因为桌面压力已经变了。`;
+    }
+    if (level === "range" && rangeLabel) {
+      return `从保留身份推进到“${rangeLabel}”范围，因为现在需要给可追问口径。`;
+    }
+    return "从保留身份推进到更明确的身份口径，因为现在需要给可追问口径。";
+  }
+  if (continuity === "revise") {
+    if (previousRoleName && visibleRoleName) {
+      return `这次身份口径从${previousRoleName}改到${visibleRoleName}，需要把改口原因讲清楚。`;
+    }
+    if (previousRangeLabel && visibleRoleName) {
+      return `这次身份口径从“${previousRangeLabel}”范围改到${visibleRoleName}，需要把改口原因讲清楚。`;
+    }
+    return "这次身份口径发生变化，需要把改口原因讲清楚。";
+  }
+  return "";
+}
+
+function claimDisclosureContinuitySummary({
+  continuity,
+  visibleRoleName,
+  rangeLabel,
+  previousRoleName,
+  previousRangeLabel,
+}) {
+  const current = visibleRoleName || rangeLabel || "";
+  const previous = previousRoleName || previousRangeLabel || "";
+  if (continuity === "revise" && previous && current) {
+    return `改口：${previous} -> ${current}`;
+  }
+  if (continuity === "escalate" && previous && current) {
+    return `升级：${previous} -> ${current}`;
+  }
+  if (continuity === "hold" && current) {
+    return `延续：${current}`;
+  }
+  return "";
 }
 
 function disclosureChannelKey(audience, options = {}) {
@@ -178,15 +628,25 @@ export function rememberClaimDisclosure(state, aiPlayer, plan, audience = null, 
     disclosureLevelRank(previous?.level) > disclosureLevelRank(plan.level)
       ? previous.level
       : plan.level;
+  const rangeRole = getRoleById(state.scriptId, plan.roleId || previous?.roleId || aiPlayer.publicClaimRoleId || aiPlayer.roleId) ?? null;
+  const normalizedPlanRangeLabel = normalizeClaimRangeLabel(plan.rangeLabel, rangeRole);
+  const normalizedPreviousRangeLabel = previous?.rangeLabel
+    ? normalizeClaimRangeLabel(previous.rangeLabel, rangeRole)
+    : "";
   const next = {
     level: nextLevel,
     roleId: plan.roleId || previous?.roleId || aiPlayer.publicClaimRoleId || "",
     roleName: plan.roleName || previous?.roleName || roleNameById(state, plan.roleId || previous?.roleId || aiPlayer.publicClaimRoleId),
     family: plan.family || previous?.family || "",
-    rangeLabel: plan.rangeLabel || previous?.rangeLabel || "",
+    rangeLabel: normalizedPlanRangeLabel || normalizedPreviousRangeLabel || "",
     rangeText: plan.rangeText || previous?.rangeText || "",
     exposure: plan.exposure || previous?.exposure || "",
     reason: plan.reason || previous?.reason || "",
+    claimDisclosureRationale: plan.claimDisclosureRationale ?? previous?.claimDisclosureRationale ?? null,
+    continuity: plan.claimDisclosureRationale?.continuity ?? plan.continuity ?? previous?.continuity ?? "new",
+    continuityLine: plan.claimDisclosureRationale?.continuityLine ?? plan.continuityLine ?? previous?.continuityLine ?? "",
+    continuitySummary: plan.claimDisclosureRationale?.continuitySummary ?? plan.continuitySummary ?? previous?.continuitySummary ?? "",
+    lastSpokenLine: plan.claimDisclosureRationale?.spokenLine ?? plan.spokenLine ?? previous?.lastSpokenLine ?? "",
     channel: key,
     day: state.day ?? 0,
     updatedAt: Date.now(),
@@ -213,6 +673,7 @@ export function claimDisclosurePlanner(state, aiPlayer, audience = null, rng = M
   const alive = aiPlayer?.alive !== false;
   const alreadyClaimed = !!aiPlayer?.publicClaimRoleId;
   const privateAudience = options.private !== false && options.audience !== "public";
+  const roleConstraint = claimDisclosureRoleConstraint(state, aiPlayer, role, options);
   const pressure =
     (options.selfNominated ? 0.82 : 0) +
     (selfHeat >= 0.62 ? selfHeat : 0) +
@@ -240,6 +701,13 @@ export function claimDisclosurePlanner(state, aiPlayer, audience = null, rng = M
     level = pressure >= 0.62 || day >= 2 ? "range" : "vague";
   }
 
+  if (
+    roleConstraint?.maxLevel &&
+    !options.forceHard &&
+    disclosureLevelRank(level) > disclosureLevelRank(roleConstraint.maxLevel)
+  ) {
+    level = roleConstraint.maxLevel;
+  }
   if (options.forceHard) {
     level = "hard";
   }
@@ -250,26 +718,54 @@ export function claimDisclosurePlanner(state, aiPlayer, audience = null, rng = M
     level = previousDisclosure.level;
   }
 
-  const reason = claimDisclosureReason({ pressure, day, signature, trustScore, alive });
-  return {
+  const reason = roleConstraint?.reasonKey ?? claimDisclosureReason({ pressure, day, signature, trustScore, alive });
+  const fallbackRangeText = claimRangeForRole(role);
+  const fallbackRangeLabel = claimRangeLabelForRole(role);
+  const disclosure = {
     level,
     roleId: plannedRoleId || previousDisclosure?.roleId || "",
     roleName: roleNameById(state, plannedRoleId || previousDisclosure?.roleId),
     signature,
     family: signature?.family ?? previousDisclosure?.family ?? "",
-    rangeLabel: signature?.rangeLabel ?? previousDisclosure?.rangeLabel ?? claimRangeForRole(role),
-    rangeText: signature?.rangeText ?? previousDisclosure?.rangeText ?? claimRangeForRole(role),
+    rangeLabel: normalizeClaimRangeLabel(signature?.rangeLabel ?? previousDisclosure?.rangeLabel ?? fallbackRangeLabel, role),
+    rangeText: signature?.rangeText ?? previousDisclosure?.rangeText ?? fallbackRangeText,
     exposure: signature?.exposure ?? previousDisclosure?.exposure ?? "low",
     reason,
     trustScore,
     selfHeat,
+    pressure,
     day,
     alreadyClaimed,
     previousLevel: previousDisclosure?.level ?? "none",
     channel: disclosureChannelKey(audience, options),
+    roleConstraint: roleConstraint?.reasonKey ?? "",
     shouldClaimRole: level === "hard",
     shouldUseRange: level === "range",
     shouldWithholdFormat: level === "vague" || level === "withhold",
+  };
+  return {
+    ...disclosure,
+    claimDisclosureRationale: buildClaimDisclosureRationale({
+      state,
+      aiPlayer,
+      level,
+      previousLevel: previousDisclosure?.level ?? "none",
+      roleId: disclosure.roleId,
+      roleName: disclosure.roleName,
+      signature,
+      rangeLabel: disclosure.rangeLabel,
+      exposure: disclosure.exposure,
+      reason,
+      trustScore,
+      selfHeat,
+      pressure,
+      day,
+      alreadyClaimed,
+      alive,
+      channel: disclosure.channel,
+      previousDisclosure,
+      options,
+    }),
   };
 }
 
@@ -661,10 +1157,10 @@ export function claimRangeForRole(role) {
     return "我可以先说范围：我偏外来者，不是核心信息位。";
   }
   if (category === "townsfolk" && isLikelyEarlyInfoRole(role)) {
-    return "我先给范围：我是有信息压力的好人位，信息可以聊，但身份不急着裸。";
+    return "我先给范围：我是有信息的好人身份，信息可以聊，但身份不急着裸。";
   }
   if (category === "townsfolk") {
-    return "我先给范围：我是好人功能位，今天先别逼我把技能细节全交出来。";
+    return "我先给范围：我是有技能的好人身份，今天先别逼我把技能细节全交出来。";
   }
   return "我先给范围：我今天先保守处理，等压力真的到我身上再展开。";
 }

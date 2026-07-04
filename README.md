@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
 npm run package:unity-ai -- -LocalLlmSource third_party\LocalLLM
 ```
 
-如果 `third_party/LocalLLM` 内含可用 `llama-server.exe` 与 GGUF 模型，包内会写入 `botc_ai_polish.enabled`，玩家直接双击 `BOTC_Unity_Prototype.exe` 就会自动启用本地润色；`Start AI Polished.bat` 和 `Start Basic.bat` 只作为备用入口。详细结构和许可证边界见 `docs/packaging/AI_POLISHED_UNITY_RELEASE.md`。
+如果 `third_party/LocalLLM` 内含可用 `llama-server.exe` 与 GGUF 模型，tiny/default 包默认仍让玩家直接双击 `BOTC_Unity_Prototype.exe` 进入确定性可玩文本；需要模型润色时使用 `Start AI Polished.bat` 显式启用。quality/premium 包或手动传入 `-AutoEnableTinyLocalLlm` 时才会写入 `botc_ai_polish.enabled`，让直接双击自动启用本地润色。详细结构和许可证边界见 `docs/packaging/AI_POLISHED_UNITY_RELEASE.md`。
 
 开发期推荐从仓库根目录运行：
 

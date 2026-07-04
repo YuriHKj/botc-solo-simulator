@@ -15,11 +15,13 @@ import {
 import {
   advanceDayStage,
   createNewGame,
+  endDayAndBeginNight,
   getPendingStorytellerActionState,
   markPublicDiscussionRound,
   resolveNominationAndVote,
   resolvePendingStorytellerAction,
   runNight,
+  skipDay,
   withSeededRandom,
 } from "../scripts/engine.js";
 import { buildUnityViewModel } from "../scripts/unity_viewmodel.js";
@@ -84,6 +86,8 @@ function executePlayer(state, nominee) {
   );
   assert.equal(result.accepted, true, result.reason);
   assert.equal(result.passed, true, "execution vote should pass");
+  assert.equal(nominee.alive, true, "passed vote should wait on the block before day end");
+  assert.equal(skipDay(state, rng(78)), true, "day end should resolve the execution");
   assert.equal(nominee.alive, false, "nominee should die");
 }
 
@@ -339,6 +343,30 @@ function testOnDeathInfoRoleDoesNotReceiveGenericPassiveClue() {
   );
 }
 
+function testTbRunNightReportsNonTerminalRavenkeeperQueue() {
+  const random = rng(3);
+  const state = createNewGame({ scriptId: "tb", playerCount: PLAYER_COUNT, preferredHumanRoleId: "ravenkeeper" }, random);
+  runNight(state, random);
+  const result = runNight(state, random);
+
+  assert.equal(state.gameOver, false, "fixture should remain playable after the Ravenkeeper dies");
+  assert.equal(result.stage, "storyteller");
+  assert.equal(result.pendingStorytellerActions, 1);
+  assertStorytellerQueue(state, "ravenkeeper-info");
+
+  const blockedDay = state.day;
+  const blockedNight = state.night;
+  const ignoredRunNight = runNight(state, random);
+  assert.equal(ignoredRunNight.stage, "storyteller", "unresolved Ravenkeeper queue should keep blocking runNight");
+  assert.equal(state.day, blockedDay, "runNight must not advance the day while a Storyteller queue is pending");
+  assert.equal(state.night, blockedNight, "runNight must not advance the night while a Storyteller queue is pending");
+
+  const ignoredDayEnd = endDayAndBeginNight(state, random);
+  assert.equal(ignoredDayEnd.stage, "storyteller", "unresolved Ravenkeeper queue should block day-end advancement");
+  assert.equal(state.day, blockedDay, "day-end must not advance while a Storyteller queue is pending");
+  assert.equal(state.night, blockedNight, "day-end must not advance while a Storyteller queue is pending");
+}
+
 function testRavenkeeperQueuesAndResolvesNightDeathInfo() {
   const state = startGame("tb", "ravenkeeper", 61);
   runNight(state, rng(62));
@@ -437,6 +465,7 @@ function testBarberQueuesForHumanDemonAndSwapsRoles() {
   testLibrarianCanSeeSpyAsRegisteredDrunk,
   testPassiveInfoWritesTypedDataForUnity,
   testOnDeathInfoRoleDoesNotReceiveGenericPassiveClue,
+  testTbRunNightReportsNonTerminalRavenkeeperQueue,
   testRavenkeeperQueuesAndResolvesNightDeathInfo,
   testSageQueuesDemonKillInformation,
   testMoonchildAndKlutzQueueAfterExecutionDeath,

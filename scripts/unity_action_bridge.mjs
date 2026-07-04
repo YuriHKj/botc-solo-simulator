@@ -7,10 +7,11 @@ import {
   chooseAINomination,
   createNominationDebate,
   declineAIProactiveWhisper,
-  decideAIVote,
+  decideAIVoteWithRationale,
   getAIInsightRows,
   initializeAI,
   recordNominationDebateResponse,
+  refreshAIBeliefs,
   runAIConversationStep,
   runAIProactiveWhispers,
   runAIToAIPrivateWhispers,
@@ -18,6 +19,7 @@ import {
 } from "./ai.js";
 import { renderSpeechWithLocalLLM, resolveLLMRendererConfig } from "./ai_llm_renderer.js";
 import { recordPublicSpeechForAgents } from "./ai_agents.js";
+import { getRoleById } from "./data.js";
 import {
   addGrimoireReminder,
   addLog,
@@ -26,11 +28,15 @@ import {
   clearGrimoireNote,
   closeNominationWindow,
   createNewGame,
+  endDayAndBeginNight,
   getHumanDayActionState,
   getHumanNightActionState,
   getPendingStorytellerActionState,
+  hasExecutionToday,
   getPlayerById,
+  markPublicDiscussionRound,
   openNominationWindow,
+  registersAsAlive,
   registerClaim,
   removeGrimoireReminder,
   resolveNominationAndVote,
@@ -41,9 +47,8 @@ import {
   setHumanNightActionPlan,
   skipDay,
   tickNominationWindow,
-  withSeededRandom,
 } from "./engine.js";
-import { buildUnityPhaseAdvance, canResolveDayIntoNight } from "./unity_phase_guard.mjs";
+import { buildUnityPhaseAdvance } from "./unity_phase_guard.mjs";
 import { buildUnityViewModel, stringifyUnityViewModel } from "./unity_viewmodel.js";
 
 const DEFAULT_STREAMING_ASSETS = "unity-prototype/Assets/StreamingAssets";
@@ -59,11 +64,23 @@ function argValue(name, fallback = "") {
   const hit = process.argv.find((entry) => entry === name || entry.startsWith(`${name}=`));
   if (!hit) return fallback;
   if (hit === name) return "true";
-  return hit.slice(name.length + 1);
+  return unquoteArgValue(hit.slice(name.length + 1));
 }
 
 function hasFlag(name) {
   return process.argv.includes(name) || process.argv.some((entry) => entry.startsWith(`${name}=`));
+}
+
+function unquoteArgValue(value) {
+  const text = `${value ?? ""}`;
+  if (text.length >= 2) {
+    const first = text[0];
+    const last = text[text.length - 1];
+    if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+      return text.slice(1, -1);
+    }
+  }
+  return text;
 }
 
 function readJson(filePath, fallback = null) {
@@ -73,9 +90,37 @@ function readJson(filePath, fallback = null) {
   return JSON.parse(raw);
 }
 
-function writeJson(filePath, value) {
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isTransientFileWriteError(error) {
+  return ["EBUSY", "EPERM", "EACCES"].includes(error?.code);
+}
+
+function writeTextFileAtomicWithRetry(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  let lastError = null;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.${attempt}.tmp`;
+    try {
+      fs.writeFileSync(tempPath, text, "utf8");
+      fs.renameSync(tempPath, filePath);
+      return;
+    } catch (error) {
+      lastError = error;
+      fs.rmSync(tempPath, { force: true });
+      if (!isTransientFileWriteError(error)) {
+        throw error;
+      }
+      sleepSync(Math.min(250, 20 + attempt * 10));
+    }
+  }
+  throw lastError;
+}
+
+function writeJson(filePath, value) {
+  writeTextFileAtomicWithRetry(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function replaySafeText(text) {
@@ -242,6 +287,7 @@ function llmDialogueTargetName(state, entry = {}) {
 
 function llmDialogueRequiredTerms(state, entry = {}) {
   const target = llmDialogueTargetName(state, entry);
+  if (llmDialogueAudience(entry) === "private" && target === "你") return [];
   return target ? [target] : [];
 }
 
@@ -253,6 +299,7 @@ function llmDialogueAudience(entry = {}) {
 
 async function renderBridgeDialogueLine(state, entry, text, options = {}) {
   const speakerId = entry.playerId || entry.speakerId;
+  const audience = llmDialogueAudience(entry);
   const llmConfig = resolveLLMRendererConfig({
     enabled: true,
     provider: options.llmProvider,
@@ -262,8 +309,8 @@ async function renderBridgeDialogueLine(state, entry, text, options = {}) {
     {
       speakerName: replayPlayerName(state, speakerId),
       targetName: llmDialogueTargetName(state, entry),
-      audience: llmDialogueAudience(entry),
-      intent: entry.debateBeat ? "nomination_debate" : entry.private ? "private_reply" : "public_table_talk",
+      audience,
+      intent: entry.debateBeat ? "nomination_debate" : audience === "private" ? (entry.intent || "private_reply") : "public_table_talk",
       persona: getPlayerById(state, speakerId)?.aiPersona ?? "steady",
       candidateText: text,
       evidence: entry.evidenceContract?.summaries ?? [],
@@ -277,14 +324,16 @@ async function renderBridgeDialogueLine(state, entry, text, options = {}) {
       endpoint: llmConfig.endpoint,
       model: llmConfig.model,
       timeoutMs: llmConfig.timeoutMs,
+      transport: options.llmTransport,
     }
   );
 }
 
-async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options = {}) {
+export async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options = {}) {
   if (!bridgeLLMRendererEnabled(options)) {
     return { enabled: false, touched: 0, fallback: 0 };
   }
+  state.unityBridge = state.unityBridge ?? {};
   const llmConfig = resolveLLMRendererConfig({
     enabled: true,
     provider: options.llmProvider,
@@ -315,17 +364,25 @@ async function applyLLMDialoguePostprocess(state, beforeSnapshot = {}, options =
   for (const entry of selectedEntries) {
     const originalText = entry.text;
     const result = await renderBridgeDialogueLine(state, entry, entry.text, options);
+    if (result.text) {
+      entry.llmRender = {
+        source: result.source,
+        fallbackUsed: result.fallbackUsed,
+        reason: result.reason,
+        deterministicDraft: originalText,
+        finalText: result.text,
+      };
+    }
     if (result.text && result.text !== entry.text) {
-      entry.llmRender = { source: result.source, fallbackUsed: result.fallbackUsed, reason: result.reason };
       entry.text = result.text;
       updateMatchingSpeechAfterTimelineRender(state, entry, originalText, result.text, entry.llmRender, beforeSnapshot);
       if (state.aiDialogue?.activeSpeech?.id === entry.id) {
         state.aiDialogue.activeSpeech.text = result.text;
         state.aiDialogue.activeSpeech.llmRender = entry.llmRender;
       }
-      touched += 1;
-      if (result.fallbackUsed) fallback += 1;
     }
+    if (result.text) touched += 1;
+    if (result.text && result.fallbackUsed) fallback += 1;
   }
 
   state.unityBridge.llmRenderer = {
@@ -354,13 +411,62 @@ function updateMatchingSpeechAfterTimelineRender(state, timelineEntry, originalT
   }
 }
 
-function makeInitialState({ scriptId = "tb", playerCount = 9, preferredHumanRoleId = "washerwoman", seed = 20260506 } = {}) {
-  const rng = withSeededRandom(seed);
+const UNITY_BRIDGE_RNG_MODULUS = 233280;
+const UNITY_BRIDGE_RNG_MULTIPLIER = 9301;
+const UNITY_BRIDGE_RNG_INCREMENT = 49297;
+const DEFAULT_UNITY_BRIDGE_SEED = 20260506;
+
+function normalizeUnityBridgeInitialSeed(seedInput, fallback = DEFAULT_UNITY_BRIDGE_SEED) {
+  const numeric = Number(seedInput);
+  return Number.isFinite(numeric) && numeric !== 0 ? Math.trunc(numeric) : fallback;
+}
+
+function normalizeUnityBridgeRngState(seedInput, fallback = DEFAULT_UNITY_BRIDGE_SEED) {
+  const numeric = Number(seedInput);
+  return Number.isFinite(numeric) ? Math.trunc(numeric) : fallback;
+}
+
+function nextUnityBridgeRngState(seedInput) {
+  const next = (normalizeUnityBridgeRngState(seedInput) * UNITY_BRIDGE_RNG_MULTIPLIER + UNITY_BRIDGE_RNG_INCREMENT) % UNITY_BRIDGE_RNG_MODULUS;
+  return next < 0 ? next + UNITY_BRIDGE_RNG_MODULUS : next;
+}
+
+function createTrackedUnityBridgeRandom(seedInput) {
+  const initialSeed = normalizeUnityBridgeInitialSeed(seedInput);
+  let rngState = initialSeed;
+  return {
+    initialSeed,
+    get rngState() {
+      return rngState;
+    },
+    rng() {
+      rngState = nextUnityBridgeRngState(rngState);
+      return rngState / UNITY_BRIDGE_RNG_MODULUS;
+    },
+  };
+}
+
+function createUnityBridgeRng(state, seedInput = DEFAULT_UNITY_BRIDGE_SEED) {
+  const bridge = ensureUnityBridge(state);
+  const initialSeed = normalizeUnityBridgeInitialSeed(bridge.rngSeed ?? seedInput);
+  bridge.rngSeed = initialSeed;
+  bridge.rngState = normalizeUnityBridgeRngState(bridge.rngState, initialSeed);
+  return () => {
+    bridge.rngState = nextUnityBridgeRngState(bridge.rngState);
+    return bridge.rngState / UNITY_BRIDGE_RNG_MODULUS;
+  };
+}
+
+function makeInitialState({ scriptId = "tb", playerCount = 9, preferredHumanRoleId = "washerwoman", seed = DEFAULT_UNITY_BRIDGE_SEED } = {}) {
+  const trackedRng = createTrackedUnityBridgeRandom(seed);
+  const rng = trackedRng.rng;
   const state = createNewGame({ scriptId, playerCount, preferredHumanRoleId }, rng);
   initializeAI(state);
   beginNightPhase(state);
   initializeAI(state);
   ensureUnityBridge(state);
+  state.unityBridge.rngSeed = trackedRng.initialSeed;
+  state.unityBridge.rngState = trackedRng.rngState;
   state.unityBridge.status = "ready";
   state.unityBridge.message = "Unity bridge initialized. 第一夜已开始。";
   return state;
@@ -393,7 +499,10 @@ function ensureUnityBridge(state) {
   state.unityBridge.resolvedImmediately = !!state.unityBridge.resolvedImmediately;
   state.unityBridge.publicAction = !!state.unityBridge.publicAction;
   state.unityBridge.speechId = state.unityBridge.speechId ?? "";
+  state.unityBridge.autoAdvance = state.unityBridge.autoAdvance ?? null;
   state.unityBridge.updatedAt = state.unityBridge.updatedAt ?? "";
+  if (!Number.isFinite(Number(state.unityBridge.rngSeed))) state.unityBridge.rngSeed = null;
+  if (!Number.isFinite(Number(state.unityBridge.rngState))) state.unityBridge.rngState = null;
   return state.unityBridge;
 }
 
@@ -411,6 +520,8 @@ function normalizeActionType(type) {
     "conversation-step": "ai-public-step",
     "nomination-intent": "human-nomination-intent",
     "resolve-vote": "resolve-nomination-vote",
+    "auto-step": "auto-advance",
+    "continue": "auto-advance",
   };
   return aliases[normalized] ?? normalized;
 }
@@ -442,6 +553,30 @@ function humanPlayerId(state) {
 
 function humanPlayer(state) {
   return state.players?.find((player) => player.isHuman) ?? null;
+}
+
+function defaultHumanVoteYes(state, nomineeId = "") {
+  const human = humanPlayer(state);
+  if (!human || !registersAsAlive(state, human)) {
+    return false;
+  }
+
+  const activeNomineeId = nomineeId || state.dayStageMeta?.nominationDebate?.nomineeId || "";
+  const nominee = activeNomineeId ? getPlayerById(state, activeNomineeId) : null;
+  if (nominee?.id === human.id) {
+    return false;
+  }
+  if (human.team === "evil" && nominee?.team === "evil") {
+    return false;
+  }
+  return true;
+}
+
+function humanVoteYesFromPayload(state, payload = {}, nomineeId = "") {
+  if (Object.prototype.hasOwnProperty.call(payload, "humanVoteYes")) {
+    return !!payload.humanVoteYes;
+  }
+  return defaultHumanVoteYes(state, nomineeId);
 }
 
 function selectedOrPayloadPlayerId(state, payload) {
@@ -570,29 +705,62 @@ function pushHumanPublicTimeline(state, entry) {
   return record;
 }
 
+function currentHumanCerenovusForcedRoleId(state, human) {
+  if (!human || state.scriptId !== "snv") {
+    return "";
+  }
+  const forcedRoleId = `${state.snv?.cerenovusForcedByPlayerId?.[human.id] ?? ""}`.trim();
+  const enforceDay = Number(state.snv?.cerenovusEnforceDayByPlayerId?.[human.id]);
+  if (!forcedRoleId || !Number.isFinite(enforceDay) || enforceDay !== Number(state.day ?? 0)) {
+    return "";
+  }
+  return getRoleById(state.scriptId, forcedRoleId)?.id ?? "";
+}
+
+function humanPublicOpeningRoleId(state, human, payload = {}) {
+  const explicitRoleId = `${payload.claimRoleId ?? payload.roleId ?? ""}`.trim();
+  if (explicitRoleId) {
+    return { roleId: explicitRoleId, reason: "explicit" };
+  }
+  const forcedRoleId = currentHumanCerenovusForcedRoleId(state, human);
+  if (forcedRoleId) {
+    return { roleId: forcedRoleId, reason: "cerenovus" };
+  }
+  if (human.publicClaimRoleId) {
+    return { roleId: "", reason: "already-claimed" };
+  }
+  return { roleId: `${human.apparentRoleId ?? human.roleId ?? ""}`.trim(), reason: "opening" };
+}
+
 function ensureHumanPublicOpening(state, payload = {}) {
   const human = humanPlayer(state);
-  if (!human || human.publicClaimRoleId) {
+  if (!human) {
     return { claimed: false };
   }
-  const roleId = `${payload.claimRoleId ?? payload.roleId ?? human.apparentRoleId ?? human.roleId ?? ""}`.trim();
+  const opening = humanPublicOpeningRoleId(state, human, payload);
+  const roleId = opening.roleId;
   if (!roleId) {
     return { claimed: false };
+  }
+  const alreadyClaimedToday = (state.events?.claims ?? []).some(
+    (entry) => entry.day === state.day && entry.playerId === human.id && entry.roleId === roleId && entry.private === false
+  );
+  if (human.publicClaimRoleId === roleId && alreadyClaimedToday) {
+    return { claimed: false, roleId };
   }
   const ok = registerClaim(state, human.id, roleId);
   if (!ok) {
     return { claimed: false };
   }
 
-  const roleName =
-    roleId === human.apparentRoleId
-      ? human.apparentRoleName
-      : roleId === human.roleId
-        ? human.roleName
-        : roleId;
+  const roleName = getRoleById(state.scriptId, roleId)?.name ??
+    (roleId === human.apparentRoleId ? human.apparentRoleName : roleId === human.roleId ? human.roleName : roleId);
   state.aiDialogue = state.aiDialogue ?? {};
   state.aiDialogue.timeline = Array.isArray(state.aiDialogue.timeline) ? state.aiDialogue.timeline : [];
   const roundInDay = Math.max(1, (state.dayStageMeta?.publicRounds ?? 0) + 1);
+  const text = opening.reason === "cerenovus"
+    ? `公开身份：${roleName || roleId}。我今天继续维持这个身份口径。`
+    : `公开身份：${roleName || roleId}。我先把自己的口径放上桌。`;
   const record = {
     id: `human-public-claim-${state.day ?? 0}-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
     timestamp: Date.now(),
@@ -603,9 +771,10 @@ function ensureHumanPublicOpening(state, payload = {}) {
     orderIndex: -1,
     speakerId: human.id,
     targetId: "",
-    text: `公开身份：${roleName || roleId}。我先把自己的口径放上桌。`,
+    text,
     intent: "public-claim",
   };
+  record.claimReason = opening.reason;
   state.aiDialogue.timeline.push(record);
   if (state.aiDialogue.timeline.length > 80) {
     state.aiDialogue.timeline.splice(0, state.aiDialogue.timeline.length - 80);
@@ -719,16 +888,33 @@ function applyPhaseAction(state, payload, rng) {
     return advanceDayStage(state, "nomination");
   }
   if (stage === "day" && state.phase === "night") {
-    runNight(state, rng);
+    const result = runNight(state, rng);
+    if (state.gameOver || result.stage === "ended") {
+      return { ok: true, stage: "ended", message: "Night resolved; the game has ended.", result };
+    }
+    if ((state.pendingStorytellerActions ?? []).length > 0 || result.stage === "storyteller") {
+      return {
+        ok: true,
+        stage: "storyteller",
+        message: "Night resolution paused for a Storyteller action.",
+        pendingStorytellerActions: state.pendingStorytellerActions.length,
+        result,
+      };
+    }
     return { ok: true, stage: "day", message: "夜晚已结算，进入白天。" };
   }
   if (stage === "night") {
     if (state.phase === "day" && !state.gameOver) {
-      if (!canResolveDayIntoNight(state) && !skipDay(state)) {
-        return { ok: false, reason: "当前无法结束白天；请先进入提名阶段。" };
+      const result = endDayAndBeginNight(state, rng);
+      if (result.ok && result.stage === "storyteller") {
+        return { ok: true, stage: "storyteller", message: "白天处决已结算，请先处理 Storyteller 队列。", result };
       }
-      runNight(state, rng);
-      return { ok: true, stage: "night", message: "白天已结束，夜晚结算完成。" };
+      if (!result.ok) {
+        return { ok: false, reason: result.reason ?? "当前无法结束白天；请先进入提名阶段。" };
+      }
+      return state.gameOver
+        ? { ok: true, stage: "ended", message: "白天已结算，本局结束。", result }
+        : { ok: true, stage: "night", message: "白天已结束，进入夜晚。", result };
     }
     return { ok: false, reason: "当前无法切入夜晚。" };
   }
@@ -736,28 +922,56 @@ function applyPhaseAction(state, payload, rng) {
 }
 
 function firstActionTargetIds(action, count = 1) {
-  return (action.options ?? []).slice(0, Math.max(0, count)).map((entry) => entry.id).filter(Boolean);
+  const defaults = Array.isArray(action?.selectedTargetIds) && action.selectedTargetIds.length > 0
+    ? action.selectedTargetIds
+    : (action.options ?? []).map((entry) => entry.id);
+  return defaults.slice(0, Math.max(0, count)).filter(Boolean);
 }
 
 function firstActionRoleId(action) {
   return action.roleOptions?.find((entry) => entry.id)?.id ?? "";
 }
 
-function completeRoleActionInput(action, payload = {}) {
+function shouldUseDefaultRoleActionInput(payload = {}) {
+  return payload.auto === true || payload.useDefaultTargets === true || payload.useDefaultInput === true;
+}
+
+function completeRoleActionInput(action, payload = {}, state = null) {
   const inputType = action?.inputType ?? "player-target";
   const minTargets = action?.minTargetCount ?? action?.targetCount ?? 1;
   const maxTargets = action?.maxTargetCount ?? action?.targetCount ?? minTargets;
+  const useDefaults = shouldUseDefaultRoleActionInput(payload);
   const targetIds = Array.isArray(payload.targetIds)
     ? payload.targetIds
     : [payload.targetId ?? payload.playerId].filter(Boolean);
   const roleId = payload.roleId ?? payload.selectedRoleId ?? firstActionRoleId(action);
+  const payloadMode = `${payload.mode ?? ""}`.trim().toLowerCase();
+
+  if (action?.optional && (payload.skip === true || payloadMode === "skip" || payloadMode === "none")) {
+    return { mode: "skip" };
+  }
+
+  if (
+    state?.scriptId === "bmr" &&
+    action?.roleId === "professor" &&
+    action?.inputType === "player-target" &&
+    targetIds.length === 0
+  ) {
+    const playersById = new Map((state.players ?? []).map((player) => [player.id, player]));
+    const optionOrder = new Map((action.options ?? []).map((entry, index) => [entry.id, index]));
+    const target = (action.options ?? [])
+      .map((entry) => playersById.get(entry.id))
+      .filter((player) => player && player.isHuman !== true && player.alive === false && player.category === "townsfolk")
+      .sort((a, b) => (optionOrder.get(a.id) ?? 0) - (optionOrder.get(b.id) ?? 0))[0];
+    return target ? { targetIds: [target.id] } : { mode: "skip" };
+  }
 
   if (inputType === "role") {
     return { roleId };
   }
   if (inputType === "player-role") {
     return {
-      targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : firstActionTargetIds(action, minTargets),
+      targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : useDefaults ? firstActionTargetIds(action, minTargets) : [],
       roleId,
     };
   }
@@ -770,7 +984,7 @@ function completeRoleActionInput(action, payload = {}) {
   if (inputType === "guesses") {
     const guesses = Array.isArray(payload.guesses) ? payload.guesses : [];
     if (guesses.length > 0) return { guesses };
-    const players = firstActionTargetIds(action, Math.max(1, action.minGuessCount ?? 1));
+    const players = useDefaults ? firstActionTargetIds(action, Math.max(1, action.minGuessCount ?? 1)) : [];
     return {
       guesses: players.map((playerId) => ({ playerId, roleId: firstActionRoleId(action) })),
     };
@@ -782,21 +996,65 @@ function completeRoleActionInput(action, payload = {}) {
     }
     return {
       mode,
-      targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : firstActionTargetIds(action, minTargets),
+      targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : useDefaults ? firstActionTargetIds(action, minTargets) : [],
     };
   }
   return {
-    targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : firstActionTargetIds(action, minTargets),
+    targetIds: targetIds.length > 0 ? targetIds.slice(0, maxTargets) : useDefaults ? firstActionTargetIds(action, minTargets) : [],
   };
 }
 
-function applyHumanNightAction(state, payload) {
+function shouldResumeNightAfterHumanAction(payload = {}) {
+  const mode = `${payload.mode ?? payload.intent ?? ""}`.trim().toLowerCase();
+  if (payload.resolve === false || payload.resume === false || payload.deferResolution === true) return false;
+  return !["plan-only", "defer", "deferred"].includes(mode);
+}
+
+function applyHumanNightAction(state, payload, rng) {
   const action = getHumanNightActionState(state);
   if (!action.available) {
     return { ok: false, reason: action.reason };
   }
-  const plan = completeRoleActionInput(action, payload);
+  const plan = completeRoleActionInput(action, payload, state);
   const result = setHumanNightActionPlan(state, plan);
+  if (result.ok && shouldResumeNightAfterHumanAction(payload)) {
+    const nightResult = runNight(state, rng);
+    if (!nightResult.ok) {
+      return {
+        ...result,
+        ok: false,
+        nightResult,
+        reason: nightResult.reason ?? result.reason ?? "Night action was planned, but night resolution failed.",
+      };
+    }
+    const base = {
+      ...result,
+      nightResult,
+      stage: nightResult.stage,
+    };
+    if (state.gameOver || nightResult.stage === "ended") {
+      return {
+        ...base,
+        message: "Human night action resolved; the game has ended.",
+      };
+    }
+    if ((state.pendingStorytellerActions ?? []).length > 0 || nightResult.stage === "storyteller") {
+      return {
+        ...base,
+        stage: "storyteller",
+        pendingStorytellerActions: state.pendingStorytellerActions?.length ?? 0,
+        message: "Human night action resolved; a Storyteller action is waiting.",
+      };
+    }
+    if (state.phase === "day") {
+      return {
+        ...base,
+        stage: "day",
+        message: "Human night action resolved; day has begun.",
+      };
+    }
+    return base;
+  }
   return result.ok
     ? { ...result, message: `夜间行动已预设：${result.roleName} -> ${result.targetNames ?? "无"}` }
     : result;
@@ -807,7 +1065,7 @@ function applyHumanDayAction(state, payload, rng) {
   if (!action.available) {
     return { ok: false, reason: action.reason };
   }
-  const plan = completeRoleActionInput(action, payload);
+  const plan = completeRoleActionInput(action, payload, state);
   const result = setHumanDayActionPlan(state, plan, rng);
   if (!result.ok) {
     return result;
@@ -821,11 +1079,85 @@ function applyStorytellerAction(state, payload) {
   if (!action.available) {
     return { ok: false, reason: action.reason ?? "当前没有待处理的说书人行动。" };
   }
-  const input = completeRoleActionInput(action, payload);
+  const input = completeRoleActionInput(action, { auto: true, ...payload });
   const result = resolvePendingStorytellerAction(state, input);
   return result.ok
     ? { ...result, message: "说书人行动已处理。" }
     : result;
+}
+
+function applyStorytellerActionAndResume(state, payload, rng = Math.random) {
+  const queuedAction = state.pendingStorytellerActions?.[0] ?? null;
+  const shouldResumeDayEnd =
+    queuedAction?.createdPhase === "day" &&
+    state.phase === "day" &&
+    state.dayStage === "nomination";
+  const result = applyStorytellerAction(state, payload);
+  if (!result.ok) {
+    return result;
+  }
+  const remainingStorytellerActions = state.pendingStorytellerActions?.length ?? 0;
+  if (remainingStorytellerActions > 0) {
+    return {
+      ...result,
+      stage: "storyteller",
+      pendingStorytellerActions: remainingStorytellerActions,
+      message: "Storyteller action resolved; another Storyteller action is waiting.",
+    };
+  }
+  if (state.gameOver) {
+    return {
+      ...result,
+      stage: "ended",
+      message: "Storyteller action resolved; the game has ended.",
+    };
+  }
+  if (queuedAction?.createdPhase === "night") {
+    return {
+      ...result,
+      stage: state.phase === "day" ? "day" : state.phase === "night" ? "night" : undefined,
+      message:
+        state.phase === "day"
+          ? "Storyteller action resolved; day has begun."
+          : state.phase === "night"
+            ? "Storyteller action resolved; night is ready to continue."
+            : result.message,
+    };
+  }
+  if (!shouldResumeDayEnd) {
+    return result;
+  }
+
+  const flowAdvance = endDayAndBeginNight(state, rng);
+  if (!flowAdvance.ok) {
+    return {
+      ...result,
+      flowAdvance,
+      message: flowAdvance.reason ?? result.message,
+    };
+  }
+  if (flowAdvance.stage === "storyteller") {
+    return {
+      ...result,
+      flowAdvance,
+      stage: "storyteller",
+      message: "Storyteller action resolved; another Storyteller action is waiting.",
+    };
+  }
+  if (flowAdvance.stage === "ended" || state.gameOver) {
+    return {
+      ...result,
+      flowAdvance,
+      stage: "ended",
+      message: "Storyteller action resolved; the game has ended.",
+    };
+  }
+  return {
+    ...result,
+    flowAdvance,
+    stage: "night",
+    message: "Storyteller action resolved; night has begun.",
+  };
 }
 
 function applyReminderAction(state, payload) {
@@ -864,13 +1196,21 @@ function applyNominationAction(state, payload, rng) {
   if (!nomineeId) {
     return { ok: true, message: "已进入提名阶段。接下来请选择被提名者 token。", stage: "nomination" };
   }
+  const activeDebate = state.dayStageMeta?.nominationDebate;
+  if (activeDebate?.active) {
+    if (activeDebate.nomineeId !== nomineeId) {
+      return { ok: false, reason: "请先结算当前提名互辩，不能切换到新的被提名者。", debate: activeDebate };
+    }
+    return applyResolveNominationVoteAction(state, payload, rng);
+  }
+  refreshAIBeliefs(state);
   const result = resolveNominationAndVote(
     state,
     {
       nominatorId,
       nomineeId,
-      humanVoteYes: payload.humanVoteYes ?? true,
-      decideAIVote,
+      humanVoteYes: humanVoteYesFromPayload(state, payload, nomineeId),
+      decideAIVote: decideAIVoteWithRationale,
     },
     rng
   );
@@ -897,6 +1237,9 @@ function ensureNominationStageForWindow(state) {
   if (state.dayStage !== "nomination") {
     return { ok: false, reason: "当前无法开启提名窗口。" };
   }
+  if (hasExecutionToday(state)) {
+    return { ok: false, reason: "今天已经发生过处决，不能再次开启提名窗口。" };
+  }
   return { ok: true };
 }
 
@@ -906,6 +1249,9 @@ function applyPublicConversationStepAction(state, payload, rng) {
     return publicResult;
   }
   const result = runAIConversationStep(state, rng);
+  if (result.ok) {
+    markPublicDiscussionRound(state);
+  }
   return result.ok
     ? { ...result, message: result.message ?? "公聊推进一步。" }
     : result;
@@ -932,6 +1278,8 @@ function proposalToDebate(state, proposal, rng) {
       nomineeId: proposal.nomineeId,
       reason: proposal.reason,
       source: "ai",
+      decisionRationale: proposal.decisionRationale ?? null,
+      strategyRationale: proposal.strategyRationale ?? null,
     },
     rng
   );
@@ -948,8 +1296,11 @@ function applyAINominationStepAction(state, payload, rng) {
   }
   const proposal = chooseAINomination(state);
   if (proposal) {
-    closeNominationWindow(state, { status: "nomination-made", actorId: proposal.nominatorId, intent: "ai-nomination" });
-    return proposalToDebate(state, proposal, rng);
+    const debate = proposalToDebate(state, proposal, rng);
+    if (debate.ok && debate.debate?.active) {
+      closeNominationWindow(state, { status: "nomination-made", actorId: proposal.nominatorId, intent: "ai-nomination" });
+    }
+    return debate;
   }
   const tick = tickNominationWindow(state, { actorId: null, intent: "ai-hesitated" });
   return {
@@ -970,8 +1321,9 @@ function applyHumanNominationIntentAction(state, payload, rng) {
   if (!nomineeId) {
     return { ok: false, reason: "请选择被提名者。" };
   }
-  closeNominationWindow(state, { status: "nomination-made", actorId: nominatorId, intent: "human-nomination" });
-  return createNominationDebate(
+  const suppliedReason = trimUnityText(payload.reason ?? payload.text ?? payload.message, "", 260);
+  payload = { ...payload, reason: suppliedReason || payload.reason };
+  const debate = createNominationDebate(
     state,
     {
       nominatorId,
@@ -981,6 +1333,41 @@ function applyHumanNominationIntentAction(state, payload, rng) {
     },
     rng
   );
+  if (debate.ok && debate.debate?.active) {
+    if (suppliedReason) {
+      const human = getPlayerById(state, nominatorId);
+      const record = pushHumanPublicTimeline(state, {
+        speakerId: nominatorId,
+        targetId: nomineeId,
+        focusId: nomineeId,
+        text: suppliedReason,
+        intent: "human-nomination-reason",
+      });
+      state.events.speeches.push({
+        day: state.day,
+        playerId: nominatorId,
+        line: suppliedReason,
+        focusId: nomineeId,
+        private: false,
+      });
+      recordPublicSpeechForAgents(state, {
+        speakerId: nominatorId,
+        text: suppliedReason,
+        focusId: nomineeId,
+        roundInDay: record.roundInDay,
+        orderIndex: record.orderIndex,
+        polarity: "accuse",
+      });
+      addLog(state, "speech", `${human?.name ?? nominatorId}: ${suppliedReason}`, {
+        private: false,
+        playerId: nominatorId,
+        focusId: nomineeId,
+        source: "human-nomination-reason",
+      });
+    }
+    closeNominationWindow(state, { status: "nomination-made", actorId: nominatorId, intent: "human-nomination" });
+  }
+  return debate;
 }
 
 function applyResolveNominationVoteAction(state, payload, rng) {
@@ -988,13 +1375,15 @@ function applyResolveNominationVoteAction(state, payload, rng) {
   if (!debate?.active) {
     return { ok: false, reason: "当前没有待结算的提名互辩。" };
   }
+  refreshAIBeliefs(state);
   const result = resolveNominationAndVote(
     state,
     {
       nominatorId: debate.nominatorId,
       nomineeId: debate.nomineeId,
-      humanVoteYes: payload.humanVoteYes ?? true,
-      decideAIVote,
+      humanVoteYes: humanVoteYesFromPayload(state, payload, debate.nomineeId),
+      decideAIVote: decideAIVoteWithRationale,
+      nominationAlreadyAccepted: !!debate.nominationAccepted,
     },
     rng
   );
@@ -1023,18 +1412,246 @@ function applyNominationDebateResponseAction(state, payload) {
 }
 
 function applyPassNominationWindowAction(state, payload, rng) {
-  const stageResult = ensureNominationStageForWindow(state);
-  if (!stageResult.ok) return stageResult;
-  closeNominationWindow(state, { status: "passed", actorId: humanPlayerId(state), intent: "pass" });
-  const skipped = skipDay(state);
+  if (state.phase !== "day" || state.gameOver) {
+    return { ok: false, reason: "Cannot end nominations outside an active day." };
+  }
+  if (state.dayStage === "private") {
+    return { ok: false, reason: "Enter public discussion before ending nominations." };
+  }
+  if (state.dayStage === "public") {
+    const result = advanceDayStage(state, "nomination");
+    if (!result.ok) return result;
+  }
+  if (state.dayStage !== "nomination") {
+    return { ok: false, reason: "Current day stage cannot end nominations." };
+  }
+  if (state.dayStageMeta?.nominationDebate?.active) {
+    return { ok: false, reason: "请先结算当前提名投票，再结束提名窗口。" };
+  }
+  closeNominationWindow(state, {
+    status: hasExecutionToday(state) ? "execution-resolved" : "passed",
+    actorId: humanPlayerId(state),
+    intent: "pass",
+  });
   if (payload.toNight === false) {
+    const skipped = skipDay(state, rng);
     return { ok: skipped, message: skipped ? "提名窗口耗尽，今天无人处决。" : "当前无法空过白天。" };
   }
-  if (skipped && !state.gameOver) {
-    beginNightPhase(state);
-    return { ok: true, stage: "night", message: "提名窗口耗尽，今天无人处决，进入夜晚。" };
+  const result = endDayAndBeginNight(state, rng);
+  if (result.ok && result.stage === "storyteller") {
+    return { ok: true, stage: "storyteller", message: "处决已结算，请先处理 Storyteller 队列。", result };
   }
-  return { ok: skipped, message: skipped ? "提名窗口耗尽，今天无人处决。" : "当前无法空过白天。" };
+  if (!result.ok) {
+    return { ok: false, reason: result.reason ?? "当前无法空过白天。" };
+  }
+  return state.gameOver
+    ? { ok: true, stage: "ended", message: "提名窗口耗尽，白天已结算，本局结束。", result }
+    : { ok: true, stage: "night", message: "提名窗口耗尽，今天无人处决，进入夜晚。", result };
+}
+
+function boundedInt(value, fallback, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(numeric)));
+}
+
+function autoAdvanceStage(state) {
+  if ((state.pendingStorytellerActions ?? []).length > 0) return "storyteller";
+  if (state.gameOver || state.phase === "ended") return "ended";
+  if (state.phase === "night") return "night";
+  if (state.phase === "day") return state.dayStage ?? "day";
+  return state.phase ?? "";
+}
+
+function autoAdvanceStop(state, steps, stoppedAt, message, extra = {}) {
+  return {
+    ok: true,
+    stage: extra.stage ?? autoAdvanceStage(state),
+    message,
+    autoAdvance: {
+      stoppedAt,
+      steps,
+      stepCount: steps.length,
+      gameOver: !!state.gameOver,
+      phase: state.phase ?? "",
+      dayStage: state.dayStage ?? "",
+      pendingStorytellerActions: state.pendingStorytellerActions?.length ?? 0,
+      ...extra.autoAdvance,
+    },
+    ...extra.resultFields,
+  };
+}
+
+function pushAutoStep(steps, type, result = {}) {
+  steps.push({
+    type,
+    ok: result.ok !== false,
+    stage: result.stage ?? "",
+    message: result.message ?? result.reason ?? "",
+  });
+}
+
+function applyAutoAdvanceAction(state, payload = {}, rng = Math.random) {
+  const steps = [];
+  const mode = `${payload.mode ?? payload.intent ?? ""}`.trim().toLowerCase();
+  const decisionMode = ["decision", "next-decision", "until-decision", "playable", "flow"].includes(mode);
+  const fullAutoMode = ["full-auto", "autoplay", "endgame"].includes(mode);
+  const fullAuto = payload.fullAuto === true || fullAutoMode;
+  const maxSteps = boundedInt(payload.maxSteps ?? payload.steps, fullAuto ? 192 : 24, 1, fullAuto ? 512 : 96);
+  const publicSteps = boundedInt(payload.publicSteps ?? payload.aiPublicSteps, 1, 0, 8);
+  const nominationTicks = boundedInt(payload.nominationTicks ?? payload.ticks ?? payload.budget, 4, 1, 8);
+  const skipPrivate = payload.skipPrivate !== false;
+  const skipDayActions = payload.skipDayActions === true || fullAuto;
+  const resolveDebates = payload.resolveDebates === true || payload.resolveVotes === true || fullAuto;
+  const resolveStoryteller = payload.resolveStoryteller === true || fullAuto;
+  const openNominationAfterPublic =
+    payload.openNominationAfterPublic === true ||
+    payload.toNomination === true ||
+    decisionMode ||
+    fullAuto;
+  let publicStepsUsed = 0;
+  let publicStepDay = null;
+
+  for (let index = 0; index < maxSteps; index += 1) {
+    if ((state.pendingStorytellerActions ?? []).length > 0) {
+      if (!resolveStoryteller) {
+        return autoAdvanceStop(state, steps, "storyteller-action", "Auto-advance paused for a Storyteller action.");
+      }
+      const result = applyStorytellerActionAndResume(state, payload.storytellerPayload ?? {}, rng);
+      pushAutoStep(steps, "storyteller-action", result);
+      if (!result.ok) return result;
+      continue;
+    }
+
+    if (state.gameOver || state.phase === "ended") {
+      return autoAdvanceStop(state, steps, "ended", "Auto-advance stopped at endgame.", { stage: "ended" });
+    }
+
+    if (state.phase === "night") {
+      const nightAction = getHumanNightActionState(state);
+      if (nightAction.available) {
+        if (fullAuto) {
+          const result = applyHumanNightAction(
+            state,
+            { auto: true, ...(payload.nightActionPayload ?? payload.humanNightActionPayload ?? {}) },
+            rng
+          );
+          pushAutoStep(steps, "human-night-action", result);
+          if (!result.ok) return result;
+          continue;
+        }
+        return autoAdvanceStop(state, steps, "human-night-action", "Auto-advance paused for the human night action.", {
+          resultFields: { nightAction },
+        });
+      }
+      const result = runNight(state, rng);
+      pushAutoStep(steps, "night", result);
+      continue;
+    }
+
+    if (state.phase !== "day") {
+      return autoAdvanceStop(state, steps, "unsupported-phase", "Auto-advance paused outside the day/night loop.");
+    }
+
+    const dayAction = getHumanDayActionState(state);
+    if (dayAction.available && !skipDayActions) {
+      return autoAdvanceStop(state, steps, "human-day-action", "Auto-advance paused for the human day action.", {
+        resultFields: { dayAction },
+      });
+    }
+
+    if (state.dayStage === "private") {
+      if (!skipPrivate) {
+        return autoAdvanceStop(state, steps, "private-chat", "Auto-advance paused in private chat stage.");
+      }
+      const result = maybeEnterPublicStage(state);
+      pushAutoStep(steps, "enter-public", result);
+      if (!result.ok) return result;
+      ensureHumanPublicOpening(state, payload);
+      publicStepsUsed = 0;
+      publicStepDay = state.day ?? null;
+      continue;
+    }
+
+    if (state.dayStage === "public") {
+      if (publicStepDay !== (state.day ?? null)) {
+        publicStepsUsed = 0;
+        publicStepDay = state.day ?? null;
+      }
+      if (publicStepsUsed < publicSteps) {
+        ensureHumanPublicOpening(state, payload);
+        const result = runAIConversationStep(state, rng);
+        pushAutoStep(steps, "ai-public-step", result);
+        if (!result.ok) return result;
+        markPublicDiscussionRound(state);
+        publicStepsUsed += 1;
+        if (!openNominationAfterPublic) {
+          return autoAdvanceStop(state, steps, "public-discussion", "Auto-advance paused after a public discussion step.");
+        }
+        continue;
+      }
+      if (!openNominationAfterPublic) {
+        return autoAdvanceStop(state, steps, "public-discussion", "Auto-advance paused in public discussion.");
+      }
+      const result = advanceDayStage(state, "nomination");
+      pushAutoStep(steps, "enter-nomination", result);
+      if (!result.ok) return result;
+      continue;
+    }
+
+    if (state.dayStage !== "nomination") {
+      return autoAdvanceStop(state, steps, "unknown-day-stage", "Auto-advance paused at an unknown day stage.");
+    }
+
+    if (state.dayStageMeta?.nominationDebate?.active) {
+      if (!resolveDebates) {
+        return autoAdvanceStop(state, steps, "nomination-debate", "Auto-advance paused for nomination debate/vote.");
+      }
+      const result = applyResolveNominationVoteAction(state, payload, rng);
+      pushAutoStep(steps, "resolve-nomination-vote", result);
+      if (!result.ok) return result;
+      continue;
+    }
+
+    const clock = state.dayStageMeta?.nominationClock;
+    if (hasExecutionToday(state) || clock?.status === "expired" || clock?.status === "passed") {
+      const result = endDayAndBeginNight(state, rng);
+      pushAutoStep(steps, "end-day", result);
+      if (!result.ok) return result;
+      continue;
+    }
+
+    if (!clock?.active || clock.status !== "open") {
+      const result = openNominationWindow(state, { ticks: nominationTicks, actorId: null, intent: "auto-advance" });
+      pushAutoStep(steps, "open-nomination-window", result);
+      if (!result.ok) return result;
+      continue;
+    }
+
+    const proposal = chooseAINomination(state);
+    if (proposal) {
+      const debate = proposalToDebate(state, proposal, rng);
+      pushAutoStep(steps, "ai-nomination-step", debate);
+      if (!debate.ok) return debate;
+      if (debate.debate?.active) {
+        closeNominationWindow(state, { status: "nomination-made", actorId: proposal.nominatorId, intent: "auto-advance" });
+      }
+      if (!resolveDebates && debate.debate?.active) {
+        return autoAdvanceStop(state, steps, "nomination-debate", "Auto-advance paused for nomination debate/vote.", {
+          resultFields: { debate },
+        });
+      }
+      continue;
+    }
+
+    const tick = tickNominationWindow(state, { actorId: null, intent: "auto-advance" });
+    pushAutoStep(steps, "nomination-tick", tick);
+    if (!tick.ok) return tick;
+  }
+
+  return autoAdvanceStop(state, steps, "max-steps", "Auto-advance paused after reaching its step limit.");
 }
 
 function applyAIProactiveWhisperAction(state, payload, rng) {
@@ -1050,17 +1667,17 @@ function applyAIProactiveWhisperAction(state, payload, rng) {
 }
 
 function applyAcceptProactiveWhisperAction(state, payload, rng) {
-  const offerId = payload.offerId ?? payload.id ?? state.aiDialogue?.pendingProactiveWhispers?.[0]?.id ?? "";
+  const offerId = `${payload.offerId ?? payload.id ?? ""}`.trim();
   if (!offerId) {
-    return { ok: false, reason: "当前没有可接受的主动私聊邀请。" };
+    return { ok: false, reason: "接受主动私聊必须指定邀请编号。" };
   }
   return acceptAIProactiveWhisper(state, offerId, rng);
 }
 
 function applyDeclineProactiveWhisperAction(state, payload) {
-  const offerId = payload.offerId ?? payload.id ?? state.aiDialogue?.pendingProactiveWhispers?.[0]?.id ?? "";
+  const offerId = `${payload.offerId ?? payload.id ?? ""}`.trim();
   if (!offerId) {
-    return { ok: false, reason: "当前没有可拒绝的主动私聊邀请。" };
+    return { ok: false, reason: "拒绝主动私聊必须指定邀请编号。" };
   }
   return declineAIProactiveWhisper(state, offerId);
 }
@@ -1130,6 +1747,8 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
       result = applyDeclineProactiveWhisperAction(state, payload);
     } else if (action.type === "ai-private-whispers") {
       result = applyAIPrivateWhisperAction(state, rng);
+    } else if (action.type === "auto-advance") {
+      result = applyAutoAdvanceAction(state, payload, rng);
     } else if (action.type === "human-public-speech") {
       result = applyHumanPublicSpeechAction(state, payload);
       if (result.ok) {
@@ -1166,11 +1785,11 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
     } else if (action.type === "nomination") {
       result = applyNominationAction(state, payload, rng);
     } else if (action.type === "night-action") {
-      result = applyHumanNightAction(state, payload);
+      result = applyHumanNightAction(state, payload, rng);
     } else if (action.type === "day-action") {
       result = applyHumanDayAction(state, payload, rng);
     } else if (action.type === "storyteller-action") {
-      result = applyStorytellerAction(state, payload);
+      result = applyStorytellerActionAndResume(state, payload, rng);
     } else if (action.type === "grimoire-reminder") {
       result = applyReminderAction(state, payload);
     } else if (action.type === "grimoire-mark-role") {
@@ -1182,7 +1801,7 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
     } else if (action.type === "ai-nomination") {
       const proposal = chooseAINomination(state);
       result = proposal
-        ? applyNominationAction(state, { nominatorId: proposal.nominatorId, nomineeId: proposal.nomineeId, humanVoteYes: true }, rng)
+        ? applyNominationAction(state, { nominatorId: proposal.nominatorId, nomineeId: proposal.nomineeId }, rng)
         : { ok: false, reason: "AI 暂无提名目标。" };
     } else if (action.type === "toggle-grimoire") {
       state.grimoireView = typeof payload.value === "boolean" ? payload.value : !state.grimoireView;
@@ -1202,6 +1821,7 @@ export function applyUnityAction(state, rawAction, rng = Math.random) {
   bridge.resolvedImmediately = !!result.resolvedImmediately;
   bridge.publicAction = !!result.public;
   bridge.speechId = result.speechId ?? result.speech?.id ?? "";
+  bridge.autoAdvance = result.autoAdvance ?? null;
   bridge.updatedAt = new Date().toISOString();
   updateBridgeSelectionFromActionResult(state, bridge, action, payload, result);
   initializeAI(state);
@@ -1214,7 +1834,7 @@ export function writeUnityBridgeOutputs({ state, statePath, viewModelPath, resul
   const viewModel = buildUnityViewModel(state, { aiInsights });
   writeJson(statePath, { state });
   fs.mkdirSync(path.dirname(viewModelPath), { recursive: true });
-  fs.writeFileSync(viewModelPath, stringifyUnityViewModel(viewModel), "utf8");
+  writeTextFileAtomicWithRetry(viewModelPath, stringifyUnityViewModel(viewModel));
   const replayPaths = writeDialogueReplaySnapshot(state, { action, result, replayDir, replayPath, latestReplayPath, disableReplayRecorder });
   if (resultPath) {
     writeJson(resultPath, {
@@ -1226,6 +1846,7 @@ export function writeUnityBridgeOutputs({ state, statePath, viewModelPath, resul
       resolvedImmediately: !!result?.resolvedImmediately,
       publicAction: !!result?.public,
       speechId: result?.speechId ?? result?.speech?.id ?? "",
+      autoAdvance: result?.autoAdvance ?? null,
       llmRenderer: result?.llmRenderer ?? null,
       revision: state.unityBridge.revision,
       updatedAt: state.unityBridge.updatedAt ?? new Date().toISOString(),
@@ -1241,11 +1862,11 @@ export function processUnityActionFile(options = {}) {
   const viewModelPath = path.resolve(options.viewModelPath ?? DEFAULT_VIEWMODEL_PATH);
   const actionPath = path.resolve(options.actionPath ?? DEFAULT_ACTION_PATH);
   const resultPath = path.resolve(options.resultPath ?? DEFAULT_RESULT_PATH);
-  const seed = Number(options.seed ?? 20260506) || 20260506;
-  const rng = withSeededRandom(seed + Date.now());
+  const seed = normalizeUnityBridgeInitialSeed(options.seed);
 
   const state = loadOrCreateUnityState(statePath, options);
   const action = normalizeAction(readJson(actionPath, null));
+  const rng = action ? createUnityBridgeRng(state, seed) : Math.random;
   const result = action ? applyUnityAction(state, action, rng) : { ok: true, skipped: true, reason: "No action file." };
   const viewModel = writeUnityBridgeOutputs({
     state,
@@ -1267,11 +1888,11 @@ export async function processUnityActionFileAsync(options = {}) {
   const viewModelPath = path.resolve(options.viewModelPath ?? DEFAULT_VIEWMODEL_PATH);
   const actionPath = path.resolve(options.actionPath ?? DEFAULT_ACTION_PATH);
   const resultPath = path.resolve(options.resultPath ?? DEFAULT_RESULT_PATH);
-  const seed = Number(options.seed ?? 20260506) || 20260506;
-  const rng = withSeededRandom(seed + Date.now());
+  const seed = normalizeUnityBridgeInitialSeed(options.seed);
 
   const state = loadOrCreateUnityState(statePath, options);
   const action = normalizeAction(readJson(actionPath, null));
+  const rng = action ? createUnityBridgeRng(state, seed) : Math.random;
   const beforeSnapshot = {
     speechCount: state.events?.speeches?.length ?? 0,
     timelineCount: state.aiDialogue?.timeline?.length ?? 0,
@@ -1302,12 +1923,14 @@ async function watchUnityActions(options = {}) {
   const actionPath = path.resolve(options.actionPath ?? DEFAULT_ACTION_PATH);
   const pollMs = Number(options.pollMs ?? 350) || 350;
   let lastMtime = 0;
+  let lastActionId = "";
   console.log(`Watching Unity actions: ${actionPath}`);
   console.log("Press Ctrl+C to stop.");
   try {
-    const { result, paths } = await processUnityActionFileAsync(options);
+    const { action, result, paths } = await processUnityActionFileAsync(options);
     const stat = fs.existsSync(actionPath) ? fs.statSync(actionPath) : null;
     lastMtime = stat?.mtimeMs ?? 0;
+    lastActionId = action?.id ?? "";
     console.log(`[${new Date().toLocaleTimeString()}] init ${result.ok ? "ok" : "error"} -> ${paths.viewModelPath}`);
   } catch (error) {
     console.error(`Unity action bridge init error: ${error?.stack ?? error}`);
@@ -1316,9 +1939,13 @@ async function watchUnityActions(options = {}) {
     try {
       const stat = fs.existsSync(actionPath) ? fs.statSync(actionPath) : null;
       const mtime = stat?.mtimeMs ?? 0;
-      if (mtime > 0 && mtime !== lastMtime) {
+      const action = mtime > 0 ? normalizeAction(readJson(actionPath, null)) : null;
+      const actionId = action?.id ?? "";
+      if (mtime > 0 && (mtime !== lastMtime || (actionId && actionId !== lastActionId))) {
         lastMtime = mtime;
-        const { result, paths } = await processUnityActionFileAsync(options);
+        lastActionId = actionId;
+        const { action: processedAction, result, paths } = await processUnityActionFileAsync(options);
+        lastActionId = processedAction?.id ?? actionId;
         console.log(`[${new Date().toLocaleTimeString()}] ${result.ok ? "ok" : "error"} r=${readJson(paths.statePath)?.state?.unityBridge?.revision ?? "?"} ${result.message ?? result.reason ?? ""}`);
       }
     } catch (error) {

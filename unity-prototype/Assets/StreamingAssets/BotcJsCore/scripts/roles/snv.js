@@ -68,6 +68,11 @@ export const SNV_ROLE_ACTION_RULES = {
     allowDead: false,
     minNight: 1,
     maxUses: 1,
+    optional: true,
+    modes: [
+      { id: "act", label: "Use the Seamstress ability" },
+      { id: "skip", label: "Wait for a later night" },
+    ],
     prompt: "选择 2 名玩家，得知他们阵营是否相同。",
     interaction: {
       title: "女裁缝的针线",
@@ -89,6 +94,11 @@ export const SNV_ROLE_ACTION_RULES = {
     excludeRoleIds: [SNV.PHILOSOPHER],
     minNight: 1,
     maxUses: 1,
+    optional: true,
+    modes: [
+      { id: "act", label: "Choose a good character" },
+      { id: "skip", label: "Wait for a later night" },
+    ],
     prompt: "选择你想获得的一个镇民角色能力。",
     interaction: {
       title: "哲学家的顿悟",
@@ -98,25 +108,6 @@ export const SNV_ROLE_ACTION_RULES = {
       helper: "这是官方能力的关键交互：不是选玩家，而是直接选择一个角色能力。",
       confirmText: "获得该能力",
       skipText: "让系统代选",
-    },
-  },
-  [SNV.ARTIST]: {
-    kind: "question",
-    inputType: "question",
-    targetCount: 0,
-    allowSelf: false,
-    allowDead: false,
-    minNight: 1,
-    maxUses: 1,
-    prompt: "向 Storyteller 提出一个是/否问题。",
-    interaction: {
-      title: "艺术家的提问",
-      subtitle: "写下一个是/否问题，Storyteller 会给出“是/否”答案。",
-      style: "divination",
-      badge: "是/否问题",
-      helper: "当前版本会用本地规则粗略回答常见问题；复杂自然语言会给出保守的 Storyteller 式答案。",
-      confirmText: "提交问题",
-      skipText: "暂不提问",
     },
   },
   [SNV.WITCH]: {
@@ -243,6 +234,26 @@ export const SNV_ROLE_ACTION_RULES = {
 };
 
 export const SNV_DAY_ACTION_RULES = {
+  [SNV.ARTIST]: {
+    kind: "question",
+    inputType: "question",
+    targetCount: 0,
+    allowSelf: false,
+    allowDead: false,
+    minDay: 1,
+    maxUses: 1,
+    allowedStages: ["private", "public", "nomination"],
+    prompt: "向 Storyteller 提出一个是/否问题。",
+    interaction: {
+      title: "艺术家的提问",
+      subtitle: "写下一个是/否问题，Storyteller 会给出“是/否”答案。",
+      style: "divination",
+      badge: "是/否问题",
+      helper: "当前版本会用本地规则粗略回答常见问题；复杂自然语言会给出保守的 Storyteller 式答案。",
+      confirmText: "提交问题",
+      skipText: "暂不提问",
+    },
+  },
   [SNV.JUGGLER]: {
     kind: "guesses",
     inputType: "guesses",
@@ -278,7 +289,7 @@ export const SNV_ROLE_DEFINITIONS = Object.freeze({
   [SNV.SAVANT]: { id: SNV.SAVANT, scriptAgnostic: true, phaseHooks: { eachDay: "engine:simplified" } },
   [SNV.SEAMSTRESS]: { id: SNV.SEAMSTRESS, scriptAgnostic: true, action: SNV_ROLE_ACTION_RULES[SNV.SEAMSTRESS], phaseHooks: { eachNight: "engine:simplified" } },
   [SNV.PHILOSOPHER]: { id: SNV.PHILOSOPHER, scriptAgnostic: true, action: SNV_ROLE_ACTION_RULES[SNV.PHILOSOPHER], phaseHooks: { eachNight: "engine:simplified" } },
-  [SNV.ARTIST]: { id: SNV.ARTIST, scriptAgnostic: true, action: SNV_ROLE_ACTION_RULES[SNV.ARTIST], phaseHooks: { eachNight: "engine:simplified" } },
+  [SNV.ARTIST]: { id: SNV.ARTIST, scriptAgnostic: true, dayAction: SNV_DAY_ACTION_RULES[SNV.ARTIST], phaseHooks: { dayAction: "engine:simplified" } },
   [SNV.JUGGLER]: { id: SNV.JUGGLER, scriptAgnostic: true, phaseHooks: { dayAction: "engine:simplified", otherNight: "engine:simplified" } },
   [SNV.SAGE]: { id: SNV.SAGE, scriptAgnostic: true, phaseHooks: { onDeathByDemon: "engine:simplified" } },
   [SNV.MUTANT]: { id: SNV.MUTANT, scriptAgnostic: true, phaseHooks: { onPublicClaim: "engine:simplified" } },
@@ -317,6 +328,7 @@ export function runSectsAndVioletsNight(ctx) {
     nearestAliveTownsfolkByDirection,
     pickNightTargets,
     processNightDeath,
+    refreshEvilRecognitionAfterRoleChange,
     sample,
     setPhilosopherAbility,
     setRole,
@@ -440,7 +452,15 @@ export function runSectsAndVioletsNight(ctx) {
         deliverEntryInfo: true,
         rng,
       });
-      snv.pitHagTransforms.push({ night: state.night, playerId: target.id, from: beforeRole, to: target.roleName });
+      refreshEvilRecognitionAfterRoleChange?.(state, {
+        reason: "pit-hag-transform",
+        changedPlayerIds: [target.id],
+      });
+      syncEvilTwinPair(ctx, { reason: "pit-hag-transform", changedPlayerIds: [target.id] });
+      const transform = { night: state.night, playerId: target.id, from: beforeRole, to: target.roleName };
+      snv.pitHagTransforms.push(transform);
+      snv.pitHagTransformHistory = snv.pitHagTransformHistory ?? [];
+      snv.pitHagTransformHistory.push(transform);
       addLog(state, "night-effect", "Pit-Hag 改变了一名玩家身份。", { by: pitHag.id, targetId: target.id });
     });
 
@@ -558,6 +578,11 @@ export function runSectsAndVioletsNight(ctx) {
             `[第${state.night}夜] 舞蛇人选中了你，你们的身份已交换；你现在是 ${target.roleName}。`
           );
         }
+        refreshEvilRecognitionAfterRoleChange?.(state, {
+          reason: "snake-charmer-swap",
+          changedPlayerIds: [charmer.id, target.id],
+        });
+        syncEvilTwinPair(ctx, { reason: "snake-charmer-swap", changedPlayerIds: [charmer.id, target.id] });
       }
     });
 
@@ -574,6 +599,10 @@ export function runSectsAndVioletsNight(ctx) {
         return;
       }
       const planned = philosopher.isHuman ? consumeHumanNightPlan(state, philosopher, { minTargets: 0, maxTargets: 0 }) : null;
+      if (planned?.skipped) {
+        addLog(state, "night-effect", "Philosopher waits and keeps the ability choice for a later night.", { by: philosopher.id, skipped: true });
+        return;
+      }
 
       const townsfolkPool = (getTownsfolkRoles(state.scriptId) ?? []).filter((entry) => entry.id !== SNV.PHILOSOPHER);
       if (townsfolkPool.length === 0) {
@@ -626,53 +655,134 @@ export function runSectsAndVioletsNight(ctx) {
     });
 
   if (snv.barberDiedToday) {
-    const demon = getAliveDemons(state)[0];
-    if (demon) {
-      const swapTargets = sample(
-        state.players.filter((entry) => entry.alive && entry.category !== "demon"),
-        Math.min(2, state.players.filter((entry) => entry.alive && entry.category !== "demon").length),
-        rng
-      );
-      if (
-        swapTargets.length === 2 &&
-        swapRolesByRoleId(state, swapTargets[0], swapTargets[1], {
-          preserveTeams: true,
-          resetEntryState: true,
-          deliverEntryInfo: true,
-          rng,
-        })
-      ) {
-        addLog(state, "night-effect", "Barber 死亡后，恶魔交换了两名玩家身份。", {
-          demonId: demon.id,
-          a: swapTargets[0].id,
-          b: swapTargets[1].id,
-        });
-      }
-    }
+    resolveAIBarberSwap(ctx);
     snv.barberDiedToday = false;
   }
 }
 
 function onSetup(ctx) {
-  const { state, addPrivateInfo, chooseOne } = ctx;
+  const { state } = ctx;
   if (!state.snv) {
     return;
   }
-  const evilTwin = state.players.find((entry) => entry.roleId === SNV.EVIL_TWIN);
-  if (!evilTwin) {
-    return;
+  syncEvilTwinPair(ctx, { reason: "setup" });
+}
+
+function activeEvilTwinHolder(ctx, options = {}) {
+  const { state, getEffectiveRoleId } = ctx;
+  const preferredIds = Array.isArray(options.preferredIds) ? options.preferredIds : [];
+  const candidates = [
+    ...preferredIds.map((playerId) => state.players.find((entry) => entry.id === playerId)).filter(Boolean),
+    ...state.players,
+  ];
+  return candidates.find(
+    (entry, index, arr) =>
+      entry?.alive &&
+      arr.findIndex((probe) => probe?.id === entry.id) === index &&
+      getEffectiveRoleId(entry) === SNV.EVIL_TWIN
+  ) ?? null;
+}
+
+function chooseEvilTwinOpposite(ctx, holder, currentPair = null) {
+  const { state, chooseOne, getPlayerById } = ctx;
+  if (!holder) {
+    return null;
   }
-  const goodCandidates = state.players.filter((entry) => entry.team === "good" && entry.id !== evilTwin.id);
-  const goodTwin = chooseOne(goodCandidates);
+  if (currentPair?.evilTwinId === holder.id && currentPair.opposingTwinId) {
+    return getPlayerById(state, currentPair.opposingTwinId);
+  }
+  const currentOpposite = getPlayerById(state, currentPair?.opposingTwinId ?? "");
+  if (currentOpposite?.alive && currentOpposite.team !== holder.team) {
+    return currentOpposite;
+  }
+  const currentGoodTwin = getPlayerById(state, currentPair?.goodTwinId ?? "");
+  if (currentGoodTwin?.alive && currentGoodTwin.id !== holder.id && currentGoodTwin.team !== holder.team) {
+    return currentGoodTwin;
+  }
+  const candidates = state.players.filter((entry) => entry.alive && entry.id !== holder.id && entry.team !== holder.team);
+  return chooseOne(candidates) ?? null;
+}
+
+function syncEvilTwinPair(ctx, options = {}) {
+  const { state, addLog, addPrivateInfo } = ctx;
+  if (!state.snv) {
+    return null;
+  }
+  const currentPair = state.snv.evilTwinPair ?? null;
+  const holder = activeEvilTwinHolder(ctx, { preferredIds: options.changedPlayerIds });
+  if (!holder) {
+    state.snv.evilTwinPair = null;
+    return null;
+  }
+  const opposite = chooseEvilTwinOpposite(ctx, holder, currentPair);
+  if (!opposite) {
+    state.snv.evilTwinPair = null;
+    return null;
+  }
+  const goodTwin = holder.team === "good" ? holder : opposite.team === "good" ? opposite : null;
   if (!goodTwin) {
-    return;
+    state.snv.evilTwinPair = null;
+    return null;
   }
-  state.snv.evilTwinPair = {
-    evilTwinId: evilTwin.id,
+  const nextPair = {
+    evilTwinId: holder.id,
     goodTwinId: goodTwin.id,
+    opposingTwinId: opposite.id,
   };
-  addPrivateInfo(state, evilTwin, `[开局] 你绑定的另一名双子是 ${goodTwin.name}。`);
-  addPrivateInfo(state, goodTwin, `[开局] 你绑定的另一名双子是 ${evilTwin.name}。`);
+  const changed =
+    currentPair?.evilTwinId !== nextPair.evilTwinId ||
+    currentPair?.goodTwinId !== nextPair.goodTwinId ||
+    currentPair?.opposingTwinId !== nextPair.opposingTwinId;
+  state.snv.evilTwinPair = nextPair;
+  if (changed) {
+    addPrivateInfo(state, holder, `[第${state.night}夜] 你绑定的另一名双子是 ${opposite.name}。`);
+    addPrivateInfo(state, opposite, `[第${state.night}夜] 你绑定的另一名双子是 ${holder.name}。`);
+    addLog?.(state, "night-effect", "Evil Twin 配对已随角色变化更新。", {
+      reason: options.reason ?? "role-change",
+      evilTwinId: holder.id,
+      goodTwinId: goodTwin.id,
+      opposingTwinId: opposite.id,
+    });
+  }
+  return nextPair;
+}
+
+function resolveAIBarberSwap(ctx) {
+  const { state, addLog, getAliveDemons, refreshEvilRecognitionAfterRoleChange, sample, swapRolesByRoleId, rng } = ctx;
+  if (!state.snv) {
+    return false;
+  }
+  const demon = getAliveDemons(state)[0];
+  if (!demon || demon.isHuman) {
+    return false;
+  }
+  const candidates = state.players.filter((entry) => entry.alive && entry.category !== "demon");
+  const swapTargets = sample(candidates, Math.min(2, candidates.length), rng);
+  if (
+    swapTargets.length !== 2 ||
+    !swapRolesByRoleId(state, swapTargets[0], swapTargets[1], {
+      preserveTeams: true,
+      resetEntryState: true,
+      deliverEntryInfo: true,
+      rng,
+    })
+  ) {
+    return false;
+  }
+  refreshEvilRecognitionAfterRoleChange?.(state, {
+    reason: "barber-swap",
+    changedPlayerIds: swapTargets.map((entry) => entry.id),
+  });
+  syncEvilTwinPair(ctx, {
+    reason: "barber-swap",
+    changedPlayerIds: swapTargets.map((entry) => entry.id),
+  });
+  addLog(state, "night-effect", "Barber 死亡后，恶魔交换了两名玩家身份。", {
+    demonId: demon.id,
+    a: swapTargets[0].id,
+    b: swapTargets[1].id,
+  });
+  return true;
 }
 
 function triggerSweetheartDrunk(ctx, victim) {
@@ -833,17 +943,41 @@ function triggerSageInfo(ctx, victim, killerDemonId) {
 }
 
 function triggerEvilTwinExecutionOutcome(ctx, victim) {
-  const { state, finalizeWinner } = ctx;
-  if (!state.snv?.evilTwinPair || !victim) {
+  const { state, finalizeWinner, getEffectiveRoleId, getPlayerById, isAbilityBlocked } = ctx;
+  const pair = state.snv?.evilTwinPair;
+  if (!pair || !victim) {
     return;
   }
-  if (victim.id === state.snv.evilTwinPair.goodTwinId) {
+  const evilTwin = getPlayerById(state, pair.evilTwinId);
+  const activeEvilTwin =
+    !!evilTwin &&
+    ((evilTwin.alive || victim.id === pair.evilTwinId) &&
+      getEffectiveRoleId(evilTwin) === SNV.EVIL_TWIN &&
+      !isAbilityBlocked(evilTwin));
+  if (activeEvilTwin && victim.id === pair.goodTwinId) {
     finalizeWinner(state, "evil", "好双子被处决，邪恶阵营获胜。");
-    return;
   }
-  if (victim.id === state.snv.evilTwinPair.evilTwinId) {
-    finalizeWinner(state, "good", "邪恶双子被处决，善良阵营获胜。");
+}
+
+function evilTwinPairAliveBlocksGoodWin(ctx) {
+  const { state, getEffectiveRoleId, getPlayerById, isAbilityBlocked } = ctx;
+  const pair = state.snv?.evilTwinPair;
+  if (state.scriptId !== "snv" || !pair?.evilTwinId || !pair?.goodTwinId) {
+    return { blocked: false };
   }
+  const evilTwin = getPlayerById(state, pair.evilTwinId);
+  const goodTwin = getPlayerById(state, pair.goodTwinId);
+  const oppositeTwin = getPlayerById(state, pair.opposingTwinId ?? pair.goodTwinId);
+  const activeEvilTwin =
+    evilTwin?.alive &&
+    getEffectiveRoleId(evilTwin) === SNV.EVIL_TWIN &&
+    !isAbilityBlocked(evilTwin);
+  return {
+    blocked: !!(activeEvilTwin && goodTwin?.alive && oppositeTwin?.alive),
+    evilTwinId: pair.evilTwinId,
+    goodTwinId: pair.goodTwinId,
+    opposingTwinId: pair.opposingTwinId ?? pair.goodTwinId,
+  };
 }
 
 function onAfterExecutionDeath(ctx, { victim }) {
@@ -870,10 +1004,17 @@ function onAfterNightDeath(ctx, { victim, reason, payload }) {
   }
 }
 
-function onAfterDeath(ctx, { victim }) {
+function onAfterDeath(ctx, { victim, phase }) {
+  const { state } = ctx;
   triggerSweetheartDrunk(ctx, victim);
   triggerKlutzChoice(ctx, victim);
-  triggerBarberChoice(ctx, victim);
+  if (victim.roleId === SNV.BARBER && state.snv) {
+    state.snv.barberDiedToday = true;
+    triggerBarberChoice(ctx, victim);
+    if (phase === "night" && resolveAIBarberSwap(ctx)) {
+      state.snv.barberDiedToday = false;
+    }
+  }
 }
 
 function onAfterExecutionOutcome(ctx, { victim }) {
@@ -898,17 +1039,20 @@ function onEndOfDay(ctx) {
     return;
   }
   const snv = state.snv;
-  Object.entries(snv.cerenovusEnforceDayByPlayerId ?? {}).forEach(([playerId, day]) => {
-    if (Number(day) !== state.day) {
+  for (const [playerId, day] of Object.entries(snv.cerenovusEnforceDayByPlayerId ?? {})) {
+    if (state.gameOver) {
       return;
+    }
+    if (Number(day) !== state.day) {
+      continue;
     }
     const player = getPlayerById(state, playerId);
     if (!player?.alive || isAbilityBlocked(player)) {
-      return;
+      continue;
     }
     const forcedRoleId = snv.cerenovusForcedByPlayerId[playerId];
     if (!forcedRoleId) {
-      return;
+      continue;
     }
     if (player.publicClaimRoleId !== forcedRoleId) {
       processExecutionDeath(state, player, "cerenovus-break", { forcedRoleId }, rng);
@@ -919,26 +1063,33 @@ function onEndOfDay(ctx) {
     }
     delete snv.cerenovusForcedByPlayerId[playerId];
     delete snv.cerenovusEnforceDayByPlayerId[playerId];
-  });
+    if (state.gameOver) {
+      return;
+    }
+  }
 
-  state.players
-    .filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.MUTANT && !isAbilityBlocked(entry))
-    .forEach((mutant) => {
-      if (!mutant.publicClaimRoleId) {
+  for (const mutant of state.players.filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.MUTANT && !isAbilityBlocked(entry))) {
+    if (state.gameOver) {
+      return;
+    }
+    if (!mutant.publicClaimRoleId) {
+      continue;
+    }
+    const claimedRole = getRoleById(state.scriptId, mutant.publicClaimRoleId);
+    if (!claimedRole || claimedRole.category !== "outsider") {
+      continue;
+    }
+    if (rng() < 0.7) {
+      processExecutionDeath(state, mutant, "mutant-claim-break", { roleId: claimedRole.id }, rng);
+      addLog(state, "day-skill", "Mutant 公开声称外来者，触发即时处决。", {
+        playerId: mutant.id,
+        roleId: claimedRole.id,
+      });
+      if (state.gameOver) {
         return;
       }
-      const claimedRole = getRoleById(state.scriptId, mutant.publicClaimRoleId);
-      if (!claimedRole || claimedRole.category !== "outsider") {
-        return;
-      }
-      if (rng() < 0.7) {
-        processExecutionDeath(state, mutant, "mutant-claim-break", { roleId: claimedRole.id }, rng);
-        addLog(state, "day-skill", "Mutant 公开声称外来者，触发即时处决。", {
-          playerId: mutant.id,
-          roleId: claimedRole.id,
-        });
-      }
-    });
+    }
+  }
 
   if (state.day === 1) {
     state.players
@@ -989,7 +1140,7 @@ function onNomination(ctx, { nominator, nominee }) {
     nomineeId: nominee.id,
   });
   checkWin(state);
-  return { blocked: true, reason: `${nominator.name} 触发了 Witch 诅咒。` };
+  return { blocked: false, triggered: true, reason: `${nominator.name} 触发了 Witch 诅咒。` };
 }
 
 function onNominationAccepted(ctx, { nominator }) {
@@ -1017,14 +1168,23 @@ function onVotesTallied(ctx, { votes }) {
 }
 
 function onNoExecution(ctx) {
-  const { state, finalizeWinner, getEffectiveRoleId } = ctx;
+  const { state, finalizeWinner, getEffectiveRoleId, isAbilityBlocked } = ctx;
   if (state.scriptId !== "snv") {
     return;
   }
-  const vortoxAlive = state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX);
+  const vortoxAlive = state.players.some(
+    (entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX && !isAbilityBlocked(entry)
+  );
   if (vortoxAlive) {
     finalizeWinner(state, "evil", "Vortox 在无人处决的白天触发了邪恶胜利。");
   }
+}
+
+function onRoleChange(ctx, details = {}) {
+  syncEvilTwinPair(ctx, {
+    reason: details.reason ?? "role-change",
+    changedPlayerIds: details.changedPlayerIds ?? [],
+  });
 }
 
 export const SNV_RULE_HANDLERS = {
@@ -1039,4 +1199,6 @@ export const SNV_RULE_HANDLERS = {
   onNominationAccepted,
   onVotesTallied,
   onNoExecution,
+  onRoleChange,
+  evilTwinPairAliveBlocksGoodWin,
 };

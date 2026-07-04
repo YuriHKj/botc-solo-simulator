@@ -28,7 +28,7 @@
 
 function hasDeathToday(state) {
   return (
-    (state.events?.executions ?? []).some((entry) => entry.day === state.day) ||
+    (state.events?.executions ?? []).some((entry) => entry.day === state.day && entry.died !== false) ||
     (state.events?.dayDeaths ?? []).some((entry) => entry.day === state.day)
   );
 }
@@ -154,6 +154,11 @@ export const BMR_ROLE_ACTION_RULES = {
     minNight: 2,
     firstNight: false,
     maxUses: 1,
+    optional: true,
+    modes: [
+      { id: "act", label: "Choose a character" },
+      { id: "skip", label: "Wait for a later night" },
+    ],
     prompt: "Choose 1 character. That character is drunk for 3 nights and 3 days.",
     interaction: {
       title: "侍臣的沉醉封印",
@@ -171,6 +176,11 @@ export const BMR_ROLE_ACTION_RULES = {
     allowSelf: false,
     allowDead: true,
     requireDead: true,
+    optional: true,
+    modes: [
+      { id: "act", label: "Attempt a revive" },
+      { id: "skip", label: "Wait for a later night" },
+    ],
     targetFilter: ({ state, target }) => registersAsDeadForBMR(state, target),
     minNight: 2,
     maxUses: 1,
@@ -212,6 +222,11 @@ export const BMR_ROLE_ACTION_RULES = {
     allowDead: false,
     minNight: 1,
     maxUses: 1,
+    optional: true,
+    modes: [
+      { id: "act", label: "Assassinate tonight" },
+      { id: "skip", label: "Wait for a later night" },
+    ],
     prompt: "每局一次，选择 1 名存活玩家使其死亡，即使通常无法死亡。",
     interaction: {
       title: "刺客的暗刃",
@@ -411,6 +426,7 @@ export function runBadMoonRisingNight(ctx) {
     getEffectiveRoleId,
     getNightOrderRoleIds,
     getPlayerById,
+    getPubliclyAlivePlayers,
     isAbilityBlocked,
     isRoleNightWindowOpen,
     markWokeTonight,
@@ -422,6 +438,16 @@ export function runBadMoonRisingNight(ctx) {
     return;
   }
   const bmr = state.bmr;
+  const livingTargets = (excludedIds = []) => {
+    const blocked = new Set(Array.isArray(excludedIds) ? excludedIds : [excludedIds]);
+    return getPubliclyAlivePlayers(state).filter((entry) => !blocked.has(entry.id));
+  };
+  const demonAttackTargets = (demonPlayer, excludedIds = []) => {
+    const blocked = new Set([demonPlayer?.id, ...(Array.isArray(excludedIds) ? excludedIds : [excludedIds])].filter(Boolean));
+    const targets = livingTargets([...blocked]);
+    const goodTargets = targets.filter((entry) => entry.team === "good");
+    return goodTargets.length > 0 ? goodTargets : targets;
+  };
 
   Object.entries(bmr.moonchildPendingById ?? {}).forEach(([, targetId]) => {
     const target = getPlayerById(state, targetId);
@@ -488,7 +514,7 @@ export function runBadMoonRisingNight(ctx) {
         state,
         sailor,
         1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== sailor.id) },
+        { allowSelf: false, allowDead: false, preferredPool: livingTargets([sailor.id]) },
         rng
       )[0];
       const drunkTarget = rng() < 0.5 ? sailor : target;
@@ -516,7 +542,7 @@ export function runBadMoonRisingNight(ctx) {
     .forEach((exorcist) => {
       markWokeTonight(state, exorcist, "exorcist");
       const previousId = bmr.exorcistLastTargetById[exorcist.id];
-      const candidates = getAlivePlayers(state).filter((entry) => entry.id !== exorcist.id && entry.id !== previousId);
+      const candidates = livingTargets([exorcist.id, previousId]);
       const target = pickNightTargets(
         state,
         exorcist,
@@ -548,7 +574,7 @@ export function runBadMoonRisingNight(ctx) {
         state,
         innkeeper,
         2,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== innkeeper.id) },
+        { allowSelf: false, allowDead: false, preferredPool: livingTargets([innkeeper.id]) },
         rng
       );
       bmr.innkeeperProtectedIds = targets.map((entry) => entry.id);
@@ -589,6 +615,10 @@ export function runBadMoonRisingNight(ctx) {
       ) {
         planned = { ...state.humanNightPlan };
         state.humanNightPlan = null;
+      }
+      if (planned?.skipped) {
+        addLog(state, "night-effect", "Courtier waits and keeps the drunkenness choice for a later night.", { by: courtier.id, skipped: true });
+        return;
       }
       const roleId =
         humanSelectedRoleId ??
@@ -635,7 +665,7 @@ export function runBadMoonRisingNight(ctx) {
           state,
           gambler,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== gambler.id) },
+          { allowSelf: false, allowDead: false, preferredPool: livingTargets([gambler.id]) },
           rng
         )[0];
       if (!target) {
@@ -662,7 +692,7 @@ export function runBadMoonRisingNight(ctx) {
         state,
         maid,
         2,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== maid.id) },
+        { allowSelf: false, allowDead: false, preferredPool: livingTargets([maid.id]) },
         rng
       );
       const wakingRoles = new Set(getNightOrderRoleIds("bmr", state.night));
@@ -707,9 +737,13 @@ export function runBadMoonRisingNight(ctx) {
       }
       const deadTownsfolk = deadPlayers.filter((entry) => entry.category === "townsfolk");
       const planned = professor.isHuman
-        ? consumeHumanNightPlanTargets(state, professor, 1, { allowSelf: false, allowDead: true })
+        ? consumeHumanNightPlan(state, professor, { allowSelf: false, allowDead: true, minTargets: 0, maxTargets: 1 })
         : null;
-      let target = planned?.[0] ?? chooseOne(deadTownsfolk.length > 0 ? deadTownsfolk : deadPlayers, rng);
+      if (planned?.skipped) {
+        addLog(state, "night-effect", "Professor waits and keeps the revive for a later night.", { by: professor.id, skipped: true });
+        return;
+      }
+      let target = planned?.targets?.[0] ?? chooseOne(deadTownsfolk.length > 0 ? deadTownsfolk : deadPlayers, rng);
       if (!target || !registersAsDeadForBMR(state, target)) {
         target = chooseOne(deadPlayers, rng);
       }
@@ -737,7 +771,7 @@ export function runBadMoonRisingNight(ctx) {
     .forEach((advisor) => {
       markWokeTonight(state, advisor, "devils-advocate");
       const previous = bmr.devilsAdvocateLastTargetById[advisor.id];
-      const candidates = getAlivePlayers(state).filter((entry) => entry.id !== advisor.id && entry.id !== previous);
+      const candidates = livingTargets([advisor.id, previous]);
       const target = pickNightTargets(
         state,
         advisor,
@@ -765,19 +799,23 @@ export function runBadMoonRisingNight(ctx) {
       if (bmr.assassinUsedByIds.includes(assassin.id)) {
         return;
       }
-      const planned = assassin.isHuman
-        ? consumeHumanNightPlanTargets(state, assassin, 1, { allowSelf: false, allowDead: false })
+      const plannedAction = assassin.isHuman
+        ? consumeHumanNightPlan(state, assassin, { allowSelf: false, allowDead: false, minTargets: 0, maxTargets: 1 })
         : null;
-      if (!planned && !assassin.isHuman && rng() > 0.28) {
+      if (plannedAction?.skipped) {
+        addLog(state, "night-effect", "Assassin waits and keeps the once-per-game kill for a later night.", { by: assassin.id, skipped: true });
+        return;
+      }
+      if (!plannedAction && !assassin.isHuman && rng() > 0.28) {
         return;
       }
       const target =
-        planned?.[0] ??
+        plannedAction?.targets?.[0] ??
         pickNightTargets(
           state,
           assassin,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== assassin.id) },
+          { allowSelf: false, allowDead: false, preferredPool: livingTargets([assassin.id]) },
           rng
         )[0];
       if (!target) {
@@ -841,7 +879,7 @@ export function runBadMoonRisingNight(ctx) {
           state,
           lunatic,
           perceivedDemonRoleId === BMR.SHABALOTH ? 2 : 1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== lunatic.id) },
+          { allowSelf: false, allowDead: false, preferredPool: livingTargets([lunatic.id]) },
           rng
         );
       }
@@ -889,7 +927,7 @@ export function runBadMoonRisingNight(ctx) {
         state,
         demon,
         1,
-        { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
+        { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
         rng
       )[0];
       if (target) {
@@ -904,7 +942,7 @@ export function runBadMoonRisingNight(ctx) {
       state,
       demon,
       1,
-      { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
+      { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
       rng
     )[0];
     if (target) {
@@ -925,7 +963,7 @@ export function runBadMoonRisingNight(ctx) {
       state,
       demon,
       2,
-      { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
+      { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
       rng
     );
     bmr.shabalothLastTargets = targets.map((entry) => entry.id);
@@ -951,11 +989,12 @@ export function runBadMoonRisingNight(ctx) {
       return;
     }
     if (bmr.poCharged) {
+      const targetsPool = demonAttackTargets(demon);
       targets =
         plannedPo?.targets ??
         sample(
-          getAlivePlayers(state).filter((entry) => entry.id !== demon.id),
-          Math.min(3, Math.max(0, getAlivePlayers(state).length - 1)),
+          targetsPool,
+          Math.min(3, targetsPool.length),
           rng
         );
       bmr.poCharged = false;
@@ -970,7 +1009,7 @@ export function runBadMoonRisingNight(ctx) {
           state,
           demon,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== demon.id) },
+          { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
           rng
         );
     }
@@ -1102,9 +1141,18 @@ function maybeBlockDeathByTeaLady(ctx, victim, reason, logType) {
   return true;
 }
 
+function isDemonNightDeathReason(reason) {
+  return reason === "demon-kill" || reason === "pukka-delayed-kill" || reason === "shabaloth-kill";
+}
+
 function maybeBlockDeathByInnkeeper(ctx, victim, reason, logType) {
   const { state, addLog } = ctx;
-  if (!state.bmr || !victim?.alive || !state.bmr.innkeeperProtectedIds?.includes(victim.id)) {
+  if (
+    !state.bmr ||
+    !victim?.alive ||
+    !state.bmr.innkeeperProtectedIds?.includes(victim.id) ||
+    !isDemonNightDeathReason(reason)
+  ) {
     return false;
   }
   addLog(state, logType, `${victim.name} 受到 Innkeeper 保护，免于死亡。`, {
@@ -1149,8 +1197,11 @@ function maybeSaveByFool(ctx, victim, reason, logType) {
 }
 
 function maybeSaveByZombuul(ctx, victim, reason, logType) {
-  const { state, addLog } = ctx;
+  const { state, addLog, isAbilityBlocked } = ctx;
   if (!state.bmr || victim.roleId !== BMR.ZOMBUUL || state.bmr.zombuulRevived || !victim.alive) {
+    return false;
+  }
+  if (isAbilityBlocked(victim)) {
     return false;
   }
   state.bmr.zombuulRevived = true;
@@ -1319,8 +1370,7 @@ function triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload) {
   if (!state.bmr) {
     return;
   }
-  const demonCaused = reason === "demon-kill" || reason === "pukka-delayed-kill" || reason === "shabaloth-kill";
-  if (!demonCaused) {
+  if (!isDemonNightDeathReason(reason)) {
     return;
   }
   Object.entries(state.bmr.grandmotherChildById ?? {}).forEach(([grandmotherId, childId]) => {
@@ -1335,8 +1385,8 @@ function triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload) {
   });
 }
 
-function triggerMoonchildChoice(ctx, victim) {
-  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, playerChoiceOptions } = ctx;
+function triggerMoonchildChoice(ctx, victim, phase) {
+  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, playerChoiceOptions, processNightDeath, rng } = ctx;
   if (!state.bmr || victim.roleId !== BMR.MOONCHILD) {
     return;
   }
@@ -1367,6 +1417,19 @@ function triggerMoonchildChoice(ctx, victim) {
   }
   const target = chooseRandomAliveExcluding(state, [victim.id]);
   if (!target) {
+    return;
+  }
+  if (phase === "night") {
+    let died = false;
+    if (target.team === "good") {
+      died = processNightDeath(state, target, "moonchild-trigger", { by: victim.id }, rng);
+    }
+    addLog(state, "death-trigger", `${victim.name} 触发 Moonchild，指定了 ${target.name}。`, {
+      victimId: victim.id,
+      targetId: target.id,
+      immediateNight: true,
+      died,
+    });
     return;
   }
   state.bmr.moonchildPendingById[victim.id] = target.id;
@@ -1441,8 +1504,8 @@ function onAfterNightDeath(ctx, { victim, reason, payload }) {
   triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload);
 }
 
-function onAfterDeath(ctx, { victim }) {
-  triggerMoonchildChoice(ctx, victim);
+function onAfterDeath(ctx, { victim, phase }) {
+  triggerMoonchildChoice(ctx, victim, phase);
 }
 
 function normalizeStatementText(text) {

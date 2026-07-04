@@ -106,6 +106,9 @@ Inside the package:
 - `Start AI Polished.bat`: fallback launcher that forces Unity with `-botc-llm-renderer`.
 - `Start Basic.bat`: runs Unity with `-botc-no-llm-renderer`.
 - `README_AI_POLISH.md`: explains local model fallback behavior.
+- `release-cleanup-report.json`: non-destructive retention report. The default policy keeps the latest 2 playable package groups and latest 1 verified package group, lists older cleanup candidates, and suggests archiving under `output/release-unity-ai/archive` without deleting or moving files automatically.
+
+The packager also writes `output/release-unity-ai/release-cleanup-report-latest.json` and prints folder/zip size totals plus the report-only cleanup candidate list.
 
 ## LocalLLM source folder checklist
 

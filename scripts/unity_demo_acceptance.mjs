@@ -10,6 +10,7 @@ import {
   markPublicDiscussionRound,
   resolveNominationAndVote,
   runNight,
+  skipDay,
   withSeededRandom,
 } from "./engine.js";
 import { processUnityActionFile } from "./unity_action_bridge.mjs";
@@ -136,6 +137,8 @@ function executePlayer(state, nominee, seedOffset) {
   );
   assert.equal(result.accepted, true, result.reason);
   assert.equal(result.passed, true, "fixture execution vote should pass");
+  assert.equal(nominee.alive, true, "fixture nominee should remain on the block until day end");
+  assert.equal(skipDay(state, withSeededRandom(seed + seedOffset + 1)), true, "fixture day end should resolve execution");
   assert.equal(nominee.alive, false, "fixture nominee should die");
 }
 

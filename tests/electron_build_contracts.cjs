@@ -28,4 +28,14 @@ for (const requiredPath of ["electron/main.cjs", "electron/preload.cjs", "electr
   assert.ok(fs.existsSync(path.join(__dirname, "..", requiredPath)), `${requiredPath} must exist for packaged Electron`);
 }
 
+const appSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "app.js"), "utf8");
+assert.ok(
+  appSource.includes("function shouldAutoResumeDayEndAfterStorytellerQueue"),
+  "Electron app should detect day-end Storyteller queues that need phase resumption",
+);
+assert.ok(
+  appSource.includes("beginNextNightWithStorytellerPrompt();"),
+  "Electron app should resume day-end flow after a generic Storyteller queue action drains",
+);
+
 console.log("Electron build contracts passed.");

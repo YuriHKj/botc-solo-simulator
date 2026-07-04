@@ -7,6 +7,11 @@ export function createAIPrivateSocial(deps) {
     refreshAIBeliefs,
     buildAIThoughtFrame,
     buildAIStrategyContext,
+    buildAgentView,
+    buildDialogueEvidenceContract,
+    buildDecisionRationale,
+    attachDecisionRationaleSpokenLine,
+    attachClaimDisclosureRationaleSpokenLine,
     areKnownAllies,
     composeEvilAllianceResponse,
     composeHumanizedEvilAllianceResponse,
@@ -21,6 +26,7 @@ export function createAIPrivateSocial(deps) {
     humanizeSharedPrivateNote,
     composeNightInfoDisclosure,
     rememberDayStance,
+    crossDayStanceContinuityLine,
     getSharedInfoMemory,
     collectEvidence,
     evidenceReasonText,
@@ -63,6 +69,74 @@ function proactiveWhisperDayRecord(state) {
     ? dialogue.proactivePrivateByDay[dayKey].declinedIds
     : [];
   return dialogue.proactivePrivateByDay[dayKey];
+}
+
+function cleanHiddenEvilCoordinationText(text) {
+  let value = `${text ?? ""}`
+    .replace(/^我直接说，(?=.*我直接说。)/u, "")
+    .replace(/([0-9]+号)\s+(是个不错的火力点)/gu, "$1$2")
+    .replace(/把\s*([0-9]+号)\s*放到/gu, "把$1放到")
+    .trim();
+  const openQuoteCount = (value.match(/“/gu) ?? []).length;
+  const closeQuoteCount = (value.match(/”/gu) ?? []).length;
+  if (openQuoteCount > closeQuoteCount) {
+    value = `${value.replace(/[。！？；]?$/u, "")}”。`;
+  }
+  return value;
+}
+
+const PRIVATE_SOCIAL_RATIONALE_LABEL_PATTERN =
+  /^(验证点|判定标准|证据联动|压力档位|反证|桌面风险|信息收益|桌面反应|时机窗口|世界分支|票面联盟|来源可靠度|时间线一致性|动机归因|举证责任|追问顺序|行动门槛|记忆连续性|表达纪律|不确定性|证据新鲜度|证伪检查|因果链|前提审计|机制敏感性|角色假说)\s*[：:]\s*/u;
+
+function privateSocialRationaleSentence(text) {
+  const value = `${text ?? ""}`.trim().replace(PRIVATE_SOCIAL_RATIONALE_LABEL_PATTERN, "").trim();
+  if (!value) {
+    return "";
+  }
+  return /[。！？]$/.test(value) ? value : `${value}。`;
+}
+
+function uniquePrivateSocialFragments(fragments = []) {
+  const seen = new Set();
+  return fragments.filter((entry) => {
+    const value = `${entry ?? ""}`.trim();
+    if (!value) return false;
+    const key = value.replace(/[，。！？；：、,.!?;:\s]/gu, "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isTargetSwitchPrivateSocialLine(line) {
+  return /昨天主线|天前主线|先转|不等于放掉|旧线|回看/.test(`${line ?? ""}`);
+}
+
+function selectedPrivateSocialRationaleFragments(decisionRationale, intent) {
+  if (!decisionRationale?.focusId) {
+    return [];
+  }
+  const targetSwitchLine = privateSocialRationaleSentence(
+    decisionRationale.targetSwitchLine || decisionRationale.memoryContinuityLine
+  );
+  const targetSwitchMemoryLine = isTargetSwitchPrivateSocialLine(targetSwitchLine) ? targetSwitchLine : "";
+  const verificationLine = privateSocialRationaleSentence(decisionRationale.verificationLine);
+  const evidenceModeLine = privateSocialRationaleSentence(decisionRationale.evidenceModeLine);
+  const responsePlanLine = privateSocialRationaleSentence(decisionRationale.responsePlanLine);
+  const actionThresholdLine = privateSocialRationaleSentence(decisionRationale.actionThresholdLine);
+  const roleHypothesisLine = privateSocialRationaleSentence(decisionRationale.roleHypothesisLine);
+  const falsificationCheckLine = privateSocialRationaleSentence(decisionRationale.falsificationCheckLine);
+  const evidenceBoundaryLine = privateSocialRationaleSentence(decisionRationale.evidenceBoundaryLine);
+  const confidenceLine = privateSocialRationaleSentence(decisionRationale.confidenceLine);
+  const reconsiderationLine = privateSocialRationaleSentence(decisionRationale.reconsiderationLine);
+  const byIntent = {
+    [QUESTION_INTENT.VOTE]: [targetSwitchMemoryLine, responsePlanLine, actionThresholdLine, falsificationCheckLine],
+    [QUESTION_INTENT.PLAN]: [targetSwitchMemoryLine, verificationLine, responsePlanLine, actionThresholdLine],
+    [QUESTION_INTENT.NIGHT]: [targetSwitchMemoryLine, evidenceModeLine, verificationLine, evidenceBoundaryLine],
+    [QUESTION_INTENT.CLAIM]: [targetSwitchMemoryLine, evidenceModeLine, verificationLine, evidenceBoundaryLine],
+  };
+  const fallback = [targetSwitchMemoryLine, verificationLine, roleHypothesisLine, responsePlanLine, evidenceModeLine, confidenceLine, reconsiderationLine];
+  return uniquePrivateSocialFragments([...(byIntent[intent] ?? []), ...fallback]).slice(0, 2);
 }
 
 function aiPrivateDayRecord(state) {
@@ -178,6 +252,30 @@ function proactiveWhisperOfferId(state, aiPlayer) {
   return `proactive-${state.day ?? 0}-${aiPlayer.id}`;
 }
 
+function privateDialogueEventAnchor(state, options = {}) {
+  const timestamp = Number.isFinite(Number(options.timestamp)) ? Number(options.timestamp) : Date.now();
+  const speakerId = options.speakerId ?? "";
+  const targetId = options.targetId ?? "";
+  const eventId =
+    options.eventId ??
+    `${options.mode ?? "private"}-${state.day ?? 0}-${speakerId || "speaker"}-${targetId || "target"}-${timestamp}`;
+  return {
+    eventId,
+    timelineEntryId: options.timelineEntryId ?? eventId,
+    mode: options.mode ?? "private",
+    source: options.source ?? "private",
+    audience: options.audience ?? "private",
+    speakerId,
+    targetId,
+    focusId: options.focusId ?? "",
+    visibility: options.visibility ?? "private",
+    day: state.day ?? 0,
+    night: state.night ?? 0,
+    timestamp,
+    text: options.text ?? "",
+  };
+}
+
 function pendingProactiveOfferFor(state, aiPlayerId) {
   const dialogue = ensureDialogueState(state);
   return dialogue.pendingProactiveWhispers.find((entry) => entry.playerId === aiPlayerId) ?? null;
@@ -199,9 +297,14 @@ function buildProactiveWhisperOffer(state, aiPlayer, human, composed) {
     focusScore: composed.focusScore ?? null,
     intent: composed.intent ?? QUESTION_INTENT.GENERIC,
     thoughtFrame: composed.thoughtFrame ?? null,
+    evidenceContract: composed.evidenceContract ?? null,
+    decisionRationale: composed.decisionRationale ?? null,
+    claimDisclosureRationale: composed.claimDisclosureRationale ?? null,
+    crossDayStance: composed.crossDayStance ?? null,
+    sourceEventAnchor: composed.sourceEventAnchor ?? null,
     infoSummary: composed.infoSummary ?? "",
     repeatedInfo: !!composed.repeatedInfo,
-    createdAt: Date.now(),
+    createdAt: composed.sourceEventAnchor?.timestamp ?? Date.now(),
   };
 }
 
@@ -215,6 +318,16 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
   const intent = offer.intent ?? QUESTION_INTENT.GENERIC;
   const focusId = offer.focusId ?? null;
   const focusScore = Number.isFinite(offer.focusScore) ? offer.focusScore : null;
+  const sourceEventAnchor = offer.sourceEventAnchor ?? privateDialogueEventAnchor(state, {
+    eventId: offer.id ?? "",
+    mode: "whisper-in",
+    source: "ai_proactive_private_whisper",
+    audience: "private",
+    speakerId: aiPlayer.id,
+    targetId: human.id,
+    visibility: "private",
+    timestamp: offer.createdAt,
+  });
   const responseSignals = predictDialogueSignals(response);
 
   addLog(state, "whisper", `${aiPlayer.name} -> 你：${response}`, {
@@ -235,6 +348,10 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
     viewerId: human.id,
     targetId: human.id,
     proactive: true,
+    evidenceContract: offer.evidenceContract ?? null,
+    decisionRationale: offer.decisionRationale ?? null,
+    claimDisclosureRationale: offer.claimDisclosureRationale ?? null,
+    crossDayStance: offer.crossDayStance ?? null,
   });
 
   recordPrivateWhisperForAgents(state, {
@@ -257,11 +374,18 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
   }
 
   pushTimeline(state, {
+    id: sourceEventAnchor.eventId,
+    timestamp: sourceEventAnchor.timestamp,
     mode: "whisper-in",
     speakerId: aiPlayer.id,
     targetId: human.id,
     text: response,
     proactive: true,
+    focusId: focusId ?? "",
+    evidenceSummary: offer.evidenceContract?.spokenText || offer.evidenceContract?.text || "",
+    decisionRationale: offer.decisionRationale ?? null,
+    claimDisclosureRationale: offer.claimDisclosureRationale ?? null,
+    crossDayStance: offer.crossDayStance ?? null,
   });
 
   recordUtteranceMVP(state, {
@@ -286,6 +410,9 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
       direction: "in",
       proactive: true,
       offerId: offer.id ?? "",
+      decisionRationale: offer.decisionRationale ?? null,
+      claimDisclosureRationale: offer.claimDisclosureRationale ?? null,
+      crossDayStance: offer.crossDayStance ?? null,
       mlVoteLabel: responseSignals.voteLabel ?? "undecided",
       mlVoteConfidence: responseSignals.voteConfidence ?? 0,
       mlSpeechActs: responseSignals.speechActs ?? [],
@@ -302,10 +429,22 @@ function commitProactiveWhisper(state, offer, rng = Math.random) {
     reason: offer.reason ?? "",
     response,
     focusId,
+    decisionRationale: offer.decisionRationale ?? null,
+    claimDisclosureRationale: offer.claimDisclosureRationale ?? null,
+    crossDayStance: offer.crossDayStance ?? null,
   };
 }
 
 function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, options = {}) {
+  const sourceEventAnchor = options.sourceEventAnchor ?? privateDialogueEventAnchor(state, {
+    eventId: proactiveWhisperOfferId(state, aiPlayer),
+    mode: "whisper-in",
+    source: "ai_proactive_private_whisper",
+    audience: "private",
+    speakerId: aiPlayer.id,
+    targetId: human?.id ?? "",
+    visibility: "private",
+  });
   const thoughtFrame = options.thoughtFrame ?? buildAIThoughtFrame(state, aiPlayer, {
     audience: "private",
     stage: "private",
@@ -323,6 +462,7 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
       ...composeHumanizedEvilAllianceResponse(state, aiPlayer, human, allianceAnalysis, original, rng),
       intent: QUESTION_INTENT.PLAN,
       thoughtFrame,
+      sourceEventAnchor,
     };
   }
 
@@ -333,6 +473,10 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
       : null) ??
     ranked[0] ??
     null;
+  const second = focus ? ranked.find((entry) => entry.player.id !== focus.player.id) ?? null : null;
+  const agentView = focus && buildAgentView
+    ? buildAgentView(state, aiPlayer, { audience: "private", targetId: focus.player.id })
+    : null;
   const strategyContext = focus && buildAIStrategyContext
     ? buildAIStrategyContext(state, aiPlayer, {
         audience: "private",
@@ -343,6 +487,9 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
   const strategyLine = strategyContext?.evilPlanContextLine && aiPlayer.team === "evil"
     ? strategyContext.evilPlanContextLine
     : "";
+  const evidenceContract = focus && buildDialogueEvidenceContract
+    ? buildDialogueEvidenceContract(agentView ?? state, aiPlayer, focus.player)
+    : null;
   const notes = summarizeShareablePrivateNotes(aiPlayer, 2, { state, audience: human });
   const infoSummary = sharedPrivateInfoSummary(state, aiPlayer, human);
   const repeatInfo = summarizeSharedInfoRepeat
@@ -351,6 +498,9 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
   const lines = [];
   const persona = aiPlayer.aiPersona ?? PERSONA_TYPES.STEADY;
   let intent = QUESTION_INTENT.PLAN;
+  let claimDisclosureRationale = null;
+  let crossDayStance = null;
+  let decisionRationale = null;
 
   if (!aiPlayer.alive) {
     lines.push(pickLayeredSpeech({ layer: "privateSocial", audience: "private", persona, team: aiPlayer.team, act: "deadOpener" }, {}, rng, [
@@ -383,6 +533,7 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
     const disclosure = composeNightInfoDisclosure?.(state, aiPlayer, human, rng, {
       trustScore: aiPlayer.suspicion?.[human.id],
     });
+    claimDisclosureRationale = disclosure?.claimDisclosureRationale ?? null;
     const notesText = disclosure?.text || notes.map(humanizeSharedPrivateNote).join("；");
     if (repeatInfo?.line) {
       lines.push(repeatInfo.line);
@@ -397,10 +548,36 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
   }
 
   if (focus) {
-    const stanceMemory = rememberDayStance(state, aiPlayer, focus.player.id, focus.score, "proactive-private");
     const evidence = collectEvidence(state, aiPlayer, focus.player);
     const reasonText = evidenceReasonText(evidence, "主要来自发言姿态和场上位置");
     const focusName = statementTargetLabel(state, focus.player.id);
+    const stanceMemory = rememberDayStance(state, aiPlayer, focus.player.id, focus.score, "proactive-private", {
+      reasonSummary: reasonText,
+      evidenceCount: evidence.length,
+      evidenceSummaries: evidence,
+      evidenceAnchors: evidenceContract?.evidenceAnchors ?? [],
+      scoreTrailAnchors: evidenceContract?.scoreTrailAnchors ?? [],
+      eventAnchors: [
+        {
+          ...sourceEventAnchor,
+          focusId: focus.player.id,
+          focusScore: focus.score,
+          text: reasonText,
+        },
+      ],
+    });
+    crossDayStance = stanceMemory?.crossDayStance ?? null;
+    decisionRationale = buildDecisionRationale
+      ? buildDecisionRationale(agentView ?? state, aiPlayer, focus, second, {
+          publicOnly: false,
+          audience: "proactive-private",
+          stanceMemory,
+        })
+      : null;
+    const rationaleFragments = selectedPrivateSocialRationaleFragments(decisionRationale, intent);
+    const targetSwitchFragments = rationaleFragments.filter(isTargetSwitchPrivateSocialLine);
+    const supportingRationaleFragments = rationaleFragments.filter((entry) => !isTargetSwitchPrivateSocialLine(entry));
+    lines.push(...targetSwitchFragments);
     lines.push(
       rng() < 0.55
         ? pickPersonaTemplate(persona, "focusPush", { targetName: focusName, reasonText }, rng, [
@@ -410,7 +587,16 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
             `我现在更想推进 ${focusName}。理由是：${reasonText}。`,
           ])
     );
-    if (stanceMemory?.turns > 1) {
+    lines.push(...supportingRationaleFragments);
+    const crossDayLine = crossDayStanceContinuityLine
+      ? crossDayStanceContinuityLine(state, aiPlayer, focus.player.id, stanceMemory, {
+          targetName: focusName,
+          compact: true,
+        })
+      : "";
+    if (crossDayLine) {
+      lines.push(crossDayLine);
+    } else if (stanceMemory?.turns > 1) {
       lines.push(pickCorpusTemplate(
         "private.proactive.sameStance",
         { stanceLabel: dayStanceLabel(stanceMemory.stance) },
@@ -434,21 +620,31 @@ function composeProactiveWhisper(state, aiPlayer, human, rng = Math.random, opti
   }
 
   const rawResponse = sanitizePrivateDialogueText(joinSpeechFragments(lines), focus ? statementTargetLabel(state, focus.player.id) : "");
+  const response = applyHumanSpeechCadence
+    ? applyHumanSpeechCadence(state, aiPlayer, rawResponse, rng, {
+        audience: "private",
+        intent,
+        force: true,
+        maxSentences: 3,
+        maxChars: 170,
+      })
+    : applySpeechBudget(rawResponse, { audience: "private", maxSentences: 3, maxChars: 170 });
   return {
-    response: applyHumanSpeechCadence
-      ? applyHumanSpeechCadence(state, aiPlayer, rawResponse, rng, {
-          audience: "private",
-          intent,
-          force: true,
-          maxSentences: 3,
-          maxChars: 170,
-        })
-      : applySpeechBudget(rawResponse, { audience: "private", maxSentences: 3, maxChars: 170 }),
+    response,
     focusId: focus?.player?.id ?? null,
     focusScore: focus?.score ?? null,
     intent,
     thoughtFrame,
     strategyContext,
+    evidenceContract,
+    decisionRationale: attachDecisionRationaleSpokenLine
+      ? attachDecisionRationaleSpokenLine(decisionRationale, response)
+      : decisionRationale,
+    claimDisclosureRationale: attachClaimDisclosureRationaleSpokenLine
+      ? attachClaimDisclosureRationaleSpokenLine(claimDisclosureRationale, response)
+      : claimDisclosureRationale,
+    crossDayStance,
+    sourceEventAnchor,
     infoSummary,
     repeatedInfo: !!repeatInfo?.repeated,
   };
@@ -485,6 +681,14 @@ function scoreAIToAIWhisperPair(state, speaker, target) {
 }
 
 function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
+  const sourceEventAnchor = privateDialogueEventAnchor(state, {
+    mode: "ai-private",
+    source: "ai_to_ai_private_whisper",
+    audience: "private",
+    speakerId: speaker?.id ?? "",
+    targetId: target?.id ?? "",
+    visibility: "hidden",
+  });
   if (areKnownAllies(state, speaker, target)) {
     const allianceAnalysis = {
       intent: QUESTION_INTENT.PLAN,
@@ -495,11 +699,13 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
     return {
       ...composeHumanizedEvilAllianceResponse(state, speaker, target, allianceAnalysis, original, rng),
       intent: QUESTION_INTENT.PLAN,
+      sourceEventAnchor,
     };
   }
 
   const ranked = rankTargets(speaker, state, 3).filter((entry) => entry.player.id !== target.id);
   const focus = ranked[0] ?? null;
+  const runnerUp = focus ? ranked.find((entry) => entry.player.id !== focus.player.id) ?? null : null;
   const strategyContext = focus && buildAIStrategyContext
     ? buildAIStrategyContext(state, speaker, {
         audience: "private",
@@ -514,6 +720,8 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
   const lines = [];
   const persona = speaker.aiPersona ?? PERSONA_TYPES.STEADY;
   let intent = QUESTION_INTENT.PLAN;
+  let crossDayStance = null;
+  let decisionRationale = null;
 
   if (!speaker.alive) {
     lines.push(pickLayeredSpeech({ layer: "privateSocial", audience: "private", persona, team: speaker.team, act: "deadOpener" }, {}, rng, [
@@ -556,10 +764,39 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
   }
 
   if (focus) {
-    const stanceMemory = rememberDayStance(state, speaker, focus.player.id, focus.score, "ai-private");
-    const evidence = collectEvidence(state, speaker, focus.player);
+    const evidenceContract = buildDialogueEvidenceContract
+      ? buildDialogueEvidenceContract(state, speaker, focus.player)
+      : null;
+    const evidence = evidenceContract?.summaries ?? collectEvidence(state, speaker, focus.player);
     const reasonText = evidenceReasonText(evidence, "主要是发言姿态和场上位置还不顺");
     const focusName = statementTargetLabel(state, focus.player.id);
+    const stanceMemory = rememberDayStance(state, speaker, focus.player.id, focus.score, "ai-private", {
+      reasonSummary: reasonText,
+      evidenceCount: evidence.length,
+      evidenceSummaries: evidence,
+      evidenceAnchors: evidenceContract?.evidenceAnchors ?? [],
+      scoreTrailAnchors: evidenceContract?.scoreTrailAnchors ?? [],
+      eventAnchors: [
+        {
+          ...sourceEventAnchor,
+          focusId: focus.player.id,
+          focusScore: focus.score,
+          text: reasonText,
+        },
+      ],
+    });
+    crossDayStance = stanceMemory?.crossDayStance ?? null;
+    decisionRationale = buildDecisionRationale
+      ? buildDecisionRationale(state, speaker, focus, runnerUp, {
+          publicOnly: false,
+          audience: "private",
+          stanceMemory,
+        })
+      : null;
+    const rationaleFragments = selectedPrivateSocialRationaleFragments(decisionRationale, intent);
+    const targetSwitchFragments = rationaleFragments.filter(isTargetSwitchPrivateSocialLine);
+    const supportingRationaleFragments = rationaleFragments.filter((entry) => !isTargetSwitchPrivateSocialLine(entry));
+    lines.push(...targetSwitchFragments);
     lines.push(
       rng() < 0.55
         ? pickPersonaTemplate(persona, "focusPush", { targetName: focusName, reasonText }, rng, [
@@ -569,7 +806,16 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
             `我更想盯 ${focusName}。理由是：${reasonText}。`,
           ])
     );
-    if (stanceMemory?.turns > 1) {
+    lines.push(...supportingRationaleFragments);
+    const crossDayLine = crossDayStanceContinuityLine
+      ? crossDayStanceContinuityLine(state, speaker, focus.player.id, stanceMemory, {
+          targetName: focusName,
+          compact: true,
+        })
+      : "";
+    if (crossDayLine) {
+      lines.push(crossDayLine);
+    } else if (stanceMemory?.turns > 1) {
       lines.push(pickCorpusTemplate(
         "private.proactive.sameStance",
         { stanceLabel: dayStanceLabel(stanceMemory.stance) },
@@ -601,6 +847,9 @@ function composeAIToAIWhisper(state, speaker, target, rng = Math.random) {
     focusScore: focus?.score ?? null,
     intent,
     strategyContext,
+    decisionRationale,
+    crossDayStance,
+    sourceEventAnchor,
   };
 }
 function runAIToAIPrivateWhispers(state, rng = Math.random) {
@@ -655,6 +904,20 @@ function runAIToAIPrivateWhispers(state, rng = Math.random) {
       composed,
       { intent: composed.intent, mentionedPlayers: [], secondaryIntent: null }
     );
+    if (areKnownAllies(state, speaker, target)) {
+      composed = {
+        ...composed,
+        response: cleanHiddenEvilCoordinationText(composed.response),
+      };
+    }
+    if (composed.decisionRationale) {
+      composed = {
+        ...composed,
+        decisionRationale: attachDecisionRationaleSpokenLine
+          ? attachDecisionRationaleSpokenLine(composed.decisionRationale, composed.response)
+          : composed.decisionRationale,
+      };
+    }
     const responseSignals = predictDialogueSignals(composed.response);
 
     state.events.speeches.push({
@@ -667,6 +930,8 @@ function runAIToAIPrivateWhispers(state, rng = Math.random) {
       targetId: target.id,
       aiToAi: true,
       hiddenFromHuman: true,
+      decisionRationale: composed.decisionRationale ?? null,
+      crossDayStance: composed.crossDayStance ?? null,
     });
 
     recordPrivateWhisperForAgents(state, {
@@ -707,6 +972,8 @@ function runAIToAIPrivateWhispers(state, rng = Math.random) {
         targetId: target.id,
         aiToAi: true,
         hiddenFromHuman: true,
+        decisionRationale: composed.decisionRationale ?? null,
+        crossDayStance: composed.crossDayStance ?? null,
         mlVoteLabel: responseSignals.voteLabel ?? "undecided",
         mlVoteConfidence: responseSignals.voteConfidence ?? 0,
         mlSpeechActs: responseSignals.speechActs ?? [],
@@ -722,6 +989,8 @@ function runAIToAIPrivateWhispers(state, rng = Math.random) {
       targetName: target.name,
       response: composed.response,
       focusId: composed.focusId,
+      decisionRationale: composed.decisionRationale ?? null,
+      crossDayStance: composed.crossDayStance ?? null,
       intent: composed.intent,
     });
   });

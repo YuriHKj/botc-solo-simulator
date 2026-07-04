@@ -206,12 +206,90 @@ namespace BotcSolo.UnityPrototype
                 ?? button.GetComponentsInChildren<Text>(true).FirstOrDefault();
         }
 
+        private static Image ToolButtonImage(Button button, string path)
+        {
+            if (button == null || string.IsNullOrWhiteSpace(path)) return null;
+            return button.transform.Find(path)?.GetComponent<Image>();
+        }
+
+        private static Text ToolButtonText(Button button, string path)
+        {
+            if (button == null || string.IsNullOrWhiteSpace(path)) return null;
+            return button.transform.Find(path)?.GetComponent<Text>();
+        }
+
+        private static void SetToolButtonFrameColor(Button button, string prefix, Color color)
+        {
+            if (button == null || string.IsNullOrWhiteSpace(prefix)) return;
+            foreach (var image in button.GetComponentsInChildren<Image>(true))
+            {
+                if (image != null && image.name.StartsWith(prefix, StringComparison.Ordinal)) image.color = color;
+            }
+        }
+
         private static void SetToolButtonEnabled(Button button, bool enabled)
         {
             if (button == null) return;
             button.interactable = enabled;
             var group = button.GetComponent<CanvasGroup>();
-            if (group != null) group.alpha = enabled ? 1f : 0.42f;
+            if (group != null) group.alpha = enabled ? 1f : 0.72f;
+
+            var rect = button.transform as RectTransform;
+            var compact = rect != null && rect.rect.height <= 34f;
+
+            var background = button.GetComponent<Image>();
+            if (background != null)
+            {
+                background.color = enabled
+                    ? new Color(0.12f, 0.065f, 0.030f, compact ? 0.82f : 0.86f)
+                    : new Color(0.026f, 0.032f, 0.038f, compact ? 0.74f : 0.78f);
+            }
+
+            var glow = ToolButtonImage(button, "Tool Button Glow");
+            if (glow != null)
+            {
+                glow.color = enabled
+                    ? new Color(1f, 0.72f, 0.30f, compact ? 0.055f : 0.085f)
+                    : new Color(0.50f, 0.56f, 0.60f, compact ? 0.030f : 0.044f);
+            }
+
+            SetToolButtonFrameColor(
+                button,
+                "Tool Button Frame",
+                enabled
+                    ? new Color(0.94f, 0.68f, 0.34f, compact ? 0.38f : 0.48f)
+                    : new Color(0.55f, 0.62f, 0.66f, compact ? 0.20f : 0.26f));
+
+            var badge = ToolButtonImage(button, "Tool Icon Badge");
+            if (badge != null)
+            {
+                badge.color = enabled
+                    ? new Color(0.020f, 0.030f, 0.040f, 0.76f)
+                    : new Color(0.040f, 0.044f, 0.048f, 0.72f);
+            }
+
+            SetToolButtonFrameColor(
+                button,
+                "Tool Icon Badge Frame",
+                enabled
+                    ? new Color(0.70f, 0.82f, 0.92f, 0.24f)
+                    : new Color(0.48f, 0.56f, 0.60f, 0.16f));
+
+            var icon = ToolButtonText(button, "Tool Icon Badge/Tool Icon");
+            if (icon != null)
+            {
+                icon.color = enabled
+                    ? new Color(1f, 0.82f, 0.42f, 0.98f)
+                    : new Color(0.62f, 0.66f, 0.68f, 0.96f);
+            }
+
+            var label = ToolButtonLabel(button);
+            if (label != null)
+            {
+                label.color = enabled
+                    ? new Color(1f, 0.96f, 0.82f, 1f)
+                    : new Color(0.74f, 0.78f, 0.80f, 0.96f);
+            }
         }
 
         private void SetButtonSuggested(Button button, bool suggested)
@@ -347,6 +425,8 @@ namespace BotcSolo.UnityPrototype
             }
             panel.localScale = Vector3.one;
             ApplyModalBackdropVisibility();
+            ApplyBottomDockVisibility();
+            ApplyFocusChromeVisibility();
 
             if (UiMotionDisabled()) return;
             if (panelMotionRoutines.TryGetValue(panel, out var existing) && existing != null) StopCoroutine(existing);
