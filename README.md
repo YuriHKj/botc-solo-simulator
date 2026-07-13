@@ -2,15 +2,30 @@
 
 《血染钟楼》单机模拟器原型。目标是把“说书人魔典 + 电脑玩家推理 + 夜晚/白天流程 + 私聊/公聊/提名投票”做成可独立运行的桌面游戏 Demo。
 
-> 非官方项目：本项目与 The Pandemonium Institute、Blood on the Clocktower 官方团队无隶属关系。Blood on the Clocktower 及相关名称、角色、规则与视觉资产归其权利方所有。本仓库已整理为可公开浏览的学习、研究与原型开发项目；维护者已确认当前随仓库提交的素材可用于本项目公开展示和 demo 分发。
+> 非官方项目：本项目与 The Pandemonium Institute、Blood on the Clocktower 官方团队无隶属关系。Blood on the Clocktower 及相关名称、角色、规则与视觉资产归其权利方所有。本仓库可作为学习、研究与原型开发源码浏览；源码公开不代表第三方素材或二进制包已获得公开分发许可。
+
+<!-- product-capabilities:start -->
+## Current product capabilities (generated)
+
+> Classification comes only from `config/product_capabilities.json`; see `docs/CAPABILITY_STATUS.md` for gates, evidence state, and distribution boundaries.
+
+- **Unity + Trouble Brewing + deterministic AI**: stable default flagship; start development with `npm run unity:demo`.
+- **Bad Moon Rising** (`bmr`): laboratory track.
+- **Sects & Violets** (`snv`): laboratory track.
+- **Electron player UI** (`electron-player-ui`): laboratory track.
+- **LocalLLM dialogue renderer** (`local-llm-renderer`): laboratory track.
+- Engineering maturity does not grant public distribution permission. See the status page for each track's current distribution posture.
+
+<!-- product-capabilities:end -->
 
 ## 当前状态
 
 这是一个快速迭代中的原型，而不是完整商业级游戏。
 
-- 桌面版基于 Electron，可打包为 Windows `.exe`。
-- Unity prototype 已进入可运行 demo 阶段：Unity 负责魔典 UI、面板和动画承载，JS Core 仍是唯一规则/AI/权限引擎。
+- 默认可玩路径是 Unity + Trouble Brewing + deterministic AI，开发入口为 `npm run unity:demo`。
+- Unity prototype 负责魔典 UI、面板和动画承载，JS Core 仍是唯一规则/AI/权限引擎。
 - Unity 构建版已支持自启动 JS Core bridge；直接运行 `unity-build/BOTC_Unity_Prototype.exe` 时会优先使用随包的 Node runtime，不需要额外手动启动后端。
+- Electron 玩家 UI、BMR、SnV 和 LocalLLM 润色保留为开发实验；当前等级、证据 gate 与分发边界统一见 `docs/CAPABILITY_STATUS.md`。
 - 局内 UI 以“魔典”为核心，支持座位环、角色 token、死亡帷幕、提醒物、恶魔伪装、事件日志、夜间行动弹窗和脚本手册。
 - 当前主要支持三个官方基础剧本：
   - 暗流涌动 / Trouble Brewing
@@ -44,13 +59,21 @@
 npm install
 ```
 
-### 桌面开发启动
+### 默认可玩路径：Unity + TB + deterministic AI
+
+```powershell
+npm run unity:demo
+```
+
+这会初始化 fresh Trouble Brewing demo state、启动 bridge watcher，并打开 Unity build。Unity 仍只负责表现和动作投递，规则、AI 与权限判断由 JS Core 提供。
+
+### Electron 开发实验
 
 ```powershell
 npm run electron:start
 ```
 
-### Windows 打包
+### Electron Windows 实验打包
 
 ```powershell
 npm run electron:win
@@ -67,11 +90,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_exe.ps1
 - `docs/packaging/WINDOWS_EXE.md`
 - `docs/packaging/RELEASE_20260430.md`
 
-### Unity 可玩 Demo
+### Unity 可玩 Demo 细节
 
 如果已有 `unity-build/BOTC_Unity_Prototype.exe`，可以直接启动 exe。构建版会尝试从自身 `StreamingAssets/BotcJsRuntime/node.exe` 拉起 JS Core bridge，并读取同目录下的 `unity_state.json` / `unity_viewmodel.json`。
 
-需要带本地模型润色的试玩包时，先准备 `third_party/LocalLLM`，再运行：
+需要在开发环境评估本地模型润色包时，先准备 `third_party/LocalLLM`，再运行：
 
 ```powershell
 npm run package:unity-ai -- -LocalLlmSource third_party\LocalLLM
@@ -79,13 +102,7 @@ npm run package:unity-ai -- -LocalLlmSource third_party\LocalLLM
 
 如果 `third_party/LocalLLM` 内含可用 `llama-server.exe` 与 GGUF 模型，tiny/default 包默认仍让玩家直接双击 `BOTC_Unity_Prototype.exe` 进入确定性可玩文本；需要模型润色时使用 `Start AI Polished.bat` 显式启用。quality/premium 包或手动传入 `-AutoEnableTinyLocalLlm` 时才会写入 `botc_ai_polish.enabled`，让直接双击自动启用本地润色。详细结构和许可证边界见 `docs/packaging/AI_POLISHED_UNITY_RELEASE.md`。
 
-开发期推荐从仓库根目录运行：
-
-```powershell
-npm run unity:demo
-```
-
-这会初始化 fresh state、启动 bridge watcher，并打开 Unity build。只初始化数据、不打开窗口：
+只初始化数据、不打开窗口时运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\run_unity_demo.ps1 -Fresh -NoWatch -NoLaunch -BuildAssets
@@ -189,19 +206,19 @@ python scripts/run_real_data_pipeline.py
 
 构建产物默认不会提交到 Git。常见输出目录包括 `release/`、`release-*`、`dist/`、`build/`、`unity-build/` 和 `output/`，这些目录用于本地构建、截图和验收。
 
-如需对外提供试玩包，建议通过 GitHub Releases 上传 `.exe` 或 `.zip`，并在 Release note 中注明构建日期、commit、已知问题和素材说明。
+如需评估二进制包，先按 `docs/CAPABILITY_STATUS.md` 的分发状态完成独立权限与发布审查；构建成功本身不构成公开分发许可。
 
 ## 公开仓库说明
 
-本仓库可以作为 public repo 展示和协作，但它仍是非官方学习/研究原型，不是官方产品或商业发行版。
+本仓库源码可以作为 public repo 浏览和协作，但它仍是非官方学习/研究原型，不是官方产品或商业发行版。
 
-- 维护者已完成当前素材清查，并确认随仓库提交的图片、字体、音频和 Unity 镜像素材可用于本项目公开展示与 demo 分发。
+- 仓库源码的公开状态与图片、字体、音频、Unity 镜像、模型及二进制包的公开分发许可是两件事；后者必须按具体发布渠道单独核验。
 - Blood on the Clocktower 名称、角色、规则、商标和相关世界观仍归权利方所有；本项目不声称拥有这些第三方权利，也不代表官方背书。
 - 新增图片、字体、音频、抓取资料或训练语料前，请在提交说明或文档中记录来源、用途和授权边界。
 - `data/`、`models/`、`release/`、`unity-build/`、`output/` 等生成物默认不入库；公开二进制包应通过 Release 分发，而不是直接提交到仓库。
 - 仓库公开不等于开放商用或大规模再分发；涉及商用、平台分发或衍生资源包时，需要重新确认第三方授权与项目许可证。
 
-本轮公开准备记录见：
+2026-05-10 的仓库整理历史快照见（不能作为当前公开分发授权）：
 
 - `docs/PUBLIC_RELEASE_READINESS_2026-05-10.md`
 
@@ -209,7 +226,7 @@ python scripts/run_real_data_pipeline.py
 
 本项目源代码以 MIT License 开源，详见 `LICENSE`。
 
-随仓库提交的项目素材已由维护者确认可用于本项目公开展示和 demo 分发；但 Blood on the Clocktower 名称、角色、规则、商标、世界观和任何第三方权利不因本仓库 MIT 授权而被重新授权。复用或二次分发素材时，请保留非官方声明，并自行确认适用场景的授权边界。
+MIT License 只覆盖本项目源码中可由项目授权的部分；Blood on the Clocktower 名称、角色、规则、商标、世界观、随仓库素材及其他第三方权利不会因此被重新授权。复用素材或分发二进制包前，请保留非官方声明，并按适用场景重新确认授权边界。
 
 ## 参考资料
 

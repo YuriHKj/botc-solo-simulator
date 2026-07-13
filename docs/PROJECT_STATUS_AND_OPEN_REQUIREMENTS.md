@@ -1,19 +1,21 @@
-# Project Status And Open Requirements
+# Historical Project Status And Open Requirements
 
 Updated: 2026-05-10
 
-BOTC Solo Simulator is a public, MIT-licensed, unofficial learning/research prototype. The project currently has two coordinated runtime lines:
+This page is a 2026-05-10 implementation snapshot plus backlog reference. It is not the current product-capability authority. Use `docs/CAPABILITY_STATUS.md` for the generated flagship, experimental-track, gate-evidence, and distribution posture.
+
+At the time of this snapshot, BOTC Solo Simulator was an MIT-licensed, unofficial learning/research source project with two coordinated runtime lines:
 
 - Electron desktop prototype: mature JS Core rules, AI, and original UI.
 - Unity prototype: fullscreen-first visual layer driven by the same JS Core state, viewmodel, and action bridge.
 
-## Current Status
+## Status Captured On 2026-05-10
 
 - Electron can run and package as a Windows desktop app.
 - Unity can run a playable demo build with self-starting JS Core bridge support.
 - JS Core remains the source of truth for rules, AI, phase progression, private/public information visibility, nominations, voting, and Storyteller queues.
 - Unity consumes `scripts/unity_viewmodel.js` output and sends user actions through `scripts/unity_action_bridge.mjs`.
-- The repository is prepared for public browsing with MIT source licensing, public README wording, and grouped runtime assets under `assets/`.
+- The repository source was prepared for public browsing with MIT source licensing, public README wording, and grouped runtime assets under `assets/`; that preparation did not grant current public-distribution permission for third-party assets or binaries.
 
 ## Implemented Highlights
 

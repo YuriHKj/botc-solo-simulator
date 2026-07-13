@@ -6,6 +6,11 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    "capabilities:inspect": "node scripts/product_capability_contract.mjs inspect --json",
+    "capabilities:write": "node scripts/product_capability_contract.mjs write",
+    "capabilities:check": "node scripts/product_capability_contract.mjs check",
+    "capabilities:verify": "node scripts/run_product_capability_ci.mjs",
+    "test:product-capabilities": "node tests/product_capability_contracts.mjs && node tests/product_capability_ci_runner.mjs",
     "electron:start": "electron .",
     "electron:win": "electron-builder --win nsis",
     "electron:pack": "electron-builder --win --dir",
@@ -96,7 +101,7 @@
     "package:unity-ai:premium-max": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier premium-max -LocalLlmSource third_party\\LocalLLM-premium-max",
     "verify:unity-ai-package": "powershell -ExecutionPolicy Bypass -File tools/verify_unity_ai_package.ps1",
     "release:unity-ai:verified": "powershell -ExecutionPolicy Bypass -File tools/build_verify_unity_ai_release.ps1",
-    "test": "npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:full-game-loop && npm run test:ai-agents && npm run test:ai-quality-eval && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:unity-private-chat-semantic && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-ui-audio && npm run test:unity-demo-acceptance && npm run test:mojibake"
+    "test": "npm run test:product-capabilities && npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:full-game-loop && npm run test:ai-agents && npm run test:ai-quality-eval && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:unity-private-chat-semantic && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-ui-audio && npm run test:unity-demo-acceptance && npm run test:mojibake"
   },
   "devDependencies": {
     "electron": "^31.7.7",

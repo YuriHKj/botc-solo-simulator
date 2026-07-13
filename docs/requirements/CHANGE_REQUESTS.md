@@ -77,7 +77,7 @@
   - 仅修改 Unity UI 展示层和文档；JS Core 规则、AI 决策和 bridge action schema 保持不变。
   - 扩展 Unity 本地 narration keys，避免 viewmodel 刷新时重复播同一条底部对话。
   - 复用现有 `voteCeremony`、`nominationDebate`、`timeline`、`privateInfo` 和 `action` viewmodel 字段，不新增规则字段。
-- 状态：进行中（Unity bottom dialogue / grimoire feedback pass）。
+- 状态：已完成（Unity bottom dialogue / grimoire feedback pass）；验证记录：`docs/verification/UNITY_BOTTOM_DIALOGUE_QUEUE_2026-05-15.md`。
 
 ## CR-2026-05-15-01
 - 请求人：用户
@@ -93,7 +93,7 @@
   - 修改 `tools/prepare_local_llm.ps1` / `tools/package_unity_ai_release.ps1`，支持 tiny/balanced/quality 模型档。
   - 扩展 LLM renderer 契约测试，覆盖近似照抄二次重写、禁词、必需目标词和 provider 默认解析。
   - 更新本地 LLM 发行说明和验证记录。
-- 状态：进行中（LLM renderer quality pass）。
+- 状态：已完成（LLM renderer quality pass）；验证记录：`docs/verification/AI_LLM_RENDERER_QUALITY_2026-05-15.md`。
 
 ## CR-2026-04-20-01
 - 请求人：用户

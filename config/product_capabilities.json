@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "product": "botc-solo-simulator",
+  "defaultTrackId": "tb-unity-deterministic",
+  "tracks": [
+    {
+      "id": "tb-unity-deterministic",
+      "name": "Unity + Trouble Brewing + deterministic AI",
+      "claimAliases": ["Trouble Brewing / Unity / deterministic AI", "Trouble Brewing", "TB", "暗流涌动"],
+      "entryCommand": "npm run unity:demo",
+      "engineeringMaturity": "stable",
+      "default": true,
+      "distribution": {
+        "intendedClass": "private-development",
+        "publicDistribution": "blocked",
+        "reason": "Public distribution requires separate permission evidence."
+      },
+      "promotionGates": [
+        {
+          "id": "rules-fidelity",
+          "category": "rules-fidelity",
+          "evidence": [
+            {
+              "id": "tb-role-contracts",
+              "reference": "npm run test:role-actions",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "player-journey",
+          "category": "player-journey",
+          "evidence": [
+            {
+              "id": "tb-unity-demo-acceptance",
+              "reference": "npm run test:unity-demo-acceptance",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "automated-contracts",
+          "category": "automated-contracts",
+          "evidence": [
+            {
+              "id": "tb-unity-viewmodel-contracts",
+              "reference": "npm run test:unity-viewmodel",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "intended-distribution",
+          "category": "intended-distribution",
+          "evidence": [
+            {
+              "id": "private-development-posture",
+              "reference": "README.md",
+              "freshness": { "policy": "evergreen" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bmr",
+      "name": "Bad Moon Rising",
+      "claimAliases": ["黯月初升"],
+      "engineeringMaturity": "laboratory",
+      "default": false,
+      "distribution": {
+        "intendedClass": "private-development",
+        "publicDistribution": "blocked",
+        "reason": "Laboratory track; public distribution requires separate permission evidence."
+      },
+      "promotionGates": [
+        { "id": "rules-fidelity", "category": "rules-fidelity", "evidence": [] },
+        {
+          "id": "player-journey",
+          "category": "player-journey",
+          "evidence": [
+            {
+              "id": "bmr-full-game-contracts",
+              "reference": "npm run test:full-game-loop",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "automated-contracts",
+          "category": "automated-contracts",
+          "evidence": [
+            {
+              "id": "bmr-role-contracts",
+              "reference": "npm run test:role-actions",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "intended-distribution",
+          "category": "intended-distribution",
+          "evidence": [
+            {
+              "id": "private-development-posture",
+              "reference": "README.md",
+              "freshness": { "policy": "evergreen" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "snv",
+      "name": "Sects & Violets",
+      "claimAliases": ["梦殒春宵", "紫罗兰教派"],
+      "engineeringMaturity": "laboratory",
+      "default": false,
+      "distribution": {
+        "intendedClass": "private-development",
+        "publicDistribution": "blocked",
+        "reason": "Laboratory track; public distribution requires separate permission evidence."
+      },
+      "promotionGates": [
+        { "id": "rules-fidelity", "category": "rules-fidelity", "evidence": [] },
+        {
+          "id": "player-journey",
+          "category": "player-journey",
+          "evidence": [
+            {
+              "id": "snv-full-game-contracts",
+              "reference": "npm run test:full-game-loop",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "automated-contracts",
+          "category": "automated-contracts",
+          "evidence": [
+            {
+              "id": "snv-role-contracts",
+              "reference": "npm run test:role-actions",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "intended-distribution",
+          "category": "intended-distribution",
+          "evidence": [
+            {
+              "id": "private-development-posture",
+              "reference": "README.md",
+              "freshness": { "policy": "evergreen" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "electron-player-ui",
+      "name": "Electron player UI",
+      "claimAliases": ["Electron", "Electron desktop", "Electron 桌面版"],
+      "engineeringMaturity": "laboratory",
+      "default": false,
+      "distribution": {
+        "intendedClass": "developer-experiment",
+        "publicDistribution": "blocked",
+        "reason": "Laboratory track; public distribution requires separate permission evidence."
+      },
+      "promotionGates": [
+        {
+          "id": "rules-fidelity",
+          "category": "rules-fidelity",
+          "evidence": [
+            {
+              "id": "electron-core-role-contracts",
+              "reference": "npm run test:role-actions",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        { "id": "player-journey", "category": "player-journey", "evidence": [] },
+        {
+          "id": "automated-contracts",
+          "category": "automated-contracts",
+          "evidence": [
+            {
+              "id": "electron-build-contracts",
+              "reference": "npm run test:electron-build",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "intended-distribution",
+          "category": "intended-distribution",
+          "evidence": [
+            {
+              "id": "developer-experiment-posture",
+              "reference": "README.md",
+              "freshness": { "policy": "evergreen" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "local-llm-renderer",
+      "name": "LocalLLM dialogue renderer",
+      "claimAliases": ["LocalLLM", "Local LLM", "本地 LLM"],
+      "engineeringMaturity": "laboratory",
+      "default": false,
+      "distribution": {
+        "intendedClass": "developer-experiment",
+        "publicDistribution": "blocked",
+        "reason": "Model and rights provenance require separate release review."
+      },
+      "promotionGates": [
+        { "id": "rules-fidelity", "category": "rules-fidelity", "evidence": [] },
+        { "id": "player-journey", "category": "player-journey", "evidence": [] },
+        {
+          "id": "automated-contracts",
+          "category": "automated-contracts",
+          "evidence": [
+            {
+              "id": "local-llm-renderer-contracts",
+              "reference": "npm run test:ai-llm-renderer",
+              "freshness": { "policy": "ci-run" }
+            }
+          ]
+        },
+        {
+          "id": "intended-distribution",
+          "category": "intended-distribution",
+          "evidence": [
+            {
+              "id": "developer-experiment-posture",
+              "reference": "README.md",
+              "freshness": { "policy": "evergreen" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
