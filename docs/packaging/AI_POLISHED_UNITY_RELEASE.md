@@ -1,6 +1,6 @@
-# AI-polished Unity release
+# AI-polished Unity development package
 
-This package path is for an offline release where AI dialogue can be locally polished without requiring the player to install Ollama.
+This is a development-evaluation path for locally polished AI dialogue without requiring Ollama. It is not the default deterministic player path and does not establish public-release readiness. Current maturity, evidence gates, and distribution posture are generated in `docs/CAPABILITY_STATUS.md`.
 
 ## Runtime shape
 
@@ -31,14 +31,14 @@ When Unity starts and either the package marker `botc_ai_polish.enabled` exists,
 
 ## Why not bundle current Ollama model
 
-The current dev loop uses Ollama plus `qwen2.5:3b` as a convenient local experiment. For public distribution, prefer a model artifact with a clear redistributable license and bundle its notices directly.
+The current dev loop uses Ollama plus `qwen2.5:3b` as a convenient local experiment. If a future release review permits distribution, use only model artifacts with a clear redistributable license and bundle their notices directly.
 
 Default built-in bundle:
 
 - `llama.cpp` runtime: MIT license (`https://github.com/ggml-org/llama.cpp/blob/master/LICENSE`).
 - `Qwen2.5-0.5B-Instruct-GGUF`: Apache-2.0 small GGUF (`https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF`).
 
-The 0.5B model is deliberately chosen for distribution size and startup cost. It only polishes wording; JS Core still controls game logic.
+The 0.5B model is deliberately chosen for package size and startup cost. It only polishes wording; JS Core still controls game logic.
 
 Do not ship a GGUF unless the model card and license allow redistribution for your release channel.
 
@@ -69,7 +69,7 @@ npm run prepare:local-llm:premium
 npm run package:unity-ai:premium
 ```
 
-The premium tier uses `Qwen3-4B-GGUF` Q4_K_M from the official Qwen repo (`https://huggingface.co/Qwen/Qwen3-4B-GGUF`). It targets a final zip in the 2-3GB range and is the recommended upper tier for public testing on this machine.
+The premium tier uses `Qwen3-4B-GGUF` Q4_K_M from the official Qwen repo (`https://huggingface.co/Qwen/Qwen3-4B-GGUF`). It targets a final zip in the 2-3GB range and is the recommended upper tier for controlled local quality evaluation on this machine.
 
 Upper-bound experiment:
 
@@ -112,7 +112,7 @@ The packager also writes `output/release-unity-ai/release-cleanup-report-latest.
 
 ## LocalLLM source folder checklist
 
-Before packaging a public build, prepare:
+Before packaging a development-evaluation build, prepare:
 
 ```text
 third_party/LocalLLM/
@@ -162,4 +162,4 @@ node scripts/ai_llm_render_smoke.mjs --live
 
 ## Remaining release risk
 
-This solves the model/runtime distribution boundary for dialogue polish. It does not solve Blood on the Clocktower trademark, logo, role icon, or official asset redistribution rights. Keep those assets under your existing release policy.
+This packaging mechanism can collect model/runtime notices, but it does not grant permission to distribute the model, Blood on the Clocktower trademark, logo, role icons, official assets, or the combined binary. Treat every produced package as private development output unless `docs/CAPABILITY_STATUS.md` and a separate rights/release review explicitly permit otherwise.

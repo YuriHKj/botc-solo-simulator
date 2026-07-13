@@ -5,8 +5,9 @@ This index points external contributors to the current project documentation. Hi
 ## Start Here
 
 - `README.md`: project overview, setup, testing, license, and release notes.
+- `docs/CAPABILITY_STATUS.md`: generated source of truth for the current flagship, experimental tracks, promotion gates, evidence freshness, and distribution posture.
 - `docs/PROJECT_STRUCTURE.md`: repository layout and asset conventions.
-- `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`: current implementation status and open work.
+- `docs/PROJECT_STATUS_AND_OPEN_REQUIREMENTS.md`: historical 2026-05-10 implementation snapshot and backlog reference; not a current capability authority.
 - `docs/PROGRESS_BASELINE_2026-06-01.md`: latest three-axis progress baseline for AI intelligence, UI polish, and rules completion.
 - `docs/PROGRESS_BASELINE_2026-05-31.md`: previous three-axis progress baseline snapshot.
 - `docs/requirements/PRODUCT_REQUIREMENTS.md`: product goals and acceptance direction.
@@ -40,7 +41,7 @@ This index points external contributors to the current project documentation. Hi
 
 - `docs/packaging/WINDOWS_EXE.md`: Windows desktop packaging notes.
 - `docs/packaging/RELEASE_20260430.md`: historical release note.
-- `docs/PUBLIC_RELEASE_READINESS_2026-05-10.md`: public repository readiness notes.
+- `docs/PUBLIC_RELEASE_READINESS_2026-05-10.md`: historical public-repository preparation snapshot; not current binary or asset distribution authorization.
 
 ## Research And Data Pipeline
 
