@@ -16,6 +16,11 @@
 - **LocalLLM dialogue renderer** (`local-llm-renderer`): laboratory track.
 - Engineering maturity does not grant public distribution permission. See the status page for each track's current distribution posture.
 
+### Evidence claim boundaries
+
+- **Fixed-seed replay-invariant evidence** (`npm run test:ai-flagship-replay`) certifies only: completion; deterministic identity; legality; bounded v1 information safety; repetition; cross-day stance continuity; nomination justification; stance-to-vote alignment.
+- **Does not certify:** general natural-language quality; known sentence-density or scripted-future-action warning families; behavior/generalization on unseen seeds.
+
 <!-- product-capabilities:end -->
 
 ## 当前状态

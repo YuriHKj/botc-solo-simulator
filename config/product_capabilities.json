@@ -46,6 +46,27 @@
               "id": "tb-unity-viewmodel-contracts",
               "reference": "npm run test:unity-viewmodel",
               "freshness": { "policy": "ci-run" }
+            },
+            {
+              "id": "tb-ai-flagship-replay",
+              "reference": "npm run test:ai-flagship-replay",
+              "freshness": { "policy": "ci-run" },
+              "label": "Fixed-seed replay-invariant evidence",
+              "certifies": [
+                "completion",
+                "deterministic identity",
+                "legality",
+                "bounded v1 information safety",
+                "repetition",
+                "cross-day stance continuity",
+                "nomination justification",
+                "stance-to-vote alignment"
+              ],
+              "doesNotCertify": [
+                "general natural-language quality",
+                "known sentence-density or scripted-future-action warning families",
+                "behavior/generalization on unseen seeds"
+              ]
             }
           ]
         },

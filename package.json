@@ -20,6 +20,7 @@
     "test:full-game-loop": "node tests/full_game_loop_contracts.mjs",
     "test:ai-agents": "node tests/ai_agent_contracts.mjs",
     "test:ai-quality-eval": "node tests/ai_quality_eval_contracts.mjs",
+    "test:ai-flagship-replay": "node tests/ai_flagship_replay_eval_contracts.mjs",
     "test:ai-llm-renderer": "node tests/ai_llm_renderer_contracts.mjs",
     "test:ai-llm-dialogue-eval": "node tests/ai_llm_dialogue_eval_contracts.mjs",
     "test:unity-private-chat-semantic": "node tests/unity_private_chat_semantic_contracts.mjs",
@@ -101,7 +102,7 @@
     "package:unity-ai:premium-max": "powershell -ExecutionPolicy Bypass -File tools/package_unity_ai_release.ps1 -PrepareLocalLlm -RequireLocalLlm -ModelTier premium-max -LocalLlmSource third_party\\LocalLLM-premium-max",
     "verify:unity-ai-package": "powershell -ExecutionPolicy Bypass -File tools/verify_unity_ai_package.ps1",
     "release:unity-ai:verified": "powershell -ExecutionPolicy Bypass -File tools/build_verify_unity_ai_release.ps1",
-    "test": "npm run test:product-capabilities && npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:full-game-loop && npm run test:ai-agents && npm run test:ai-quality-eval && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:unity-private-chat-semantic && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-ui-audio && npm run test:unity-demo-acceptance && npm run test:mojibake"
+    "test": "npm run test:product-capabilities && npm run test:role-actions && npm run test:passive-info-queues && npm run test:night-actions && npm run test:full-game-loop && npm run test:ai-agents && npm run test:ai-quality-eval && npm run test:ai-flagship-replay && npm run test:ai-llm-renderer && npm run test:ai-llm-dialogue-eval && npm run test:unity-private-chat-semantic && npm run test:electron-build && npm run test:electron-paths && npm run test:unity-viewmodel && npm run test:unity-action-bridge && npm run test:unity-assets && npm run test:unity-ui-audio && npm run test:unity-demo-acceptance && npm run test:mojibake"
   },
   "devDependencies": {
     "electron": "^31.7.7",
