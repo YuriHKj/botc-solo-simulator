@@ -1275,6 +1275,14 @@ function ensurePublicTargetSwitchInLine(line, targetSwitchLine, maxChars = 190) 
   return joinSpeechFragments([targetSwitch, tail]);
 }
 
+function latestPriorDaySpeech(speechHistory, currentDay) {
+  for (let index = (speechHistory?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const entry = speechHistory[index];
+    if (Number(entry?.day) < Number(currentDay) && entry?.focusId) return entry;
+  }
+  return null;
+}
+
 function ensurePublicScriptPressureInLine(line, scriptPressureLine, maxChars = 190) {
   const value = `${line ?? ""}`.trim();
   const scriptPressure = `${scriptPressureLine ?? ""}`.trim();
@@ -2911,9 +2919,7 @@ function publishPublicSpeech(
     composed.decisionRationale?.focusScore ?? composed.score ?? 0,
     aiPlayer.alive === false ? 210 : 190
   );
-  const priorDaySpeech = [...(aiPlayer.speechHistory ?? [])]
-    .reverse()
-    .find((entry) => Number(entry?.day) < Number(state.day) && entry?.focusId);
+  const priorDaySpeech = latestPriorDaySpeech(aiPlayer.speechHistory, state.day);
   if (priorDaySpeech?.focusId && composed.focusId && priorDaySpeech.focusId !== composed.focusId) {
     polishedLine = ensureCrossDayTargetSwitchExplanation(polishedLine, {
       previousDay: priorDaySpeech.day,

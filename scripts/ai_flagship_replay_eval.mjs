@@ -253,7 +253,7 @@ function compactReason(result) {
   return `${result?.reason ?? ""}`.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
-function roleAliases(scriptId, role) {
+function roleAliases(role) {
   return [role?.id, role?.name, role?.englishName]
     .map((value) => normalizedVisibleText(value).toLocaleLowerCase("zh-CN"))
     .filter(Boolean);
@@ -261,7 +261,7 @@ function roleAliases(scriptId, role) {
 
 function rolesNamedInText(text, scriptId) {
   const normalized = normalizedVisibleText(text).toLocaleLowerCase("zh-CN");
-  return getAllRoles(scriptId).filter((role) => roleAliases(scriptId, role).some((alias) => normalized.includes(alias)));
+  return getAllRoles(scriptId).filter((role) => roleAliases(role).some((alias) => normalized.includes(alias)));
 }
 
 function agentTargets(agentView) {
@@ -984,6 +984,14 @@ function sumMetrics(seedResults) {
   return aggregate;
 }
 
+function compareReplayRuns(primary, comparison) {
+  return {
+    identityMatches:
+      JSON.stringify(primary.deterministicIdentity) === JSON.stringify(comparison.deterministicIdentity),
+    winnerMatches: primary.winner === comparison.winner,
+  };
+}
+
 export function evaluateReplayGame(game) {
   if (game?.initializationFatal) {
     const failure = gateFailure(game, "harness-fatal", "initialization-failed", null, {
@@ -1212,9 +1220,7 @@ export function evaluateReplayCorpus(corpus) {
     const comparisonResult = evaluateReplayGame(comparison);
     pairFailures.push(...comparisonResult.failures);
     if (!comparison.initializationFatal && !comparison.harnessFatal && !primary.initializationFatal && !primary.harnessFatal) {
-      const identityMatches =
-        JSON.stringify(primary.deterministicIdentity) === JSON.stringify(comparison.deterministicIdentity);
-      const winnerMatches = primary.winner === comparison.winner;
+      const { identityMatches, winnerMatches } = compareReplayRuns(primary, comparison);
       if (!identityMatches || !winnerMatches) {
         pairFailures.push(
           gateFailure(primary, "determinism", identityMatches ? "winner-drift" : "identity-drift", null, {
@@ -1245,28 +1251,24 @@ export function evaluateReplayCorpus(corpus) {
   };
 }
 
+function safeRunFlagshipReplay(seed) {
+  try {
+    return runFlagshipReplay(seed);
+  } catch {
+    return replayHarnessFatal(seed, "replay");
+  }
+}
+
 export function runFlagshipReplayCorpus() {
   const startedAt = Date.now();
   const pairs = MAIN_SEEDS.map((seed) => {
-    let primary;
-    let comparison;
-    try {
-      primary = runFlagshipReplay(seed);
-    } catch {
-      primary = replayHarnessFatal(seed, "replay");
-    }
-    try {
-      comparison = runFlagshipReplay(seed);
-    } catch {
-      comparison = replayHarnessFatal(seed, "replay");
-    }
+    const primary = safeRunFlagshipReplay(seed);
+    const comparison = safeRunFlagshipReplay(seed);
     return {
       seed,
       primary,
       comparison,
-      identityMatches:
-        JSON.stringify(primary.deterministicIdentity) === JSON.stringify(comparison.deterministicIdentity),
-      winnerMatches: primary.winner === comparison.winner,
+      ...compareReplayRuns(primary, comparison),
     };
   });
   const corpus = {
@@ -1584,23 +1586,6 @@ export function compactReplayEvaluationSummary(report) {
 
 export function replayEvaluationExitCode(report) {
   return (report?.failures?.length ?? 1) === 0 ? 0 : 1;
-}
-
-function compactCliSummary(corpus) {
-  return {
-    ok: corpus.failures.length === 0,
-    seeds: corpus.pairs.map((pair) => ({
-      seed: pair.seed,
-      winner: pair.primary.winner,
-      days: pair.primary.daysPlayed,
-      speeches: pair.primary.journey.aiSpeechCount,
-      nominations: pair.primary.journey.aiNominationCount,
-      votes: pair.primary.journey.aiVoteCount,
-      deterministic: pair.identityMatches && pair.winnerMatches,
-    })),
-    elapsedMs: corpus.elapsedMs,
-    failures: corpus.failures,
-  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
