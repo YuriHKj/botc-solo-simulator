@@ -71,6 +71,7 @@ import { rememberClaimDisclosure } from "../scripts/ai_claim_policy.js";
 import {
   evilWorldPlanTargetBias,
 } from "../scripts/ai_strategy.js";
+import { ensureCrossDayTargetSwitchExplanation } from "../scripts/ai_public_discussion.js";
 
 function fixedRng(seed = 987654321) {
   let state = seed >>> 0;
@@ -1868,6 +1869,34 @@ function testCrossDayStanceShiftExplainsCurrentEvidence() {
   assert.equal(second.crossDayStance?.continuity, "shift", "metadata should classify the stance change as a shift");
   assert.match(second.line, /今天转|因为/, "rendered speech should explain the cross-day stance shift");
   assert.match(second.line, /投票|身份解释|回应|公开站队|压|可见线索|补清|讲清/, "shift explanation should cite a current evidence reason");
+}
+
+function testCrossDayTargetSwitchFallbackIsPlayerVisible() {
+  const unchanged = "台面上，身份说法和票型一起压过来。";
+  const repaired = ensureCrossDayTargetSwitchExplanation(unchanged, {
+    previousDay: 3,
+    currentDay: 4,
+    previousTargetName: "3号",
+    currentTargetName: "9号",
+    maxChars: 190,
+  });
+  assert.match(repaired, /昨天主线在3号/);
+  assert.match(repaired, /今天先转9号/);
+  assert.match(repaired, /不等于放掉3号/);
+  assert.ok(repaired.includes(unchanged), "fallback should preserve the existing public reason within budget");
+
+  const alreadyExplained = "记忆连续性：昨天主线在3号，今天先转9号，不等于放掉3号；新卡点是票型。";
+  assert.equal(
+    ensureCrossDayTargetSwitchExplanation(alreadyExplained, {
+      previousDay: 3,
+      currentDay: 4,
+      previousTargetName: "3号",
+      currentTargetName: "9号",
+      maxChars: 190,
+    }),
+    alreadyExplained,
+    "existing visible revision language should not be duplicated"
+  );
 }
 
 function testAIToAIPrivateWhisperWritesParticipantObservationsOnly() {
@@ -6996,6 +7025,7 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testDayStanceMemoryPersistsWithinDay,
   testCrossDayStanceHistoryFeedsPublicSpeech,
   testCrossDayStanceShiftExplainsCurrentEvidence,
+  testCrossDayTargetSwitchFallbackIsPlayerVisible,
   testAIToAIPrivateWhisperWritesParticipantObservationsOnly,
   testDeadAIPublicDiscussionClaimsAggressively,
   testNominationAndVoteBecomePublicObservations,

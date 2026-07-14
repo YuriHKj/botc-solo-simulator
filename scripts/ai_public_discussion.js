@@ -1,3 +1,32 @@
+const EXPLICIT_CROSS_DAY_TARGET_SWITCH_PATTERN =
+  /(昨天主线|前天主线|\d+天前主线|今天先转|不等于放掉|改看|转向|重新看)/u;
+
+export function ensureCrossDayTargetSwitchExplanation(
+  line,
+  { previousDay = 0, currentDay = 0, previousTargetName = "", currentTargetName = "", maxChars = 190 } = {}
+) {
+  const value = `${line ?? ""}`.replace(/\s+/g, " ").trim();
+  const previousTarget = `${previousTargetName ?? ""}`.trim();
+  const currentTarget = `${currentTargetName ?? ""}`.trim();
+  if (
+    !value ||
+    !previousTarget ||
+    !currentTarget ||
+    previousTarget === currentTarget ||
+    EXPLICIT_CROSS_DAY_TARGET_SWITCH_PATTERN.test(value)
+  ) {
+    return value;
+  }
+  const dayGap = Math.max(1, Number(currentDay) - Number(previousDay));
+  const priorDayLabel = dayGap === 1 ? "昨天" : `${dayGap}天前`;
+  const prefix = `记忆连续性：${priorDayLabel}主线在${previousTarget}，今天先转${currentTarget}，不等于放掉${previousTarget}。`;
+  const joined = `${prefix}${value}`;
+  if (!Number.isFinite(maxChars) || joined.length <= maxChars) return joined;
+  const tailRoom = Math.max(0, maxChars - prefix.length);
+  const tail = value.slice(0, tailRoom).replace(/[，。！？；、\s]+$/u, "").trim();
+  return `${prefix}${tail}`;
+}
+
 export function createAIPublicDiscussion(deps) {
   const {
     QUESTION_INTENT,
@@ -6,6 +35,7 @@ export function createAIPublicDiscussion(deps) {
     ensureDialogueState,
     refreshAIBeliefs,
     buildAgentView,
+    getAIAgent,
     buildAIStrategyContext,
     buildAIThoughtFrame,
     rankTargets,
@@ -2610,6 +2640,33 @@ function immutableAgentViewSnapshot(agentView) {
   return deepFreezePublicObservation(snapshot);
 }
 
+function immutableLegalKnowledgeSnapshot(state, aiPlayer, agentView) {
+  const agent = typeof getAIAgent === "function" ? getAIAgent(state, aiPlayer) : null;
+  const publicRoleRevealByPlayerId = new Map();
+  (agentView?.visibleClaims ?? []).forEach((claim) => {
+    if (claim?.private !== true && claim?.playerId && claim?.roleId) {
+      publicRoleRevealByPlayerId.set(claim.playerId, claim.roleId);
+    }
+  });
+  (agentView?.targets ?? []).forEach((target) => {
+    if (target?.id && target?.publicClaimRoleId) {
+      publicRoleRevealByPlayerId.set(target.id, target.publicClaimRoleId);
+    }
+  });
+  return deepFreezePublicObservation({
+    viewerId: aiPlayer?.id ?? agentView?.viewerId ?? null,
+    self: {
+      roleId: agent?.knownSelfRoleId ?? aiPlayer?.apparentRoleId ?? null,
+      team: agent?.knownSelfTeam ?? aiPlayer?.apparentTeam ?? null,
+    },
+    knownAllyIds: [...(agent?.knownAllyIds ?? [])],
+    knownDemonId: agent?.knownDemonId ?? null,
+    knownMinionIds: [...(agent?.knownMinionIds ?? [])],
+    knownBluffRoleIds: [...(agent?.knownBluffRoleIds ?? [])],
+    publicRoleReveals: [...publicRoleRevealByPlayerId].map(([playerId, roleId]) => ({ playerId, roleId })),
+  });
+}
+
 function publishPublicSpeech(
   state,
   aiPlayer,
@@ -2631,6 +2688,8 @@ function publishPublicSpeech(
   });
   const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
   const agentViewSnapshot = typeof onPublicSpeech === "function" ? immutableAgentViewSnapshot(agentView) : null;
+  const legalKnowledgeSnapshot =
+    typeof onPublicSpeech === "function" ? immutableLegalKnowledgeSnapshot(state, aiPlayer, agentView) : null;
   const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
     agentView,
     audience: "public",
@@ -2852,6 +2911,18 @@ function publishPublicSpeech(
     composed.decisionRationale?.focusScore ?? composed.score ?? 0,
     aiPlayer.alive === false ? 210 : 190
   );
+  const priorDaySpeech = [...(aiPlayer.speechHistory ?? [])]
+    .reverse()
+    .find((entry) => Number(entry?.day) < Number(state.day) && entry?.focusId);
+  if (priorDaySpeech?.focusId && composed.focusId && priorDaySpeech.focusId !== composed.focusId) {
+    polishedLine = ensureCrossDayTargetSwitchExplanation(polishedLine, {
+      previousDay: priorDaySpeech.day,
+      currentDay: state.day,
+      previousTargetName: statementTargetLabel ? statementTargetLabel(state, priorDaySpeech.focusId) : priorDaySpeech.focusId,
+      currentTargetName: statementTargetLabel ? statementTargetLabel(state, composed.focusId) : composed.focusId,
+      maxChars: aiPlayer.alive === false ? 210 : 190,
+    });
+  }
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
   polishedLine = sanitizePlayerVisibleText ? sanitizePlayerVisibleText(polishedLine) : polishedLine;
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
@@ -2904,6 +2975,7 @@ function publishPublicSpeech(
       Object.freeze({
         visibleEvent,
         agentView: agentViewSnapshot,
+        legalKnowledge: legalKnowledgeSnapshot,
       })
     );
   }

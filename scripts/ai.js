@@ -7428,6 +7428,7 @@ const publicDiscussion = createAIPublicDiscussion({
   ensureDialogueState,
   refreshAIBeliefs,
   buildAgentView,
+  getAIAgent,
   buildAIStrategyContext,
   buildAIThoughtFrame,
   rankTargets,
