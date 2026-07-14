@@ -2594,7 +2594,34 @@ function shouldForceOpeningPublicClaim(state, aiPlayer, roundInDay, orderIndex, 
   return thoughtFrame?.selfDisclosureNeed === "range" && orderIndex <= 2;
 }
 
-function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, debateBeat = "opening", rng = Math.random, source = "ai_public_discussion" } = {}) {
+function deepFreezePublicObservation(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  Object.values(value).forEach((child) => deepFreezePublicObservation(child));
+  return Object.freeze(value);
+}
+
+function immutableAgentViewSnapshot(agentView) {
+  if (!agentView) {
+    return null;
+  }
+  const snapshot = JSON.parse(JSON.stringify(agentView));
+  return deepFreezePublicObservation(snapshot);
+}
+
+function publishPublicSpeech(
+  state,
+  aiPlayer,
+  {
+    roundInDay = 1,
+    orderIndex = 0,
+    debateBeat = "opening",
+    rng = Math.random,
+    source = "ai_public_discussion",
+    onPublicSpeech = null,
+  } = {}
+) {
   const dialogue = ensureDialogueState(state);
   const sourceEventAnchor = publicDialogueEventAnchor(state, aiPlayer, {
     roundInDay,
@@ -2603,6 +2630,7 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
     source,
   });
   const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+  const agentViewSnapshot = typeof onPublicSpeech === "function" ? immutableAgentViewSnapshot(agentView) : null;
   const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
     agentView,
     audience: "public",
@@ -2861,6 +2889,24 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
     rolePressureLine: composed.rolePressureLine ?? "",
   };
   state.events.speeches.push(speechEvent);
+  if (typeof onPublicSpeech === "function") {
+    const visibleEvent = deepFreezePublicObservation({
+      day: state.day ?? 0,
+      phase: "day/public",
+      speakerId: aiPlayer.id,
+      focusId: composed.focusId ?? null,
+      text: composed.line,
+      debateBeat,
+      roundInDay,
+      orderIndex,
+    });
+    onPublicSpeech(
+      Object.freeze({
+        visibleEvent,
+        agentView: agentViewSnapshot,
+      })
+    );
+  }
   rememberStatementMemory(
     state,
     aiPlayer,
@@ -3231,7 +3277,7 @@ function runAIConversationStep(state, rng = Math.random) {
   };
 }
 
-function runAIDiscussion(state, rng = Math.random) {
+function runAIDiscussion(state, rng = Math.random, options = {}) {
   if (state.phase !== "day" || state.gameOver) {
     return;
   }
@@ -3239,6 +3285,7 @@ function runAIDiscussion(state, rng = Math.random) {
   refreshAIBeliefs(state);
   const dialogue = ensureDialogueState(state);
   const roundInDay = nextPublicRound(state);
+  const onPublicSpeech = typeof options === "function" ? options : options?.onPublicSpeech;
 
   const speakingAIs = state.players
     .filter((entry) => !entry.isHuman)
@@ -3253,6 +3300,7 @@ function runAIDiscussion(state, rng = Math.random) {
       debateBeat,
       rng,
       source: "ai_public_discussion",
+      onPublicSpeech,
     });
   });
 }
