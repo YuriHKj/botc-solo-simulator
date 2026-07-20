@@ -555,6 +555,52 @@ healthyGateReport.seedResults.forEach((seedResult) => {
   assert.equal(replayFatalReport.failures[0].reason, "replay-failed");
   assert.equal(replayFatalReport.failures[0].phase, "replay");
   assert.equal(replayFatalReport.failures[0].nearestPublicEvent.type, "speech");
+
+  const healthyRunBySeed = new Map(corpus.pairs.map((pair) => [pair.seed, pair.primary]));
+  let invocation = 0;
+  const caughtCorpus = runFlagshipReplayCorpus({
+    runReplay(seed, { failureContext }) {
+      if (invocation === 0) {
+        invocation += 1;
+        failureContext.harnessPhase = "replay";
+        failureContext.daysPlayed = 3;
+        failureContext.lastObservedPhase = "day/public";
+        failureContext.publicTrace.push({
+          sequence: 1,
+          seed,
+          day: 3,
+          phase: "day/public",
+          type: "speech",
+          actorId: "p2",
+          targetId: "p3",
+          text: "公开行已发生。",
+        });
+        failureContext.actionChecks.push({
+          sequence: 1,
+          day: 3,
+          phase: "day/public",
+          action: "run-ai-discussion",
+          accepted: true,
+          reason: "",
+        });
+        throw new TypeError("washerwoman must stay out of diagnostics");
+      }
+      invocation += 1;
+      return structuredClone(healthyRunBySeed.get(seed));
+    },
+  });
+  const caughtReport = evaluateReplayCorpus(caughtCorpus);
+  const caughtFailure = caughtReport.seedResults[0].failures.find((failure) => failure.category === "harness-fatal");
+  assert.ok(caughtFailure, "a thrown replay must fail closed as harness-fatal");
+  assert.equal(caughtFailure.day, 3);
+  assert.equal(caughtFailure.phase, "day/public");
+  assert.equal(caughtFailure.nearestPublicEvent.type, "speech");
+  assert.deepEqual(caughtFailure.diagnostic, {
+    errorType: "TypeError",
+    lastAction: "run-ai-discussion",
+  });
+  assert.equal(JSON.stringify(caughtFailure).includes("washerwoman"), false, "fatal diagnostics must omit raw errors");
+  assert.ok(caughtReport.seedResults.some((result) => result.seed === MAIN_SEEDS[2] && result.ok));
 }
 
 {

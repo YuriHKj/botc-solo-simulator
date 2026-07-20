@@ -145,8 +145,10 @@ export const FLAGSHIP_REPLAY_THRESHOLDS = deepFreeze({
   ],
 });
 
-const CROSS_DAY_REVISION_PATTERN =
-  /(昨天|前天|\d+天前|今天|记忆连续性|新线索|新变化|重新|转向|转到|先转|改口|改看|改投|修正|仍按|继续|沿着|不等于放掉|不换|不改|because|changed|revise)/iu;
+const CROSS_DAY_PRIOR_REFERENCE_PATTERN = /(昨天|前天|\d+天前|记忆连续性)/iu;
+const CROSS_DAY_EXPLICIT_REVISION_PATTERN =
+  /(新线索|新变化|重新|转向|转到|先转|改口|改看|改投|修正|不等于放掉|because|changed|revise)/iu;
+const CROSS_DAY_CONTINUITY_RELATION_PATTERN = /(仍按|继续|沿着|不换|不改)/iu;
 
 const FORBIDDEN_PUBLIC_MARKERS = Object.freeze([
   Object.freeze({ id: "private-rationale", aliases: Object.freeze(["decisionrationale", "strategyrationale"]) }),
@@ -158,6 +160,15 @@ const FORBIDDEN_PUBLIC_MARKERS = Object.freeze([
 
 function normalizedVisibleText(value) {
   return `${value ?? ""}`.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function hasCrossDayRevisionExplanation(value) {
+  const normalized = normalizedVisibleText(value);
+  if (CROSS_DAY_EXPLICIT_REVISION_PATTERN.test(normalized)) return true;
+  return (
+    CROSS_DAY_PRIOR_REFERENCE_PATTERN.test(normalized) &&
+    CROSS_DAY_CONTINUITY_RELATION_PATTERN.test(normalized)
+  );
 }
 
 function publicReasonFingerprint(value) {
@@ -218,6 +229,7 @@ function gateFailure(game, category, reason, event = null, overrides = {}) {
     reason,
     nearestPublicEvent: overrides.nearestPublicEvent ?? nearestPublicEvent(game, event, day),
     ...(overrides.factFamily ? { factFamily: overrides.factFamily } : {}),
+    ...(overrides.diagnostic ? { diagnostic: overrides.diagnostic } : {}),
   };
 }
 
@@ -251,6 +263,25 @@ function sortedUnique(values) {
 
 function compactReason(result) {
   return `${result?.reason ?? ""}`.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+const SAFE_HARNESS_ERROR_TYPES = new Set([
+  "Error",
+  "TypeError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "EvalError",
+  "URIError",
+  "AggregateError",
+]);
+
+function safeHarnessDiagnostic(error, failureContext) {
+  const errorType = `${error?.name ?? "Error"}`.trim();
+  return Object.freeze({
+    errorType: SAFE_HARNESS_ERROR_TYPES.has(errorType) ? errorType : "Error",
+    lastAction: failureContext?.actionChecks?.at(-1)?.action ?? "none",
+  });
 }
 
 function roleAliases(role) {
@@ -425,12 +456,24 @@ export function evaluateInformationBoundaryObservation(observation, { seed = nul
   };
 }
 
-function createRecorder(seed) {
-  const publicTrace = [];
-  const actionChecks = [];
-  const speechObservations = [];
+function rememberReplayProgress(failureContext, day, phase) {
+  if (!failureContext) return;
+  if (Number.isFinite(day)) failureContext.daysPlayed = Math.max(failureContext.daysPlayed ?? 0, day);
+  if (phase) failureContext.lastObservedPhase = phase;
+}
+
+function createRecorder(seed, failureContext = null) {
+  const publicTrace = failureContext?.publicTrace ?? [];
+  const actionChecks = failureContext?.actionChecks ?? [];
+  const speechObservations = failureContext?.speechObservations ?? [];
   let traceSequence = 0;
   let actionSequence = 0;
+
+  if (failureContext) {
+    failureContext.publicTrace = publicTrace;
+    failureContext.actionChecks = actionChecks;
+    failureContext.speechObservations = speechObservations;
+  }
 
   return {
     publicTrace,
@@ -443,6 +486,7 @@ function createRecorder(seed) {
         ...event,
       });
       publicTrace.push(retained);
+      rememberReplayProgress(failureContext, retained.day, retained.phase);
       return retained;
     },
     action(state, action, accepted, result = null, details = {}) {
@@ -456,6 +500,7 @@ function createRecorder(seed) {
         ...details,
       });
       actionChecks.push(retained);
+      rememberReplayProgress(failureContext, retained.day, retained.phase);
       return retained;
     },
   };
@@ -714,10 +759,11 @@ function buildAIMetricEvents(publicTrace, humanId) {
   return events;
 }
 
-export function runFlagshipReplay(seed) {
+export function runFlagshipReplay(seed, { failureContext = null } = {}) {
   if (!CANDIDATE_SEEDS.includes(seed)) {
     throw new Error(`Seed ${seed} is outside the predeclared flagship candidate set.`);
   }
+  const recorder = createRecorder(seed, failureContext);
   const rng = withSeededRandom(seed);
   const state = createNewGame(
     {
@@ -727,7 +773,6 @@ export function runFlagshipReplay(seed) {
     },
     rng
   );
-  const recorder = createRecorder(seed);
   const human = state.players.find((player) => player.isHuman);
   let daysPlayed = 0;
 
@@ -738,9 +783,11 @@ export function runFlagshipReplay(seed) {
     drainStorytellerQueue(state, recorder, `seed ${seed} first-night`);
   }
   initializeAI(state);
+  if (failureContext) failureContext.harnessPhase = "replay";
 
   for (let dayIndex = 0; dayIndex < MAX_DAYS && !state.gameOver; dayIndex += 1) {
     daysPlayed = Math.max(daysPlayed, state.day ?? dayIndex + 1);
+    rememberReplayProgress(failureContext, daysPlayed, state.phase === "day" ? `day/${state.dayStage ?? ""}` : state.phase);
     if (state.phase !== "day") {
       recorder.action(state, "expect-day-phase", false, { reason: `Expected day, received ${state.phase}.` });
       break;
@@ -946,12 +993,20 @@ function replayInitializationFatal(seed) {
   };
 }
 
-function replayHarnessFatal(seed, phase = "replay") {
+function replayHarnessFatal(seed, phase = "replay", failureContext = null, error = null) {
+  const base = replayInitializationFatal(seed);
+  const publicTrace = [...(failureContext?.publicTrace ?? [])];
   return {
-    ...replayInitializationFatal(seed),
+    ...base,
     initializationFatal: false,
     harnessFatal: true,
     harnessPhase: phase,
+    daysPlayed: failureContext?.daysPlayed ?? 0,
+    publicTrace,
+    actionChecks: [...(failureContext?.actionChecks ?? [])],
+    deterministicIdentity: buildDeterministicIdentity(seed, publicTrace),
+    lastObservedPhase: failureContext?.lastObservedPhase ?? null,
+    ...(error ? { harnessDiagnostic: safeHarnessDiagnostic(error, failureContext) } : {}),
   };
 }
 
@@ -1003,13 +1058,15 @@ export function evaluateReplayGame(game) {
   }
   if (game?.harnessFatal) {
     const phase = game?.harnessPhase === "initialization" ? "initialization" : "replay";
+    const observedPhase = phase === "initialization" ? "initialization" : game?.lastObservedPhase ?? "replay";
     const failure = gateFailure(game, "harness-fatal", phase === "initialization" ? "initialization-failed" : "replay-failed", null, {
       day: phase === "initialization" ? 0 : game?.daysPlayed ?? 0,
-      phase,
+      phase: observedPhase,
       nearestPublicEvent:
         phase === "initialization"
           ? { type: "none", reason: "before-first-public-event" }
           : nearestPublicEvent(game),
+      diagnostic: game?.harnessDiagnostic ?? null,
     });
     return { ok: false, seed: game?.seed ?? null, metrics: {}, failures: [failure] };
   }
@@ -1145,7 +1202,7 @@ export function evaluateReplayGame(game) {
       const targetChanged = prior.targetId !== event.targetId;
       if (targetChanged || decisiveStanceChanged) {
         metrics.crossDayChangedPositions += 1;
-        if (!CROSS_DAY_REVISION_PATTERN.test(normalizedVisibleText(event.text))) {
+        if (!hasCrossDayRevisionExplanation(event.text)) {
           metrics.unexplainedCrossDayChanges += 1;
           if (
             metrics.unexplainedCrossDayChanges >
@@ -1251,19 +1308,28 @@ export function evaluateReplayCorpus(corpus) {
   };
 }
 
-function safeRunFlagshipReplay(seed) {
+function safeRunFlagshipReplay(seed, runReplay = runFlagshipReplay) {
+  const failureContext = {
+    seed,
+    harnessPhase: "initialization",
+    daysPlayed: 0,
+    lastObservedPhase: "initialization",
+    publicTrace: [],
+    actionChecks: [],
+    speechObservations: [],
+  };
   try {
-    return runFlagshipReplay(seed);
-  } catch {
-    return replayHarnessFatal(seed, "replay");
+    return runReplay(seed, { failureContext });
+  } catch (error) {
+    return replayHarnessFatal(seed, failureContext.harnessPhase, failureContext, error);
   }
 }
 
-export function runFlagshipReplayCorpus() {
+export function runFlagshipReplayCorpus({ runReplay = runFlagshipReplay } = {}) {
   const startedAt = Date.now();
   const pairs = MAIN_SEEDS.map((seed) => {
-    const primary = safeRunFlagshipReplay(seed);
-    const comparison = safeRunFlagshipReplay(seed);
+    const primary = safeRunFlagshipReplay(seed, runReplay);
+    const comparison = safeRunFlagshipReplay(seed, runReplay);
     return {
       seed,
       primary,
@@ -1472,7 +1538,7 @@ export function runFlagshipReplaySensitivity(corpus) {
       current.targetId = targetIds.find(
         (targetId) => targetId !== prior.targetId && targetId !== current.targetId && targetId !== current.actorId
       );
-      current.text = "本轮只核这个公开目标和票型。";
+      current.text = "今天只核这个公开目标和票型。";
       current.parsedStance = "undecided";
     })
   );
