@@ -166,6 +166,11 @@ function testPackageScriptsAndWorkflow() {
   assert.match(workflow, /while IFS= read -r -d '' changed_path/u);
   assert.match(
     workflow,
+    /\.github\/workflows\/\* \| \\\r?\n/u,
+    "multiline Bash case alternatives must use explicit line continuation"
+  );
+  assert.match(
+    workflow,
     /Git pathnames can contain newlines and non-ASCII bytes; NUL transport preserves them losslessly\./u,
     "the raw NUL transport rationale must remain reviewable"
   );

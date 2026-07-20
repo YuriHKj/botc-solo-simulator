@@ -46,22 +46,22 @@ The direct command `npm run test:unity-csharp-smoke` remains a local Roslyn diag
 
 ## Hosted Run Observation
 
-Status before the pull request is opened: **pending**. No hosted compile success is claimed by this record.
+The first GitHub-hosted run was accepted by Actions but failed in the path router before licensing or Unity could start. The Bash `case` alternatives lacked explicit line continuations; the terminal gate correctly failed and no receipt was produced. This record includes the workflow fix, but no hosted compile success is claimed from that run.
 
 `rtk gh secret list` returned no repository-level Actions secrets during preflight. Repository-level Unity credentials are intentionally not an acceptable substitute for the protected environment boundary. The observation does not prove that organization or environment secrets are unavailable, or that `hosted-unity-compile` has the required protection; the first real hosted run and repository environment settings are authoritative. If GameCI credentials are unavailable, the expected machine result is `licensing-unavailable`, both producer and terminal gate remain red, and Issue #2 remains open.
 
-The first hosted run will be recorded here once. That documentation commit necessarily creates a second run because the pull request's full base-to-head diff still includes compile-certification changes. The second run is the authority for the final documented PR revision and will be reported through its immutable artifact, PR check, and delivery summary without another self-invalidating commit.
+This observation-and-fix commit creates the second run because the pull request's full base-to-head diff still includes compile-certification changes. That run is the authority for the final documented PR revision and will be reported through its immutable artifact, PR check, and delivery summary without another self-invalidating commit.
 
 | Field | First observed hosted run |
 | --- | --- |
-| Pull request | pending |
-| Workflow run URL | pending |
-| Run ID / attempt | pending |
-| Tested revision (`GITHUB_SHA`) | pending |
-| Source revision | pending |
-| Receipt artifact/status | pending |
-| License mode/outcome | pending |
-| Terminal `capability-contract` | pending |
+| Pull request | [#17](https://github.com/YuriHKj/botc-solo-simulator/pull/17) |
+| Workflow run URL | [Capability contract CI run 29742654394](https://github.com/YuriHKj/botc-solo-simulator/actions/runs/29742654394) |
+| Run ID / attempt | `29742654394` / `1` |
+| Tested revision (`GITHUB_SHA`) | `c423279ba08e22a52c82ed2feb17d16e8e1530fe` (GitHub PR merge revision) |
+| Source revision | `9ffa4f7a31f3253afec92e7a82e14821da461b42` |
+| Receipt artifact/status | none; router failed before receipt finalization |
+| License mode/outcome | not reached |
+| Terminal `capability-contract` | fail; rejected failed router and skipped producer |
 
 ## Closure And Release Guard
 

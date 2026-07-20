@@ -65,27 +65,27 @@ jobs:
             hosted_required=false
             while IFS= read -r -d '' changed_path; do
               case "$changed_path" in
-                .github/workflows/* |
-                tools/unity_csharp_compile_smoke.ps1 |
-                unity-prototype/Assets/*.cs |
-                unity-prototype/Assets/*.cs.meta |
-                unity-prototype/Assets/*.asmdef |
-                unity-prototype/Assets/*.asmdef.meta |
-                unity-prototype/Assets/*.asmref |
-                unity-prototype/Assets/*.asmref.meta |
-                unity-prototype/Assets/*.rsp |
-                unity-prototype/Assets/*.rsp.meta |
-                unity-prototype/Assets/*.dll |
-                unity-prototype/Assets/*.dll.meta |
-                unity-prototype/Packages/* |
-                unity-prototype/ProjectSettings/* |
-                config/product_capabilities.json |
-                scripts/product_capability_contract.mjs |
-                scripts/run_product_capability_ci.mjs |
-                tests/product_capability_contracts.mjs |
-                tests/product_capability_ci_runner.mjs |
-                package.json |
-                README.md |
+                .github/workflows/* | \
+                tools/unity_csharp_compile_smoke.ps1 | \
+                unity-prototype/Assets/*.cs | \
+                unity-prototype/Assets/*.cs.meta | \
+                unity-prototype/Assets/*.asmdef | \
+                unity-prototype/Assets/*.asmdef.meta | \
+                unity-prototype/Assets/*.asmref | \
+                unity-prototype/Assets/*.asmref.meta | \
+                unity-prototype/Assets/*.rsp | \
+                unity-prototype/Assets/*.rsp.meta | \
+                unity-prototype/Assets/*.dll | \
+                unity-prototype/Assets/*.dll.meta | \
+                unity-prototype/Packages/* | \
+                unity-prototype/ProjectSettings/* | \
+                config/product_capabilities.json | \
+                scripts/product_capability_contract.mjs | \
+                scripts/run_product_capability_ci.mjs | \
+                tests/product_capability_contracts.mjs | \
+                tests/product_capability_ci_runner.mjs | \
+                package.json | \
+                README.md | \
                 docs/CAPABILITY_STATUS.md)
                   hosted_required=true
                   break
