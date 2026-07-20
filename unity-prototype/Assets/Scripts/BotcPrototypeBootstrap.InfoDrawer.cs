@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -166,7 +167,7 @@ namespace BotcSolo.UnityPrototype
             var showActivityCards = infoDrawerTab == "events";
 
             if (eventBody != null) eventBody.gameObject.SetActive(!showRecapCards && !showClueCards && !showNotebookCards && !showActivityCards);
-            if (queueBody != null) queueBody.gameObject.SetActive(!showActivityCards && !showPublicCards);
+            if (queueBody != null) queueBody.gameObject.SetActive(!showActivityCards && !showNotebookCards);
             if (infoActivityCardRoot != null)
             {
                 infoActivityCardRoot.gameObject.SetActive(showActivityCards);
@@ -897,57 +898,70 @@ namespace BotcSolo.UnityPrototype
             public string playerId;
             public string playerLabel;
             public string badge;
-            public string claim;
-            public string report;
-            public string check;
-            public string latest;
-            public int lineCount;
-            public bool pendingOnly;
-            public bool isNew;
+            public TimelineEntryViewModel[] entries;
+            public ProactiveWhisperViewModel pendingOffer;
         }
 
 
-        private sealed class PublicSpeechNotebookCard
+        private enum WhisperNotebookLens
         {
-            public string badge;
-            public string stamp;
-            public string speaker;
-            public string focus;
-            public string kind;
-            public string line;
-            public string next;
-            public int lineCount;
+            IdentityClaims = 0,
+            NightInformation = 1,
+            RecentStatements = 2,
+            ItemsToVerify = 3,
         }
+
+
+        private int activeWhisperNotebookPlayerIndex;
+        private int activeWhisperNotebookLensIndex = (int)WhisperNotebookLens.RecentStatements;
+        private int activeWhisperNotebookRecordIndex;
+        private int activeWhisperNotebookTextPageIndex;
+        private int activePublicSpeechDayIndex;
+        private int activePublicSpeechFocusIndex;
+        private int activePublicSpeechRecordIndex;
+        private int activePublicSpeechTextPageIndex;
 
 
         private void RenderWhisperInformationCards(Transform parent)
         {
-            var cards = BuildWhisperNotebookCards().Take(3).ToArray();
+            var cards = BuildWhisperNotebookCards();
             AddWhisperNotebookSummaryStrip(parent, cards);
 
             if (cards.Length == 0)
             {
-                AddWhisperNotebookEmptyCard(parent);
+                AddWhisperNotebookEmptyCard(parent, WhisperNotebookEmptyGuidance(null, WhisperNotebookLens.RecentStatements));
                 return;
             }
 
-            for (var i = 0; i < cards.Length; i++)
+            var entries = NormalizeWhisperNotebookState(cards);
+            var selected = cards[activeWhisperNotebookPlayerIndex];
+            var lens = (WhisperNotebookLens)activeWhisperNotebookLensIndex;
+            AddWhisperNotebookPlayerSelector(parent, cards, selected);
+            AddWhisperNotebookLensSelector(parent, selected, lens, entries);
+            if ((selected.entries?.Length ?? 0) == 0 && selected.pendingOffer != null)
             {
-                AddWhisperNotebookCard(parent, cards[i], 252f - i * 116f);
+                AddWhisperNotebookPendingDetail(parent, selected.pendingOffer);
+                return;
             }
+            if (entries.Length == 0)
+            {
+                AddWhisperNotebookEmptyCard(parent, WhisperNotebookEmptyGuidance(selected, lens));
+                return;
+            }
+            AddWhisperNotebookDetail(parent, selected, lens, entries[activeWhisperNotebookRecordIndex], activeWhisperNotebookRecordIndex, entries.Length);
         }
 
 
         private WhisperNotebookCard[] BuildWhisperNotebookCards()
         {
-            var humanId = (vm.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player.human)?.id ?? "";
+            var players = vm.players ?? Array.Empty<PlayerViewModel>();
+            var humanId = players.FirstOrDefault((player) => player != null && player.human)?.id ?? "";
             var cards = new List<WhisperNotebookCard>();
             var groups = new Dictionary<string, List<TimelineEntryViewModel>>();
-            foreach (var item in vm.timeline ?? Array.Empty<TimelineEntryViewModel>())
+            foreach (var item in vm?.timeline ?? Array.Empty<TimelineEntryViewModel>())
             {
-                if (item == null || !IsPrivateTimelineEntry(item.mode)) continue;
-                var otherId = item.speakerId == humanId ? item.targetId : item.speakerId;
-                if (string.IsNullOrWhiteSpace(otherId)) otherId = item.targetId;
+                if (item == null || !IsPrivateTimelineEntry(item.mode) || !WhisperNotebookEntryHasVisibleContent(item)) continue;
+                var otherId = WhisperNotebookCounterpartId(item, humanId);
                 if (string.IsNullOrWhiteSpace(otherId)) continue;
                 if (!groups.TryGetValue(otherId, out var list))
                 {
@@ -957,58 +971,170 @@ namespace BotcSolo.UnityPrototype
                 list.Add(item);
             }
 
+            var pendingByPlayer = (vm?.pendingProactiveWhispers ?? Array.Empty<ProactiveWhisperViewModel>())
+                .Where((offer) => offer != null && !string.IsNullOrWhiteSpace(offer.playerId))
+                .GroupBy((offer) => offer.playerId)
+                .ToDictionary((group) => group.Key, (group) => group.First());
+
+            foreach (var player in players.Where((player) => player != null && !player.human).OrderBy((player) => player.seat))
+            {
+                groups.TryGetValue(player.id ?? "", out var playerEntries);
+                pendingByPlayer.TryGetValue(player.id ?? "", out var offer);
+                cards.Add(new WhisperNotebookCard
+                {
+                    playerId = player.id,
+                    playerLabel = NotebookSeatLabel(player),
+                    badge = player.seat > 0 ? player.seat.ToString() : "私",
+                    entries = playerEntries?.ToArray() ?? Array.Empty<TimelineEntryViewModel>(),
+                    pendingOffer = offer,
+                });
+                groups.Remove(player.id ?? "");
+                pendingByPlayer.Remove(player.id ?? "");
+            }
+
             foreach (var group in groups.OrderBy((entry) => PlayerById(entry.Key)?.seat ?? 99))
             {
+                pendingByPlayer.TryGetValue(group.Key, out var offer);
                 var player = PlayerById(group.Key);
-                var entries = group.Value
-                    .Where((entry) => entry != null && !string.IsNullOrWhiteSpace(entry.text))
-                    .OrderBy((entry) => entry.day)
-                    .ThenBy((entry) => entry.night)
-                    .ToArray();
-                if (entries.Length == 0) continue;
-                var claims = entries.Where(NotebookLooksLikeClaimEntry).Select(NotebookClaimRoleName).Where((entry) => !string.IsNullOrWhiteSpace(entry)).Distinct().ToArray();
-                var reports = entries.Where(NotebookLooksLikeReportEntry).Select(NotebookReportSummary).Where((entry) => !string.IsNullOrWhiteSpace(entry)).Distinct().ToArray();
-                var latest = entries.LastOrDefault();
                 cards.Add(new WhisperNotebookCard
                 {
                     playerId = group.Key,
-                    playerLabel = player != null ? NotebookSeatLabel(player) : FirstNonEmpty(NameForPlayerId(group.Key), "未知玩家"),
-                    badge = player != null && player.seat > 0 ? player.seat.ToString() : "私",
-                    claim = claims.Length == 0 ? "身份：未声称" : $"身份：{string.Join(" / ", claims.Take(2))}",
-                    report = reports.Length == 0 ? "夜信：暂无" : $"夜信：{reports[0]}",
-                    check = latest != null && latest.speakerId == humanId ? "待对方回应" : reports.Length > 0 ? "可交叉验证" : "待验证",
-                    latest = latest == null ? "" : latest.text,
-                    lineCount = entries.Length,
-                    pendingOnly = false,
-                    isNew = false,
+                    playerLabel = player == null ? "未知玩家" : NotebookSeatLabel(player),
+                    badge = "私",
+                    entries = group.Value.ToArray(),
+                    pendingOffer = offer,
                 });
+                pendingByPlayer.Remove(group.Key);
             }
 
-            foreach (var offer in vm.pendingProactiveWhispers ?? Array.Empty<ProactiveWhisperViewModel>())
+            foreach (var offer in pendingByPlayer.Values.OrderBy((entry) => entry.playerSeat))
             {
-                if (offer == null) continue;
-                var existing = cards.Any((entry) => !string.IsNullOrWhiteSpace(entry.playerId) && entry.playerId == offer.playerId);
-                if (existing) continue;
                 cards.Add(new WhisperNotebookCard
                 {
                     playerId = offer.playerId,
-                    playerLabel = offer.playerSeat > 0 ? $"{offer.playerSeat}号" : FirstNonEmpty(offer.playerName, NameForPlayerId(offer.playerId), "私聊邀请"),
+                    playerLabel = offer.playerSeat > 0 ? $"{offer.playerSeat}号" : FirstNonEmpty(offer.playerName, "私聊邀请"),
                     badge = offer.playerSeat > 0 ? offer.playerSeat.ToString() : "新",
-                    claim = "身份：接受后可见",
-                    report = $"邀请：{FirstNonEmpty(offer.publicIntent, "想交换信息")}",
-                    check = offer.isNew ? "新邀请" : "待处理",
-                    latest = FirstNonEmpty(offer.publicReason, "接受前不会显示具体内容。"),
-                    lineCount = 0,
-                    pendingOnly = true,
-                    isNew = offer.isNew,
+                    entries = Array.Empty<TimelineEntryViewModel>(),
+                    pendingOffer = offer,
                 });
             }
 
-            return cards
-                .OrderByDescending((entry) => entry.isNew)
-                .ThenBy((entry) => PlayerById(entry.playerId)?.seat ?? 99)
-                .ThenBy((entry) => entry.playerLabel ?? "")
-                .ToArray();
+            return cards.ToArray();
+        }
+
+
+        private static bool WhisperNotebookEntryHasVisibleContent(TimelineEntryViewModel entry)
+        {
+            return entry != null && (
+                !string.IsNullOrWhiteSpace(entry.text) ||
+                !string.IsNullOrWhiteSpace(entry.questionToAsk) ||
+                (entry.followUpPrompts?.Any((prompt) => !string.IsNullOrWhiteSpace(prompt)) ?? false));
+        }
+
+
+        private string WhisperNotebookCounterpartId(TimelineEntryViewModel entry, string humanId)
+        {
+            if (entry == null) return "";
+            if (!string.IsNullOrWhiteSpace(humanId) && entry.speakerId == humanId) return entry.targetId ?? "";
+            if (!string.IsNullOrWhiteSpace(humanId) && entry.targetId == humanId) return entry.speakerId ?? "";
+            var speaker = PlayerById(entry.speakerId);
+            if (speaker != null && !speaker.human) return entry.speakerId ?? "";
+            var target = PlayerById(entry.targetId);
+            return target != null && !target.human ? entry.targetId ?? "" : FirstNonEmpty(entry.speakerId, entry.targetId);
+        }
+
+
+        private TimelineEntryViewModel[] BuildWhisperNotebookLensEntries(WhisperNotebookCard card, WhisperNotebookLens lens)
+        {
+            var entries = card?.entries ?? Array.Empty<TimelineEntryViewModel>();
+            if (lens == WhisperNotebookLens.RecentStatements) return entries;
+            if (lens == WhisperNotebookLens.IdentityClaims) return entries.Where(NotebookLooksLikeClaimEntry).ToArray();
+            if (lens == WhisperNotebookLens.NightInformation) return entries.Where(NotebookLooksLikeReportEntry).ToArray();
+            if (lens == WhisperNotebookLens.ItemsToVerify)
+            {
+                return entries.Where((entry) => entry != null && (
+                    !string.IsNullOrWhiteSpace(entry.questionToAsk) ||
+                    (entry.followUpPrompts?.Any((prompt) => !string.IsNullOrWhiteSpace(prompt)) ?? false) ||
+                    NotebookLooksLikeClaimEntry(entry) ||
+                    NotebookLooksLikeReportEntry(entry))).ToArray();
+            }
+            return entries;
+        }
+
+
+        private string WhisperNotebookLensTitle(WhisperNotebookLens lens)
+        {
+            if (lens == WhisperNotebookLens.IdentityClaims) return "身份声称";
+            if (lens == WhisperNotebookLens.NightInformation) return "夜间信息";
+            if (lens == WhisperNotebookLens.ItemsToVerify) return "待验证";
+            return "近期发言";
+        }
+
+
+        private TimelineEntryViewModel[] NormalizeWhisperNotebookState(WhisperNotebookCard[] cards)
+        {
+            var count = cards?.Length ?? 0;
+            activeWhisperNotebookPlayerIndex = count == 0 ? 0 : Mathf.Clamp(activeWhisperNotebookPlayerIndex, 0, count - 1);
+            activeWhisperNotebookLensIndex = Mathf.Clamp(activeWhisperNotebookLensIndex, 0, 3);
+            if (count == 0)
+            {
+                activeWhisperNotebookRecordIndex = 0;
+                activeWhisperNotebookTextPageIndex = 0;
+                return Array.Empty<TimelineEntryViewModel>();
+            }
+            var entries = BuildWhisperNotebookLensEntries(cards[activeWhisperNotebookPlayerIndex], (WhisperNotebookLens)activeWhisperNotebookLensIndex);
+            activeWhisperNotebookRecordIndex = entries.Length == 0 ? 0 : Mathf.Clamp(activeWhisperNotebookRecordIndex, 0, entries.Length - 1);
+            var pages = entries.Length == 0
+                ? Array.Empty<string>()
+                : NotebookTextPages(WhisperNotebookDetailText(entries[activeWhisperNotebookRecordIndex], (WhisperNotebookLens)activeWhisperNotebookLensIndex));
+            activeWhisperNotebookTextPageIndex = pages.Length == 0 ? 0 : Mathf.Clamp(activeWhisperNotebookTextPageIndex, 0, pages.Length - 1);
+            return entries;
+        }
+
+
+        private void CycleWhisperNotebookPlayer(int delta)
+        {
+            var cards = BuildWhisperNotebookCards();
+            if (cards.Length <= 1) return;
+            activeWhisperNotebookPlayerIndex = WrapIndex(activeWhisperNotebookPlayerIndex + delta, cards.Length);
+            activeWhisperNotebookRecordIndex = 0;
+            activeWhisperNotebookTextPageIndex = 0;
+            ShowInfoDrawer("whispers");
+        }
+
+
+        private void SelectWhisperNotebookLens(int index)
+        {
+            activeWhisperNotebookLensIndex = Mathf.Clamp(index, 0, 3);
+            activeWhisperNotebookRecordIndex = 0;
+            activeWhisperNotebookTextPageIndex = 0;
+            ShowInfoDrawer("whispers");
+        }
+
+
+        private void CycleWhisperNotebookRecord(int delta)
+        {
+            var cards = BuildWhisperNotebookCards();
+            var entries = NormalizeWhisperNotebookState(cards);
+            if (cards.Length == 0) return;
+            if (entries.Length == 0) return;
+            var lens = (WhisperNotebookLens)activeWhisperNotebookLensIndex;
+            var pages = NotebookTextPages(WhisperNotebookDetailText(entries[activeWhisperNotebookRecordIndex], lens));
+            if (delta > 0 && activeWhisperNotebookTextPageIndex < pages.Length - 1)
+            {
+                activeWhisperNotebookTextPageIndex += 1;
+            }
+            else if (delta < 0 && activeWhisperNotebookTextPageIndex > 0)
+            {
+                activeWhisperNotebookTextPageIndex -= 1;
+            }
+            else if (entries.Length > 1)
+            {
+                activeWhisperNotebookRecordIndex = WrapIndex(activeWhisperNotebookRecordIndex + delta, entries.Length);
+                var nextPages = NotebookTextPages(WhisperNotebookDetailText(entries[activeWhisperNotebookRecordIndex], lens));
+                activeWhisperNotebookTextPageIndex = delta < 0 ? Mathf.Max(0, nextPages.Length - 1) : 0;
+            }
+            ShowInfoDrawer("whispers");
         }
 
 
@@ -1020,186 +1146,374 @@ namespace BotcSolo.UnityPrototype
             AddFrame(strip.transform, "Whisper Notebook Summary Frame", 0.75f, new Color(0.95f, 0.66f, 0.30f, 0.30f));
             AddImage("Whisper Notebook Summary Accent", strip.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.055f, 0.11f, 0.18f, 0.86f));
             AddText("Whisper Notebook Summary Title", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 42f), new Vector2(-220f, -8f), "私聊情报簿", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.98f);
-            AddText("Whisper Notebook Summary Meta", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-220f, -32f), $"对象 {cards.Length} · 记录 {totalLines} · 邀请 {pending}", 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.84f);
-            AddText("Whisper Notebook Summary Rule", strip.transform, Vector2.zero, Vector2.one, new Vector2(302f, 42f), new Vector2(-18f, -8f), "未接受前隐藏内容", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.90f);
-            AddText("Whisper Notebook Summary Hint", strip.transform, Vector2.zero, Vector2.one, new Vector2(250f, 16f), new Vector2(-18f, -32f), "按玩家聚合：身份、夜信、待验证点", 12, TextAnchor.UpperRight, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.76f);
+            AddText("Whisper Notebook Summary Meta", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-220f, -32f), $"玩家 {cards.Length} · 当前资料 {totalLines}条 · 邀请 {pending}", 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.84f);
+            AddText("Whisper Notebook Summary Rule", strip.transform, Vector2.zero, Vector2.one, new Vector2(302f, 42f), new Vector2(-18f, -8f), "私聊记录 · 仅你可见", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.90f);
+            AddText("Whisper Notebook Summary Hint", strip.transform, Vector2.zero, Vector2.one, new Vector2(250f, 16f), new Vector2(-18f, -32f), "前后切换可查看全部当前资料", 12, TextAnchor.UpperRight, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.76f);
         }
 
 
-        private void AddWhisperNotebookEmptyCard(Transform parent)
+        private void AddWhisperNotebookPlayerSelector(Transform parent, WhisperNotebookCard[] cards, WhisperNotebookCard selected)
         {
-            var card = AddPanel("Whisper Notebook Empty", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 158f), new Vector2(584f, 252f), new Color(0.92f, 0.82f, 0.58f, 0.52f));
+            var panel = AddPanel("Whisper Notebook Player Selector", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 314f), new Vector2(584f, 354f), new Color(0.92f, 0.82f, 0.58f, 0.48f));
+            AddFrame(panel.transform, "Whisper Notebook Player Selector Frame", 0.65f, new Color(0.26f, 0.13f, 0.055f, 0.26f));
+            var previous = AddButton("‹", panel.transform, new Vector2(24f, 20f), new Vector2(40f, 28f), () => CycleWhisperNotebookPlayer(-1));
+            var next = AddButton("›", panel.transform, new Vector2(560f, 20f), new Vector2(40f, 28f), () => CycleWhisperNotebookPlayer(1));
+            SetToolButtonEnabled(previous, cards.Length > 1);
+            SetToolButtonEnabled(next, cards.Length > 1);
+            AddText("Whisper Notebook Selected Player", panel.transform, Vector2.zero, Vector2.one, new Vector2(72f, 4f), new Vector2(-72f, -4f), $"{FirstNonEmpty(selected?.badge, "私")} · {FirstNonEmpty(selected?.playerLabel, "未知玩家")}   玩家 {activeWhisperNotebookPlayerIndex + 1} / {cards.Length}", 15, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+        }
+
+
+        private void AddWhisperNotebookLensSelector(Transform parent, WhisperNotebookCard selected, WhisperNotebookLens lens, TimelineEntryViewModel[] selectedEntries)
+        {
+            for (var index = 0; index < 4; index++)
+            {
+                var selectedIndex = index;
+                var itemLens = (WhisperNotebookLens)index;
+                var title = WhisperNotebookLensTitle(itemLens);
+                var count = itemLens == lens ? (selectedEntries?.Length ?? 0) : BuildWhisperNotebookLensEntries(selected, itemLens).Length;
+                var button = AddButton($"{title} {count}", parent, new Vector2(68f + index * 148f, 286f), new Vector2(136f, 30f), () => SelectWhisperNotebookLens(selectedIndex));
+                var label = button.GetComponentInChildren<Text>();
+                if (label != null && index == (int)lens)
+                {
+                    label.text = $"● {title} {count}";
+                    label.color = new Color(1f, 0.82f, 0.42f, 1f);
+                }
+            }
+        }
+
+
+        private void AddWhisperNotebookDetail(Transform parent, WhisperNotebookCard card, WhisperNotebookLens lens, TimelineEntryViewModel entry, int index, int count)
+        {
+            var panel = AddPanel("Whisper Notebook Detail", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 40f), new Vector2(584f, 262f), new Color(0.92f, 0.82f, 0.58f, 0.58f));
+            AddFrame(panel.transform, "Whisper Notebook Detail Frame", 0.78f, new Color(0.26f, 0.13f, 0.055f, 0.32f));
+            AddImage("Whisper Notebook Detail Accent", panel.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.055f, 0.11f, 0.18f, 0.90f));
+            var stamp = entry.day > 0 ? $"D{entry.day}" : entry.night > 0 ? $"N{entry.night}" : "本局";
+            var speaker = FirstNonEmpty(NameForPlayerId(entry.speakerId), "发言者");
+            var pages = NotebookTextPages(WhisperNotebookDetailText(entry, lens));
+            activeWhisperNotebookTextPageIndex = Mathf.Clamp(activeWhisperNotebookTextPageIndex, 0, pages.Length - 1);
+            AddText("Whisper Notebook Detail Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 190f), new Vector2(-210f, -10f), $"{WhisperNotebookLensTitle(lens)} · {stamp} · {speaker}", 15, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+            AddText("Whisper Notebook Detail Count", panel.transform, Vector2.zero, Vector2.one, new Vector2(340f, 190f), new Vector2(-18f, -10f), $"记录 {index + 1}/{count} · 原文 {activeWhisperNotebookTextPageIndex + 1}/{pages.Length}", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(0.32f, 0.14f, 0.055f, 0.90f);
+            AddText("Whisper Notebook Visibility", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 170f), new Vector2(-18f, -32f), "私聊原话 · 仅你可见", 11, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.22f, 0.12f, 0.055f, 0.78f);
+            var body = AddText("Whisper Notebook Full Source", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 46f), new Vector2(-18f, -58f), pages[activeWhisperNotebookTextPageIndex], 14, TextAnchor.UpperLeft, FontStyle.Normal);
+            body.horizontalOverflow = HorizontalWrapMode.Wrap;
+            body.verticalOverflow = VerticalWrapMode.Truncate;
+            body.resizeTextForBestFit = true;
+            body.resizeTextMinSize = 9;
+            body.resizeTextMaxSize = 14;
+            body.color = new Color(0.14f, 0.075f, 0.035f, 0.94f);
+            AddText("Whisper Notebook Next Question", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 12f), new Vector2(-18f, -178f), lens == WhisperNotebookLens.ItemsToVerify ? "全部待验证问题随原文分页显示。" : "查看原话后再决定是否追问。", 11, TextAnchor.LowerLeft, FontStyle.Bold).color = new Color(0.26f, 0.13f, 0.055f, 0.84f);
+            AddNotebookRecordControls(parent, "Whisper", index, count, activeWhisperNotebookTextPageIndex, pages.Length, () => CycleWhisperNotebookRecord(-1), () => CycleWhisperNotebookRecord(1));
+        }
+
+
+        private string WhisperNotebookDetailText(TimelineEntryViewModel entry, WhisperNotebookLens lens)
+        {
+            var source = PlayerFacingClueLine(FirstNonEmpty(entry?.text, "该条记录没有可读原话。"));
+            if (lens != WhisperNotebookLens.ItemsToVerify || entry == null) return source;
+            var questions = new[] { entry.questionToAsk }
+                .Concat(entry.followUpPrompts ?? Array.Empty<string>())
+                .Where((prompt) => !string.IsNullOrWhiteSpace(prompt))
+                .Select(PlayerFacingClueLine)
+                .Distinct()
+                .ToArray();
+            if (questions.Length == 0) return source;
+            return $"{source}\n\n待验证：\n{string.Join("\n", questions.Select((prompt) => $"· {prompt}"))}";
+        }
+
+
+        private void AddWhisperNotebookPendingDetail(Transform parent, ProactiveWhisperViewModel offer)
+        {
+            var panel = AddPanel("Whisper Notebook Pending Detail", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 40f), new Vector2(584f, 262f), new Color(0.92f, 0.82f, 0.58f, 0.58f));
+            AddFrame(panel.transform, "Whisper Notebook Pending Detail Frame", 0.78f, new Color(0.26f, 0.13f, 0.055f, 0.32f));
+            AddText("Whisper Notebook Pending Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 188f), new Vector2(-18f, -12f), offer?.isNew == true ? "新私聊邀请" : "待处理私聊邀请", 16, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+            AddText("Whisper Notebook Pending Intent", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 128f), new Vector2(-18f, -48f), $"对方想：{PlayerFacingClueLine(FirstNonEmpty(offer?.publicIntent, "交换信息"))}\n{PlayerFacingClueLine(FirstNonEmpty(offer?.publicReason, "接受前不会显示具体内容。"))}", 14, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.92f);
+            AddText("Whisper Notebook Pending Rule", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 22f), new Vector2(-18f, -176f), "接受后才会出现具体私聊内容。", 12, TextAnchor.LowerLeft, FontStyle.Bold).color = new Color(0.26f, 0.13f, 0.055f, 0.86f);
+        }
+
+
+        private string WhisperNotebookEmptyGuidance(WhisperNotebookCard card, WhisperNotebookLens lens)
+        {
+            var player = FirstNonEmpty(card?.playerLabel, "这位玩家");
+            if (card == null) return $"下一步：从玩家头像发起私聊，或接受一条私聊邀请。";
+            if ((card.entries?.Length ?? 0) == 0) return $"{player} 暂无私聊记录。下一步：从该玩家头像发起私聊。";
+            if (lens == WhisperNotebookLens.IdentityClaims) return $"{player} 尚无身份声称。下一步：询问其身份范围。";
+            if (lens == WhisperNotebookLens.NightInformation) return $"{player} 尚无可归入夜间信息的原话。下一步：查看近期发言。";
+            if (lens == WhisperNotebookLens.ItemsToVerify) return $"{player} 暂无待验证项。下一步：对照近期发言。";
+            return $"{player} 暂无匹配记录。下一步：继续本局后再查看。";
+        }
+
+
+        private void AddWhisperNotebookEmptyCard(Transform parent, string guidance)
+        {
+            var card = AddPanel("Whisper Notebook Empty", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 40f), new Vector2(584f, 262f), new Color(0.92f, 0.82f, 0.58f, 0.52f));
             AddFrame(card.transform, "Whisper Notebook Empty Frame", 0.75f, new Color(0.26f, 0.13f, 0.055f, 0.28f));
             AddImage("Whisper Notebook Empty Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.080f, 0.085f, 0.13f, 0.78f));
-            AddText("Whisper Notebook Empty Title", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 58f), new Vector2(-20f, -12f), "还没有私聊记录", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
-            AddText("Whisper Notebook Empty Body", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 20f), new Vector2(-20f, -48f), "接受邀请或从玩家 token 打开私聊后，这里会按玩家整理身份声称、夜晚信息和待验证点。", 13, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.88f);
-        }
-
-
-        private void AddWhisperNotebookCard(Transform parent, WhisperNotebookCard item, float y)
-        {
-            var accent = item != null && item.pendingOnly
-                ? new Color(0.28f, 0.13f, 0.040f, 0.90f)
-                : new Color(0.055f, 0.11f, 0.18f, 0.90f);
-            var card = AddPanel($"Whisper Notebook Card {item?.playerLabel}", parent, Vector2.zero, Vector2.zero, new Vector2(0f, y), new Vector2(584f, y + 100f), new Color(0.92f, 0.82f, 0.58f, 0.56f));
-            AddFrame(card.transform, "Whisper Notebook Card Frame", 0.78f, new Color(0.26f, 0.13f, 0.055f, 0.30f));
-            AddImage("Whisper Notebook Card Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), accent);
-            var badge = AddImage("Whisper Notebook Badge", card.transform, Vector2.zero, Vector2.zero, new Vector2(18f, 52f), new Vector2(68f, 88f), accent);
-            AddFrame(badge.transform, "Whisper Notebook Badge Frame", 0.7f, new Color(0.16f, 0.080f, 0.035f, 0.46f));
-            AddText("Whisper Notebook Badge Text", badge.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, FirstNonEmpty(item?.badge, "私"), 14, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.88f, 0.56f, 0.98f);
-            AddText("Whisper Notebook Player", card.transform, Vector2.zero, Vector2.one, new Vector2(86f, 72f), new Vector2(-210f, -8f), Ellipsize(FirstNonEmpty(item?.playerLabel, "未知玩家"), 18), 16, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
-            AddText("Whisper Notebook Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(350f, 72f), new Vector2(-18f, -9f), item == null || item.pendingOnly ? FirstNonEmpty(item?.check, "待处理") : $"{item.lineCount}条 · {item.check}", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(0.32f, 0.14f, 0.055f, 0.90f);
-            AddWhisperNotebookChip(card.transform, item?.claim, new Vector2(86f, 47f), 230f, new Color(0.13f, 0.075f, 0.030f, 0.90f));
-            AddWhisperNotebookChip(card.transform, item?.report, new Vector2(326f, 47f), 232f, new Color(0.080f, 0.085f, 0.13f, 0.86f));
-            AddText("Whisper Notebook Latest", card.transform, Vector2.zero, Vector2.one, new Vector2(86f, 15f), new Vector2(-18f, -58f), Ellipsize(FirstNonEmpty(item?.latest, "暂无最近内容"), 68), 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.86f);
-        }
-
-
-        private void AddWhisperNotebookChip(Transform parent, string text, Vector2 bottomLeft, float width, Color accent)
-        {
-            var chip = AddPanel("Whisper Notebook Chip", parent, Vector2.zero, Vector2.zero, bottomLeft, bottomLeft + new Vector2(width, 22f), new Color(accent.r * 1.6f, accent.g * 1.6f, accent.b * 1.6f, 0.28f));
-            AddFrame(chip.transform, "Whisper Notebook Chip Frame", 0.50f, new Color(accent.r, accent.g, accent.b, 0.28f));
-            AddImage("Whisper Notebook Chip Accent", chip.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), accent);
-            AddText("Whisper Notebook Chip Text", chip.transform, Vector2.zero, Vector2.one, new Vector2(8f, 1f), new Vector2(-8f, -2f), Ellipsize(FirstNonEmpty(text, "暂无"), Mathf.Max(8, Mathf.FloorToInt(width / 8f))), 10, TextAnchor.MiddleLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.92f);
+            AddText("Whisper Notebook Empty Title", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 176f), new Vector2(-20f, -14f), "这里还没有匹配记录", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+            AddText("Whisper Notebook Empty Body", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 42f), new Vector2(-20f, -56f), PlayerFacingClueLine(guidance), 14, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.88f);
         }
 
 
         private void RenderPublicSpeechCards(Transform parent)
         {
-            var cards = BuildPublicSpeechNotebookCards().Take(3).ToArray();
-            AddPublicSpeechSummaryStrip(parent, cards);
-
-            if (cards.Length == 0)
+            var entries = BuildPublicSpeechEntries();
+            var dayKeys = BuildPublicSpeechDayKeys(entries);
+            var focusKeys = BuildPublicSpeechFocusKeys(entries);
+            var filtered = NormalizePublicSpeechNotebookState(entries, dayKeys, focusKeys);
+            AddPublicSpeechSummaryStrip(parent, entries.Length, filtered.Length);
+            AddPublicSpeechDaySelector(parent, dayKeys);
+            AddPublicSpeechFocusSelector(parent, focusKeys);
+            if (filtered.Length == 0)
             {
-                AddPublicSpeechEmptyCard(parent);
+                AddPublicSpeechEmptyCard(parent, PublicSpeechEmptyGuidance(entries.Length));
                 return;
             }
-
-            for (var i = 0; i < cards.Length; i++)
-            {
-                AddPublicSpeechCard(parent, cards[i], 252f - i * 116f);
-            }
+            AddPublicSpeechDetail(parent, filtered[activePublicSpeechRecordIndex], activePublicSpeechRecordIndex, filtered.Length);
         }
 
 
-        private PublicSpeechNotebookCard[] BuildPublicSpeechNotebookCards()
+        private TimelineEntryViewModel[] BuildPublicSpeechEntries()
         {
-            var entries = (vm?.timeline ?? Array.Empty<TimelineEntryViewModel>())
+            return (vm?.timeline ?? Array.Empty<TimelineEntryViewModel>())
                 .Where((entry) => entry != null && IsPublicTimelineEntry(entry.mode) && !string.IsNullOrWhiteSpace(entry.text))
-                .Select((entry, index) => new { entry, index })
                 .ToArray();
-            var cards = new List<PublicSpeechNotebookCard>();
-            foreach (var group in entries
-                .GroupBy((item) => PublicSpeechGroupKey(item.entry))
-                .OrderByDescending((group) => group.Max((item) => item.index)))
+        }
+
+
+        private string PublicSpeechDayKey(TimelineEntryViewModel entry)
+        {
+            if (entry == null) return $"D{Mathf.Max(1, vm?.day ?? 1)}";
+            if (entry.day > 0) return $"D{entry.day}";
+            if (entry.night > 0) return $"N{entry.night}";
+            return $"D{Mathf.Max(1, vm?.day ?? 1)}";
+        }
+
+
+        private string PublicSpeechFocusKey(TimelineEntryViewModel entry)
+        {
+            if (entry == null) return "table";
+            if (!string.IsNullOrWhiteSpace(entry.focusId))
             {
-                var groupEntries = group
-                    .OrderBy((item) => item.index)
-                    .Select((item) => item.entry)
-                    .ToArray();
-                var latest = groupEntries.LastOrDefault();
-                if (latest == null) continue;
-                var labels = groupEntries
-                    .Select(TimelineInformationLabel)
-                    .Where((entry) => !string.IsNullOrWhiteSpace(entry))
-                    .Distinct()
-                    .Take(2)
-                    .ToArray();
-                var stamp = latest.day > 0 ? $"D{latest.day}" : latest.night > 0 ? $"N{latest.night}" : $"D{vm.day}";
-                cards.Add(new PublicSpeechNotebookCard
-                {
-                    badge = latest.day > 0 ? latest.day.ToString() : "公",
-                    stamp = stamp,
-                    speaker = FirstNonEmpty(NameForPlayerId(latest.speakerId), "发言者"),
-                    focus = PublicSpeechFocusLabel(latest),
-                    kind = labels.Length == 0 ? "信息" : string.Join("/", labels),
-                    line = PublicSpeechLine(latest),
-                    next = PublicSpeechNextLine(latest),
-                    lineCount = groupEntries.Length,
-                });
+                var focus = PlayerById(entry.focusId);
+                if (focus != null) return focus.id;
             }
-            return cards.ToArray();
+            var target = PlayerById(entry.targetId);
+            if (target != null) return target.id;
+            return "table";
         }
 
 
-        private string PublicSpeechGroupKey(TimelineEntryViewModel entry)
+        private string[] BuildPublicSpeechDayKeys(TimelineEntryViewModel[] entries)
         {
-            var day = entry == null || entry.day <= 0 ? vm?.day ?? 0 : entry.day;
-            var focusId = FirstNonEmpty(entry?.focusId, entry?.targetId, "table");
-            return $"{day}:{focusId}";
+            return new[] { "all" }.Concat((entries ?? Array.Empty<TimelineEntryViewModel>()).Select(PublicSpeechDayKey).Distinct()).ToArray();
         }
 
 
-        private string PublicSpeechFocusLabel(TimelineEntryViewModel entry)
+        private string[] BuildPublicSpeechFocusKeys(TimelineEntryViewModel[] entries)
         {
-            var focusId = FirstNonEmpty(entry?.focusId, entry?.targetId);
-            if (string.IsNullOrWhiteSpace(focusId)) return "全桌";
-            return FirstNonEmpty(NameForPlayerId(focusId), "全桌");
+            return new[] { "all" }.Concat((entries ?? Array.Empty<TimelineEntryViewModel>()).Select(PublicSpeechFocusKey).Distinct()).ToArray();
         }
 
 
-        private string PublicSpeechLine(TimelineEntryViewModel entry)
+        private TimelineEntryViewModel[] BuildFilteredPublicSpeechEntries(TimelineEntryViewModel[] entries, string[] dayKeys, string[] focusKeys)
         {
-            if (entry == null) return "暂无发言。";
-            var speaker = FirstNonEmpty(NameForPlayerId(entry.speakerId), "发言者");
-            var body = PlayerFacingClueLine(FirstNonEmpty(entry.text, entry.rationaleSummary, "暂无发言。"));
-            return $"{speaker}：{Ellipsize(body, 58)}";
+            var dayKey = dayKeys != null && dayKeys.Length > 0 ? dayKeys[Mathf.Clamp(activePublicSpeechDayIndex, 0, dayKeys.Length - 1)] : "all";
+            var focusKey = focusKeys != null && focusKeys.Length > 0 ? focusKeys[Mathf.Clamp(activePublicSpeechFocusIndex, 0, focusKeys.Length - 1)] : "all";
+            return (entries ?? Array.Empty<TimelineEntryViewModel>())
+                .Where((entry) => dayKey == "all" || PublicSpeechDayKey(entry) == dayKey)
+                .Where((entry) => focusKey == "all" || PublicSpeechFocusKey(entry) == focusKey)
+                .ToArray();
         }
 
 
-        private string PublicSpeechNextLine(TimelineEntryViewModel entry)
+        private TimelineEntryViewModel[] NormalizePublicSpeechNotebookState(TimelineEntryViewModel[] entries, string[] dayKeys, string[] focusKeys)
         {
-            var step = vm?.publicConversation?.lastStep;
-            var prompt = FirstNonEmpty(step?.followUp, step?.question, vm?.phaseAdvance?.reason, vm?.phaseObjectiveHint, FlowNextLabel(), "听完后可追问或进入提名。");
-            return PlayerFacingClueLine(prompt);
+            activePublicSpeechDayIndex = dayKeys == null || dayKeys.Length == 0 ? 0 : Mathf.Clamp(activePublicSpeechDayIndex, 0, dayKeys.Length - 1);
+            activePublicSpeechFocusIndex = focusKeys == null || focusKeys.Length == 0 ? 0 : Mathf.Clamp(activePublicSpeechFocusIndex, 0, focusKeys.Length - 1);
+            var filtered = BuildFilteredPublicSpeechEntries(entries, dayKeys, focusKeys);
+            activePublicSpeechRecordIndex = filtered.Length == 0 ? 0 : Mathf.Clamp(activePublicSpeechRecordIndex, 0, filtered.Length - 1);
+            var pages = filtered.Length == 0
+                ? Array.Empty<string>()
+                : NotebookTextPages(PlayerFacingClueLine(FirstNonEmpty(filtered[activePublicSpeechRecordIndex]?.text, "暂无可读原话。")));
+            activePublicSpeechTextPageIndex = pages.Length == 0 ? 0 : Mathf.Clamp(activePublicSpeechTextPageIndex, 0, pages.Length - 1);
+            return filtered;
         }
 
 
-        private void AddPublicSpeechSummaryStrip(Transform parent, PublicSpeechNotebookCard[] cards)
+        private void CyclePublicSpeechDay(int delta)
         {
-            var entries = (vm?.timeline ?? Array.Empty<TimelineEntryViewModel>()).Where((entry) => entry != null && IsPublicTimelineEntry(entry.mode)).ToArray();
-            var conversation = vm?.publicConversation;
-            var focusId = conversation?.focusId ?? "";
-            var focusName = string.IsNullOrWhiteSpace(focusId) ? "" : NameForPlayerId(focusId);
-            var speakerId = conversation?.speakerId ?? "";
-            var speakerName = string.IsNullOrWhiteSpace(speakerId) ? "" : NameForPlayerId(speakerId);
-            var current = conversation != null && conversation.active
-                ? $"{FirstNonEmpty(conversation.speakerName, speakerName, "发言者")} · 关注 {FirstNonEmpty(conversation.focusName, focusName, "全桌")}"
-                : entries.Length == 0 ? "尚未进入公聊" : "最近公开发言";
+            var keys = BuildPublicSpeechDayKeys(BuildPublicSpeechEntries());
+            if (keys.Length <= 1) return;
+            activePublicSpeechDayIndex = WrapIndex(activePublicSpeechDayIndex + delta, keys.Length);
+            activePublicSpeechRecordIndex = 0;
+            activePublicSpeechTextPageIndex = 0;
+            ShowInfoDrawer("public");
+        }
+
+
+        private void CyclePublicSpeechFocus(int delta)
+        {
+            var keys = BuildPublicSpeechFocusKeys(BuildPublicSpeechEntries());
+            if (keys.Length <= 1) return;
+            activePublicSpeechFocusIndex = WrapIndex(activePublicSpeechFocusIndex + delta, keys.Length);
+            activePublicSpeechRecordIndex = 0;
+            activePublicSpeechTextPageIndex = 0;
+            ShowInfoDrawer("public");
+        }
+
+
+        private void CyclePublicSpeechRecord(int delta)
+        {
+            var entries = BuildPublicSpeechEntries();
+            var dayKeys = BuildPublicSpeechDayKeys(entries);
+            var focusKeys = BuildPublicSpeechFocusKeys(entries);
+            var filtered = NormalizePublicSpeechNotebookState(entries, dayKeys, focusKeys);
+            if (filtered.Length == 0) return;
+            var pages = NotebookTextPages(PlayerFacingClueLine(FirstNonEmpty(filtered[activePublicSpeechRecordIndex]?.text, "暂无可读原话。")));
+            if (delta > 0 && activePublicSpeechTextPageIndex < pages.Length - 1)
+            {
+                activePublicSpeechTextPageIndex += 1;
+            }
+            else if (delta < 0 && activePublicSpeechTextPageIndex > 0)
+            {
+                activePublicSpeechTextPageIndex -= 1;
+            }
+            else if (filtered.Length > 1)
+            {
+                activePublicSpeechRecordIndex = WrapIndex(activePublicSpeechRecordIndex + delta, filtered.Length);
+                var nextPages = NotebookTextPages(PlayerFacingClueLine(FirstNonEmpty(filtered[activePublicSpeechRecordIndex]?.text, "暂无可读原话。")));
+                activePublicSpeechTextPageIndex = delta < 0 ? Mathf.Max(0, nextPages.Length - 1) : 0;
+            }
+            ShowInfoDrawer("public");
+        }
+
+
+        private string PublicSpeechFocusLabel(string key)
+        {
+            if (key == "all") return "全部对象";
+            if (key == "table") return "全桌";
+            var player = PlayerById(key);
+            return player == null ? "全桌" : NotebookSeatLabel(player);
+        }
+
+
+        private void AddPublicSpeechSummaryStrip(Transform parent, int total, int filtered)
+        {
             var strip = AddPanel("Public Speech Summary", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 358f), new Vector2(584f, 430f), new Color(0.15f, 0.080f, 0.036f, 0.74f));
             AddFrame(strip.transform, "Public Speech Summary Frame", 0.75f, new Color(0.95f, 0.66f, 0.30f, 0.28f));
             AddImage("Public Speech Summary Accent", strip.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.090f, 0.18f, 0.12f, 0.86f));
             AddText("Public Speech Summary Title", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 42f), new Vector2(-230f, -8f), "公开发言记录", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.98f);
-            AddText("Public Speech Summary Meta", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-230f, -32f), $"轮次 {cards.Length} · 发言 {entries.Length}", 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.84f);
-            AddText("Public Speech Summary Current", strip.transform, Vector2.zero, Vector2.one, new Vector2(274f, 42f), new Vector2(-18f, -8f), Ellipsize(current, 22), 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.90f);
-            AddText("Public Speech Summary Hint", strip.transform, Vector2.zero, Vector2.one, new Vector2(250f, 16f), new Vector2(-18f, -32f), "按轮次和关注对象整理", 12, TextAnchor.UpperRight, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.76f);
+            AddText("Public Speech Summary Meta", strip.transform, Vector2.zero, Vector2.one, new Vector2(18f, 18f), new Vector2(-230f, -32f), $"当前资料 {total}条 · 匹配 {filtered}条", 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.84f);
+            AddText("Public Speech Summary Current", strip.transform, Vector2.zero, Vector2.one, new Vector2(274f, 42f), new Vector2(-18f, -8f), "原始发言 · 全桌可见", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.90f);
+            AddText("Public Speech Summary Hint", strip.transform, Vector2.zero, Vector2.one, new Vector2(250f, 16f), new Vector2(-18f, -32f), "按天数和关注对象定位原话", 12, TextAnchor.UpperRight, FontStyle.Normal).color = new Color(0.98f, 0.92f, 0.78f, 0.76f);
         }
 
 
-        private void AddPublicSpeechEmptyCard(Transform parent)
+        private void AddPublicSpeechDaySelector(Transform parent, string[] keys)
         {
-            var card = AddPanel("Public Speech Empty", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 124f), new Vector2(584f, 252f), new Color(0.92f, 0.82f, 0.58f, 0.52f));
+            var key = keys != null && keys.Length > 0 ? keys[Mathf.Clamp(activePublicSpeechDayIndex, 0, keys.Length - 1)] : "all";
+            var label = key == "all" ? "全部天数" : key;
+            var panel = AddPanel("Public Speech Day Selector", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 314f), new Vector2(286f, 354f), new Color(0.92f, 0.82f, 0.58f, 0.48f));
+            AddFrame(panel.transform, "Public Speech Day Selector Frame", 0.65f, new Color(0.26f, 0.13f, 0.055f, 0.26f));
+            var previous = AddButton("‹", panel.transform, new Vector2(22f, 20f), new Vector2(36f, 28f), () => CyclePublicSpeechDay(-1));
+            var next = AddButton("›", panel.transform, new Vector2(264f, 20f), new Vector2(36f, 28f), () => CyclePublicSpeechDay(1));
+            SetToolButtonEnabled(previous, (keys?.Length ?? 0) > 1);
+            SetToolButtonEnabled(next, (keys?.Length ?? 0) > 1);
+            AddText("Public Speech Day Value", panel.transform, Vector2.zero, Vector2.one, new Vector2(48f, 3f), new Vector2(-48f, -3f), $"天数 {label} · {activePublicSpeechDayIndex + 1}/{Mathf.Max(1, keys?.Length ?? 0)}", 13, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+        }
+
+
+        private void AddPublicSpeechFocusSelector(Transform parent, string[] keys)
+        {
+            var key = keys != null && keys.Length > 0 ? keys[Mathf.Clamp(activePublicSpeechFocusIndex, 0, keys.Length - 1)] : "all";
+            var panel = AddPanel("Public Speech Focus Selector", parent, Vector2.zero, Vector2.zero, new Vector2(298f, 314f), new Vector2(584f, 354f), new Color(0.92f, 0.82f, 0.58f, 0.48f));
+            AddFrame(panel.transform, "Public Speech Focus Selector Frame", 0.65f, new Color(0.26f, 0.13f, 0.055f, 0.26f));
+            var previous = AddButton("‹", panel.transform, new Vector2(22f, 20f), new Vector2(36f, 28f), () => CyclePublicSpeechFocus(-1));
+            var next = AddButton("›", panel.transform, new Vector2(264f, 20f), new Vector2(36f, 28f), () => CyclePublicSpeechFocus(1));
+            SetToolButtonEnabled(previous, (keys?.Length ?? 0) > 1);
+            SetToolButtonEnabled(next, (keys?.Length ?? 0) > 1);
+            AddText("Public Speech Focus Value", panel.transform, Vector2.zero, Vector2.one, new Vector2(48f, 3f), new Vector2(-48f, -3f), $"关注 {PublicSpeechFocusLabel(key)} · {activePublicSpeechFocusIndex + 1}/{Mathf.Max(1, keys?.Length ?? 0)}", 13, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+        }
+
+
+        private void AddPublicSpeechDetail(Transform parent, TimelineEntryViewModel entry, int index, int count)
+        {
+            var panel = AddPanel("Public Speech Detail", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 40f), new Vector2(584f, 302f), new Color(0.92f, 0.82f, 0.58f, 0.58f));
+            AddFrame(panel.transform, "Public Speech Detail Frame", 0.78f, new Color(0.26f, 0.13f, 0.055f, 0.32f));
+            AddImage("Public Speech Detail Accent", panel.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.090f, 0.18f, 0.12f, 0.90f));
+            var stamp = PublicSpeechDayKey(entry);
+            var speaker = FirstNonEmpty(NameForPlayerId(entry?.speakerId), "发言者");
+            var focus = PublicSpeechFocusLabel(PublicSpeechFocusKey(entry));
+            var pages = NotebookTextPages(PlayerFacingClueLine(FirstNonEmpty(entry?.text, "暂无可读原话。")));
+            activePublicSpeechTextPageIndex = Mathf.Clamp(activePublicSpeechTextPageIndex, 0, pages.Length - 1);
+            AddText("Public Speech Detail Title", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 230f), new Vector2(-210f, -10f), $"原始发言 · {stamp} · {speaker}", 15, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+            AddText("Public Speech Detail Count", panel.transform, Vector2.zero, Vector2.one, new Vector2(320f, 230f), new Vector2(-18f, -10f), $"匹配记录 {index + 1}/{count} · 原文 {activePublicSpeechTextPageIndex + 1}/{pages.Length}", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(0.32f, 0.14f, 0.055f, 0.90f);
+            AddText("Public Speech Detail Visibility", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 210f), new Vector2(-18f, -32f), $"全桌可见 · 关注 {focus}", 11, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.22f, 0.12f, 0.055f, 0.78f);
+            var body = AddText("Public Speech Full Source", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 48f), new Vector2(-18f, -60f), pages[activePublicSpeechTextPageIndex], 14, TextAnchor.UpperLeft, FontStyle.Normal);
+            body.horizontalOverflow = HorizontalWrapMode.Wrap;
+            body.verticalOverflow = VerticalWrapMode.Truncate;
+            body.resizeTextForBestFit = true;
+            body.resizeTextMinSize = 9;
+            body.resizeTextMaxSize = 14;
+            body.color = new Color(0.14f, 0.075f, 0.035f, 0.94f);
+            var next = FirstNonEmpty(vm?.publicConversation?.lastStep?.followUp, vm?.publicConversation?.lastStep?.question, vm?.phaseAdvance?.reason, vm?.phaseObjectiveHint, FlowNextLabel(), "听完后可追问或进入提名。");
+            AddText("Public Speech Next Step", panel.transform, Vector2.zero, Vector2.one, new Vector2(18f, 12f), new Vector2(-18f, -218f), $"下一步：{PlayerFacingClueLine(next)}", 11, TextAnchor.LowerLeft, FontStyle.Bold).color = new Color(0.26f, 0.13f, 0.055f, 0.84f);
+            AddNotebookRecordControls(parent, "Public", index, count, activePublicSpeechTextPageIndex, pages.Length, () => CyclePublicSpeechRecord(-1), () => CyclePublicSpeechRecord(1));
+        }
+
+
+        private string PublicSpeechEmptyGuidance(int total)
+        {
+            if (total == 0) return $"下一步：{PlayerFacingClueLine(FirstNonEmpty(FlowNextLabel(), "开始一次公开讨论。"))}";
+            return "当前天数与关注对象没有交集。下一步：切换天数、关注对象，或回到全部。";
+        }
+
+
+        private void AddPublicSpeechEmptyCard(Transform parent, string guidance)
+        {
+            var card = AddPanel("Public Speech Empty", parent, Vector2.zero, Vector2.zero, new Vector2(0f, 40f), new Vector2(584f, 302f), new Color(0.92f, 0.82f, 0.58f, 0.52f));
             AddFrame(card.transform, "Public Speech Empty Frame", 0.75f, new Color(0.26f, 0.13f, 0.055f, 0.28f));
             AddImage("Public Speech Empty Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.090f, 0.18f, 0.12f, 0.78f));
-            AddText("Public Speech Empty Title", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 88f), new Vector2(-20f, -12f), "还没有公开发言", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
-            AddText("Public Speech Empty Body", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 42f), new Vector2(-20f, -50f), "进入公聊后，这里会按轮次整理谁在发言、关注谁，以及你接下来能追问或推进什么。", 13, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.88f);
-            AddWhisperNotebookChip(card.transform, $"下一步：{Ellipsize(PlayerFacingClueLine(FirstNonEmpty(FlowNextLabel(), "开始公聊")), 22)}", new Vector2(20f, 12f), 250f, new Color(0.090f, 0.18f, 0.12f, 0.86f));
+            AddText("Public Speech Empty Title", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 214f), new Vector2(-20f, -14f), "没有匹配的公开发言", 17, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
+            AddText("Public Speech Empty Body", card.transform, Vector2.zero, Vector2.one, new Vector2(20f, 62f), new Vector2(-20f, -58f), PlayerFacingClueLine(guidance), 14, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.88f);
         }
 
 
-        private void AddPublicSpeechCard(Transform parent, PublicSpeechNotebookCard item, float y)
+        private static string[] NotebookTextPages(string value, int maxChars = 180, int maxLines = 7)
         {
-            var card = AddPanel($"Public Speech Card {item?.stamp}", parent, Vector2.zero, Vector2.zero, new Vector2(0f, y), new Vector2(584f, y + 100f), new Color(0.92f, 0.82f, 0.58f, 0.56f));
-            AddFrame(card.transform, "Public Speech Card Frame", 0.78f, new Color(0.26f, 0.13f, 0.055f, 0.30f));
-            AddImage("Public Speech Card Accent", card.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.090f, 0.18f, 0.12f, 0.90f));
-            var badge = AddImage("Public Speech Badge", card.transform, Vector2.zero, Vector2.zero, new Vector2(18f, 52f), new Vector2(68f, 88f), new Color(0.090f, 0.18f, 0.12f, 0.90f));
-            AddFrame(badge.transform, "Public Speech Badge Frame", 0.7f, new Color(0.16f, 0.080f, 0.035f, 0.46f));
-            AddText("Public Speech Badge Text", badge.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, FirstNonEmpty(item?.badge, "公"), 14, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.88f, 0.56f, 0.98f);
-            AddText("Public Speech Speaker", card.transform, Vector2.zero, Vector2.one, new Vector2(86f, 72f), new Vector2(-210f, -8f), $"{FirstNonEmpty(item?.stamp, "公聊")} · {Ellipsize(FirstNonEmpty(item?.speaker, "发言者"), 14)}", 16, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(0.18f, 0.085f, 0.035f, 0.98f);
-            AddText("Public Speech Meta", card.transform, Vector2.zero, Vector2.one, new Vector2(350f, 72f), new Vector2(-18f, -9f), $"{item?.lineCount ?? 0}条 · 关注 {FirstNonEmpty(item?.focus, "全桌")}", 12, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(0.32f, 0.14f, 0.055f, 0.90f);
-            AddWhisperNotebookChip(card.transform, FirstNonEmpty(item?.kind, "信息"), new Vector2(86f, 47f), 154f, new Color(0.13f, 0.075f, 0.030f, 0.90f));
-            AddWhisperNotebookChip(card.transform, $"下一步：{Ellipsize(FirstNonEmpty(item?.next, "继续观察"), 26)}", new Vector2(250f, 47f), 308f, new Color(0.090f, 0.18f, 0.12f, 0.86f));
-            AddText("Public Speech Line", card.transform, Vector2.zero, Vector2.one, new Vector2(86f, 15f), new Vector2(-18f, -58f), Ellipsize(FirstNonEmpty(item?.line, "暂无公开发言"), 68), 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.14f, 0.075f, 0.035f, 0.86f);
+            var clean = string.IsNullOrWhiteSpace(value) ? "暂无可读原话。" : value.Trim();
+            var pages = new List<string>();
+            var buffer = new StringBuilder(Mathf.Min(maxChars, clean.Length));
+            var lines = 1;
+            foreach (var character in clean)
+            {
+                if (character == '\n' && lines >= maxLines)
+                {
+                    if (buffer.Length > 0) pages.Add(buffer.ToString());
+                    buffer.Clear();
+                    lines = 1;
+                    continue;
+                }
+                buffer.Append(character);
+                if (character == '\n') lines += 1;
+                if (buffer.Length < maxChars) continue;
+                pages.Add(buffer.ToString());
+                buffer.Clear();
+                lines = 1;
+            }
+            if (buffer.Length > 0) pages.Add(buffer.ToString());
+            return pages.Count == 0 ? new[] { "暂无可读原话。" } : pages.ToArray();
+        }
+
+
+        private void AddNotebookRecordControls(Transform parent, string prefix, int index, int count, int textPageIndex, int textPageCount, UnityEngine.Events.UnityAction previousAction, UnityEngine.Events.UnityAction nextAction)
+        {
+            var previous = AddButton("上一页", parent, new Vector2(58f, 17f), new Vector2(104f, 30f), previousAction);
+            var next = AddButton("下一页", parent, new Vector2(526f, 17f), new Vector2(104f, 30f), nextAction);
+            var canMove = count > 1 || textPageCount > 1;
+            SetToolButtonEnabled(previous, canMove);
+            SetToolButtonEnabled(next, canMove);
+            AddText($"{prefix} Notebook Record Position", parent, Vector2.zero, Vector2.zero, new Vector2(168f, 2f), new Vector2(416f, 32f), $"记录 {index + 1}/{Mathf.Max(1, count)} · 原文 {textPageIndex + 1}/{Mathf.Max(1, textPageCount)}", 12, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(0.22f, 0.12f, 0.055f, 0.86f);
         }
 
 
