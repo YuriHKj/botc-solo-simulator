@@ -30,8 +30,320 @@ export const PLAYER_VISIBLE_FORBIDDEN_TERMS = [
   "角色假说",
 ];
 
+export const TABLE_SPEECH_LIMITS = Object.freeze({
+  public: Object.freeze({ maxSentences: 2, maxChars: 115 }),
+  nomination: Object.freeze({ maxSentences: 2, maxChars: 120 }),
+  private: Object.freeze({ maxSentences: 3, maxChars: 170 }),
+  "ai-private": Object.freeze({ maxSentences: 3, maxChars: 170 }),
+});
+
+function normalizeCurrentTableAction(text) {
+  let value = `${text ?? ""}`
+    .replace(/下一句我会问\s*([0-9]+号)/gu, "先问$1")
+    .replace(/让后续追问接着核/gu, "这轮先按这条核")
+    .replace(/要看后续回应/gu, "现在先听回应")
+    .replace(/票前我会问[：:]?\s*([0-9]+号)/gu, "票前先听$1")
+    .replace(/我会问\s*([0-9]+号)/gu, "先问$1")
+    .replace(/下一句我会/gu, "这句先")
+    .replace(/我会问你/gu, "先问你")
+    .replace(/死人不用再藏太多，我把能说的交给你/gu, "我已经死了，咱们在一边聊，我把能说的交给你")
+    .replace(/提名前先把/gu, "先把")
+    .replace(/到投票我会看\s*(\d+号)\s*有没有补出解释，没补就按压力票处理/gu, "$1先补解释，这票暂按压力票")
+    .replace(/到投票我会看\s*(\d+号)\s*的回应有没有东西，不是闭眼跟/gu, "我先听$1回应，这票不是闭眼跟")
+    .replace(/如果今天要动流程，我会先看\s*(\d+号)，但票前还要听解释/gu, "我先看$1，现在先听解释")
+    .replace(/如果今天要动流程，我会先把\s*(\d+号)\s*放进候选/gu, "我先把$1放进候选")
+    .replace(/如果提\s*(\d+号)，我(?:倾向先看|会看)回应(?:质量)?再决定票/gu, "$1上台我先听回应，这票暂不锁")
+    .replace(/我会重排/gu, "再重排")
+    .replace(/我不无理由改口/gu, "我不会空口改")
+    .replace(/验证点是(?:先)?/gu, "")
+    .replace(/核法是让/gu, "让")
+    .replace(/提名前重新看(\d+号)：(?:我的意思是，)?/gu, "我先看$1，")
+    .replace(/先问(\d+号)，身份和昨晚信息/gu, "$1先补身份和昨晚信息")
+    .replace(/我先排(\d+号)，不是放过(\d+号)：\1这边公开线索更多/gu, "$2先放着，$1的公开线索更多")
+    .replace(/如果提(\d+号)，我会先看回应/gu, "$1上台我先听回应，这票暂不锁")
+    .replace(/后续看(\d+号)能不能接上身份，接不住再决定要不要提/gu, "$1现在先接身份，我先把他放到火力点")
+    .replace(/(\d+号)\s*先进入观察位，回应之后再重排/gu, "$1先留在视野里，现在把问题讲清")
+    .replace(/这条线先摆在桌上，等回应后再决定/gu, "这条线先摆在桌上，现在听回应")
+    .replace(/(\d+号)(?:\s*这边)?\s*先放进观察位，等\s*(?:ta|他|她)\s*回应后再定/gu, "$1先放进观察位，现在听回应")
+    .replace(/如果要推，说法可以是[，,:：]\s*/gu, "台面理由是：")
+    .replace(/如果要推[，,:：]?/gu, "要推就看")
+    .replace(/先这样，等今天公聊跑一轮再决定要不要提名/gu, "先这样，今天公聊就让他把身份和站边讲清")
+    .replace(/再决定要不要提/gu, "这轮先放进提名位")
+    .replace(/接不住就进提名位/gu, "这轮先放进提名位")
+    .replace(/再决定投不投/gu, "这票暂不锁")
+    .replace(/，?票面约\s*[^，。；]+/gu, "")
+    .replace(/(\d+号)我过不去的是/gu, "我先看$1，过不去的是")
+    .replace(/再补身份和昨晚信息要补清/gu, "身份和昨晚信息也要补清")
+    .replace(/这条让(\d+号)把票型解释清，身份和昨晚信息也/gu, "$1先解释票型，再补身份和昨晚信息")
+    .replace(/(\d+号)先解释票型，身份和昨晚信息也要补清，这条先让\1把票型解释清，身份和昨晚信息也要补清/gu, "$1先解释票型，再补身份和昨晚信息")
+    .replace(/(\d+号)先解释票型，身份和昨晚信息也要补清，先听\1解释票型，昨晚信息和身份说法也要补清/gu, "$1先解释票型，再补身份和昨晚信息")
+    .replace(/(先看(\d+号)：我过不去的是：([^。！？；，]+))，我先看\2，我过不去的是：\3/gu, "$1")
+    .replace(/\s*如果[^。！？；]{0,56}我会降级这条/gu, "")
+    .replace(/(\d+号)先放主线，(\d+号)留在第二层：现在(?:我可见的|公开)?线索更多压在\1/gu, "我先看$1，$2先放着：$1的线索更多")
+    .replace(/(\d+号)和(\d+号)贴线时，先比较/gu, "$1先放前面，$2不是放掉：先比")
+    .replace(/桌面问题连在一起：/gu, "台面上我卡的是：")
+    .replace(/^(?:嗯，)?先说清楚，身份先不换，我这轮还是看(\d+号)[；;]?/u, "上一轮先看$1，这轮还是围绕$1。")
+    .replace(/(\d+号)这边我先给压力，不要等到落票前才补说法/gu, "$1先上压力，再补说法")
+    .replace(/(?:我卡的是这组线索|台面上我卡的是)：(\d+号)的公开站队和台面压力、可见记录：\1刚才投票态度要解释/gu, "$1先上压力：公开压力和票型互相推高，解释票型再补说法")
+    .replace(/先把这组线放到同一桌面：(\d+号)的公开站队和台面压力、可见记录：\1的投票理由要补清/gu, "这条让$1把身份线和票型对上，再解释投票理由")
+    .replace(/这条让(\d+号)把身份和票型对上，再解释投票理由。(?:我先看\1，)?这条让\1把身份线和票型对上，再解释投票理由。/gu, "这条让$1把身份线和票型对上，再解释投票理由。")
+    .replace(/两条线先并起来看：(\d+号)的公开站队和台面压力、被推上台面/gu, "两条线合在一起：$1的身份和提名压力卡在一起，先请$1解释身份和提名压力")
+    .replace(/这两点合着看：(\d+号)的公开站队和台面压力、被推上台面/gu, "提名前，$1的身份和提名压力卡在一起")
+    .replace(/先听(\d+号)为什么推低证据位，再把身份和大家验证对上/gu, "两条线合在一起：$1低证据推人和身份对不上卡在一起，先听$1解释为什么推低证据位，再把身份和大家验证对上")
+    .replace(/(身份[^。；]{0,96}(?:公开说法接上|身份说法和票型补清楚))(?=[。；])/gu, "$1，对不上再票我")
+    .replace(/这轮可以拿我验，但先听完整防守。(?=提名卡的是：[^。]*推低证据位)/gu, "先验我说的点，别跳过防守。")
+    .replace(/这轮可以拿我验，但先听完整防守。(?=提名卡的是：[^。]*死亡信息和票型)/gu, "我先防一下，保护链讲清前别跳过防守。")
+    .replace(/这轮可以拿我验，但先听完整防守。(?=提名卡的是：[^。]*昨晚信息和公开报法)/gu, "先听我接这条，信息链讲完前别只催票。")
+    .replace(/这个推进也要记/gu, "这条也要记")
+    .replace(/([。！？；.!?;])\s+(?=\S)/gu, "$1")
+    .replace(/[，：；,:;]\s*$/u, "。")
+    .replace(/\s+/g, " ")
+    .trim();
+  value = value.replace(/^[、，；：,.!?;:\s]+/u, "");
+  const firstSeat = value.match(/\d+号/u)?.[0] ?? "";
+  if (firstSeat && /^这条我不是轻轻记一笔了，是需要马上听回应/u.test(value)) {
+    value = value.replace(/^这条我不是轻轻记一笔了，是需要马上听回应/u, `我先看${firstSeat}，这条直接压，需要马上听回应`);
+  }
+  if (firstSeat && /^(前面发言没讲清楚|这点还不够|公开信息还不够)/u.test(value)) {
+    value = `我先看${firstSeat}，${value}`;
+  }
+  return value;
+}
+
+function tableSpeechSentences(text) {
+  const protectedValue = `${text ?? ""}`.replace(/(\d)\.(\d)/gu, "$1__DECIMAL_POINT__$2");
+  return protectedValue
+    .match(/[^。！？；.!?;]+[。！？；.!?;]?/gu)
+    ?.map((entry) => entry.replaceAll("__DECIMAL_POINT__", ".").trim())
+    .filter(Boolean) ?? [];
+}
+
+function tableSpeechComparable(text) {
+  return `${text ?? ""}`.replace(/[，。！？；：,.!?;:\s]/gu, "").replace(/我/gu, "").trim();
+}
+
+function tableSpeechConclusionKey(text) {
+  const value = `${text ?? ""}`;
+  if (/前面发言没讲清楚|发言没讲清|没讲清的点.*(?:补清|补上|说完整)/u.test(value)) return "unclear-speech";
+  if (/公开信息还不够|这点还不够/u.test(value)) return "thin-public-evidence";
+  if (/压低证据位/u.test(value)) return "low-evidence-pressure";
+  if (/低证据推人和身份.*对不上/u.test(value)) return "low-evidence-identity";
+  if (/身份线和票型.*咬住/u.test(value)) return "identity-vote";
+  if (/公开压力和票型.*推高/u.test(value)) return "pressure-vote";
+  if (/身份(?:说法)?和提名压力.*卡在一起/u.test(value)) return "identity-nomination";
+  return "";
+}
+
+function tableSpeechSentenceScore(sentence, index, priorityFragments = []) {
+  const value = `${sentence ?? ""}`;
+  let score = Math.max(0, 8 - index);
+  if (/(真实身份|我是[^，。；！？]{1,16}(?:恶魔|爪牙)|台面.*(?:伪装|身份))/u.test(value)) score += 190;
+  if (/(队伍先对齐|底牌|队伍信息|邪恶视角先对底|队伍牌面|爪牙位|恶魔位|恶魔是)/u.test(value)) score += 185;
+  if (/(死了|死人|出局|遗言)/u.test(value)) score += 175;
+  if (/(昨天|天前|新起线|今天转)/u.test(value)) score += 180;
+  if (/(刚才那条线|还是围绕|暂时不换目标|还是先看|接着刚才)/u.test(value)) score += 160;
+  if (/(身份线我不改|身份线不改|身份我先不换|这条我先不换|这轮不改身份|(?:口径|说法)这轮不改|我不无理由改口|我不会空口改|身份先沿用|身份线今天不重开|我先稳住|前面报过|身份范围暂时沿用|我还按)/u.test(value)) score += 175;
+  if (/(马上听回应|需要马上听回应)/u.test(value)) score += 165;
+  if (/\d+号/u.test(value)) score += 18;
+  if (/(身份|昨晚|夜里|发言|回应|站边|票型|投票|提名|没讲清|对不上|过不去|怀疑|理由)/u.test(value)) score += 20;
+  if (/(先看|先问|先听|补身份|补昨晚|解释|回应|我提|我投|不投|支持|反对|放着|排)/u.test(value)) score += 12;
+  if (/(直接答|接着刚才|先说清楚|直接说)/u.test(value)) score += 55;
+  if (/^(嗯|简单讲|我接着刚才|我先说人话版|先给结论|这件事我有点想法)[，。]/u.test(value)) score -= 36;
+  if (/(来源.*节奏|先拆(?:独立)?来源|同源回声|收益线|加权|权重|举证|动机|两种可能|身份可能)/u.test(value)) score -= 60;
+  for (const fragment of priorityFragments) {
+    if (!fragment || !hasPriorityFragment(value, fragment)) continue;
+    const keyBoost = fragment.key === "claim" ? 170 : fragment.key === "state" ? 165 : fragment.key === "continuity" ? 150 : fragment.key === "target" ? 70 : fragment.key === "evidence" ? 60 : fragment.key === "question" ? 45 : 20;
+    score += keyBoost + Math.max(0, Number(fragment.priority) || 0) * 4;
+  }
+  return score;
+}
+
+function isAnalysisReportSentence(sentence) {
+  return /(来源.*节奏|先拆(?:独立)?来源|按来源拆开|独立信息|分开算|同源回声|收益线|加权|权重|举证|动机|两种可能|身份可能|好身份解释|坏身份伪装线|最后看谁该说明|解桌|转移压力)/u.test(`${sentence ?? ""}`);
+}
+
+function trimTableSentenceToChars(sentence, maxChars) {
+  const clean = `${sentence ?? ""}`.replace(/[，。！？；：,.!?;:\s]+$/u, "").trim();
+  if (clean.length <= maxChars) {
+    return /[。！？.!?]$/u.test(`${sentence ?? ""}`) ? `${sentence ?? ""}`.trim() : `${clean}。`;
+  }
+  const clipped = clean.slice(0, Math.max(1, maxChars - 1));
+  const naturalCut = Math.max(clipped.lastIndexOf("，"), clipped.lastIndexOf(","));
+  const body = (naturalCut >= Math.floor(maxChars * 0.55) ? clipped.slice(0, naturalCut) : clipped).trim();
+  return `${body.replace(/[，。！？；：,.!?;:\s]+$/u, "")}。`;
+}
+
+function tableSpeechPrefixWithinChars(text, maxChars) {
+  const kept = [];
+  let used = 0;
+  for (const sentence of tableSpeechSentences(text)) {
+    if (used + sentence.length > maxChars) break;
+    kept.push(sentence);
+    used += sentence.length;
+  }
+  if (kept.length > 0) return kept.join("");
+  return trimTableSentenceToChars(tableSpeechSentences(text)[0] ?? text, maxChars);
+}
+
+function compactNominationTableSpeech(text, maxChars) {
+  const sentences = tableSpeechSentences(text);
+  if (sentences.length <= TABLE_SPEECH_LIMITS.nomination.maxSentences && text.length <= maxChars) return text;
+  const targetSentence = sentences.find((entry) => /(?:我先提|我提)\s*\d+号/u.test(entry)) ?? "";
+  const target = targetSentence.match(/\d+号/u)?.[0] ?? "";
+  const comparisonSentence = sentences.find((entry) => /(不是放过|不是放掉|不是清掉|排第二|先放主线|放前面)/u.test(entry)) ?? "";
+  const strategySentence =
+    sentences.find((entry) => /^(?:这票|票面|门槛|压力测试|愿意跟|推进|空过|执行信息|跟票)/u.test(entry)) ??
+    sentences.find((entry) => /(不是空过|空过风险|不是空聊)/u.test(entry)) ??
+    "";
+  const evidenceCandidates = sentences.filter((entry) =>
+    entry !== targetSentence &&
+    entry !== comparisonSentence &&
+    entry !== strategySentence
+  );
+  const evidenceSentence =
+    evidenceCandidates.find((entry) => /(台面理由|上台讲清楚|放进流程)/u.test(entry)) ??
+    evidenceCandidates[0] ??
+    "";
+  if (!target || !strategySentence) return text;
+
+  const targetBody = targetSentence
+    .replace(new RegExp(`^(?:我先提|我提)\\s*${target}[：:]?`, "u"), "")
+    .replace(/[。！？；.!?;]+$/u, "")
+    .trim();
+  const embeddedComparison = targetBody.match(/(?:不是放过|不是放掉|不是清掉|排第二|先放主线|放前面)[^。！？；.!?;]*$/u)?.[0] ?? "";
+  const evidence = (evidenceSentence || targetBody.replace(embeddedComparison, ""))
+    .replace(/^这条还没到拍死，但/u, "")
+    .replace(/^这条/u, "")
+    .replace(/前面发言没讲清楚，这点过不去/u, "发言没讲清")
+    .replace(/[，,:：]\s*$/u, "")
+    .replace(/[。！？；.!?;]+$/u, "")
+    .trim();
+  const comparison = (embeddedComparison || (comparisonSentence === targetSentence ? "" : comparisonSentence))
+    .replace(/这边公开线索更多，先上台更好验/u, "公开线索更多")
+    .replace(/[。！？；.!?;]+$/u, "")
+    .trim();
+  const strategy = /[。！？.!?]$/u.test(strategySentence) ? strategySentence : `${strategySentence.replace(/[；;]+$/u, "")}。`;
+  let primary = `我先提${target}：${evidence}${comparison ? `，${comparison}` : ""}。`;
+  if (primary.length + strategy.length > maxChars) {
+    primary = trimTableSentenceToChars(primary, Math.max(18, maxChars - strategy.length));
+  }
+  const compact = `${primary}${strategy}`;
+  return compact.length <= maxChars ? compact : text;
+}
+
+function compactTableSpeech(text, { audience = "", maxSentences, maxChars, priorityFragments = [] } = {}) {
+  let value = normalizeCurrentTableAction(text);
+  if (!value) return value;
+  if (audience === "nomination") {
+    value = compactNominationTableSpeech(value, maxChars);
+  }
+  const normalizedPriority = (priorityFragments ?? []).map(normalizePriorityFragment).filter(Boolean);
+  const unique = [];
+  const seen = new Set();
+  for (const sentence of tableSpeechSentences(value)) {
+    const key = tableSpeechComparable(sentence);
+    if (!key || seen.has(key)) continue;
+    const containedIndex = unique.findIndex((entry) => {
+      const existingKey = tableSpeechComparable(entry);
+      return key.includes(existingKey) || existingKey.includes(key);
+    });
+    if (containedIndex >= 0) {
+      const existingKey = tableSpeechComparable(unique[containedIndex]);
+      if (key.includes(existingKey) && /(在台上|回应质疑|提名前|投票前)/u.test(sentence)) {
+        seen.delete(existingKey);
+        unique[containedIndex] = sentence;
+        seen.add(key);
+      }
+      continue;
+    }
+    const conclusionKey = tableSpeechConclusionKey(sentence);
+    const conclusionIndex = conclusionKey
+      ? unique.findIndex((entry) => tableSpeechConclusionKey(entry) === conclusionKey)
+      : -1;
+    if (conclusionIndex >= 0) {
+      const existing = unique[conclusionIndex];
+      const hasAction = /(先听|先请|这条让|解释|回应|补)/u.test(sentence);
+      const existingHasAction = /(先听|先请|这条让|解释|回应|补)/u.test(existing);
+      if ((hasAction && !existingHasAction) || (hasAction === existingHasAction && sentence.length < existing.length)) {
+        seen.delete(tableSpeechComparable(existing));
+        unique[conclusionIndex] = sentence;
+        seen.add(key);
+      }
+      continue;
+    }
+    seen.add(key);
+    unique.push(sentence);
+  }
+  if (unique.length === 0) return value;
+
+  const scored = unique.map((sentence, index) => ({
+    sentence,
+    index,
+    score: tableSpeechSentenceScore(sentence, index, normalizedPriority),
+  }));
+  const tableCandidates = scored.filter((entry) => !isAnalysisReportSentence(entry.sentence));
+  let selected = tableCandidates.length > 0 ? tableCandidates : scored;
+  if (selected.length > maxSentences) {
+    selected = [...selected]
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, maxSentences)
+      .sort((a, b) => a.index - b.index);
+  }
+  while (selected.length > 1 && selected.map((entry) => entry.sentence).join("").length > maxChars) {
+    const removable = [...selected].sort((a, b) => a.score - b.score || b.index - a.index)[0];
+    selected = selected.filter((entry) => entry !== removable);
+  }
+  value = selected.map((entry) => entry.sentence).join("");
+  if (maxSentences <= 2) {
+    const perSentenceMax = Math.min(72, maxChars);
+    value = tableSpeechSentences(value)
+      .map((sentence) => sentence.length > perSentenceMax ? trimTableSentenceToChars(sentence, perSentenceMax) : sentence)
+      .join("");
+  }
+  if (value.length > maxChars) {
+    value = trimTableSentenceToChars(value, maxChars);
+  }
+  return normalizeCurrentTableAction(value);
+}
+
+function looksLikeTableSpeech(text) {
+  return /(\d+号|身份|昨晚|夜里|发言|票型|投票|提名|怀疑|回应)/u.test(`${text ?? ""}`);
+}
+
+function hasAlliedHiddenTruthMarkers(text) {
+  const value = `${text ?? ""}`;
+  const hasTeamContext = /(自己人|一边的|邪恶视角|对底|队伍信息|队伍牌面|恶魔位|爪牙位)/u.test(value);
+  const hasHiddenFact = /(真实身份|邪恶互认|恶魔伪装|爪牙位|恶魔(?:是)?\d+号)/u.test(value);
+  const hasPairedRoleTruth = /真实身份/u.test(value) && /(爪牙位|恶魔(?:是)?\d+号)/u.test(value);
+  return hasHiddenFact && (hasTeamContext || hasPairedRoleTruth);
+}
+
+function compactAlliedHiddenTruthIntro(text) {
+  const sentences = tableSpeechSentences(text);
+  const intro = sentences.filter((sentence) =>
+    /(自己人|一边的|邪恶视角|对底|队伍信息|队伍牌面|知道的底牌|恶魔(?:是)?\d+号|爪牙|真实身份)/u.test(sentence)
+  );
+  const fusedIntro = intro.length >= 2
+    ? `${intro.map((sentence) => sentence.replace(/[。！？；]+$/u, "").trim()).join("，")}。`
+    : "";
+  let rest = intro.length >= 2 ? sentences.filter((sentence) => !intro.includes(sentence)) : [...sentences];
+  const actionIndex = rest.findIndex((sentence) => /\d+号.*(?:压|提名|观察|身份|回应)/u.test(sentence));
+  if (intro.length >= 2 && actionIndex >= 0 && !/(台面安排|台面上|伪装|低信息好人)/u.test(rest[actionIndex])) {
+    rest[actionIndex] = `台面上，${rest[actionIndex]}`;
+  }
+  const pressureTargets = new Set();
+  rest = rest.filter((sentence) => {
+    const target = sentence.match(/(\d+号)/u)?.[1] ?? "";
+    if (!target || !/(火力点|提名位|讨论中心)/u.test(sentence)) return true;
+    if (pressureTargets.has(target)) return false;
+    pressureTargets.add(target);
+    return true;
+  });
+  return `${fusedIntro}${rest.join("")}`;
+}
+
 export function sanitizePlayerVisibleText(text) {
-  return normalizeChineseSeatSpacing(`${text ?? ""}`)
+  let value = normalizeChineseSeatSpacing(`${text ?? ""}`)
     .replace(/私下入口/g, "私聊线索")
     .replace(/公开追问/g, "当桌问清")
     .replace(/自洽/g, "能对上")
@@ -43,11 +355,25 @@ export function sanitizePlayerVisibleText(text) {
     .replace(/举证责任/g, "该谁解释")
     .replace(/世界分支/g, "两种可能")
     .replace(/角色假说/g, "身份可能")
+    .replace(/身份链/g, "身份")
     .replace(/不能只按传话定性/g, "不能只按传话下结论")
     .replace(/定性/g, "下结论")
-    .replace(/身份口径|公开口径|私下口径|口径/g, "身份说法")
+    .replace(/身份口径|身份说法/g, "身份")
+    .replace(/公开口径/g, "公开说法")
+    .replace(/私下口径|口径/g, "说法")
     .replace(/\s+/g, " ")
     .trim();
+  const nominationSpeech = /(?:我先提|我提)\s*\d+号/u.test(value) && /(这票|票面|压力测试|空过|推进)/u.test(value);
+  const alliedHiddenTruth = hasAlliedHiddenTruthMarkers(value);
+  if (alliedHiddenTruth) value = compactAlliedHiddenTruthIntro(value);
+  // Frozen ai.js calls this lexical sanitizer at its last visible boundary, so
+  // table-shaped text also receives a hard cap here. Already-authorized allied
+  // truth markers are fused to keep team/role facts inside that cap; only an
+  // explicit ai-private budget call may expand the sentence allowance.
+  const visibleLimits = nominationSpeech ? TABLE_SPEECH_LIMITS.nomination : TABLE_SPEECH_LIMITS.private;
+  return looksLikeTableSpeech(value)
+    ? compactTableSpeech(value, { ...visibleLimits, audience: nominationSpeech ? "nomination" : "private" })
+    : normalizeCurrentTableAction(value);
 }
 
 function pickCorpusLine(lines, rng = Math.random) {
@@ -855,7 +1181,11 @@ function normalizePriorityFragment(fragment) {
 }
 
 function priorityComparableText(text) {
-  return normalizePublicSpeechText(text).replaceAll("…", "...").replace(/\s+/g, " ").trim();
+  return normalizePublicSpeechText(text)
+    .replaceAll("…", "...")
+    .replace(/[。！？；]+$/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function followUpTargetFromPriorityText(text) {
@@ -902,7 +1232,9 @@ function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) 
   }
   let value = `${text ?? ""}`.replace(/\s+/g, " ").trim();
   const targetCoverage = Math.min(normalized.length, Math.max(0, Number(minCoverage)));
-  if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+  const mandatory = normalized.filter((fragment) => fragment.priority >= 5);
+  const coversMandatory = (candidate) => mandatory.every((fragment) => hasPriorityFragment(candidate, fragment));
+  if (priorityCoverageCount(value, normalized) >= targetCoverage && coversMandatory(value)) {
     return value;
   }
 
@@ -910,7 +1242,7 @@ function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) 
     .filter((fragment) => !hasPriorityFragment(value, fragment))
     .sort((a, b) => b.priority - a.priority);
   for (const fragment of missing) {
-    if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+    if (priorityCoverageCount(value, normalized) >= targetCoverage && coversMandatory(value)) {
       break;
     }
     const addition = fragment.appendText || fragment.texts[0] || "";
@@ -926,7 +1258,7 @@ function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) 
     }
     const room = Math.max(0, maxChars - addition.length - 1);
     if (room > 12) {
-      const clipped = value.slice(0, room).replace(/[,.!?;:\s]+$/u, "").trim();
+      const clipped = tableSpeechPrefixWithinChars(value, room);
       const candidate = fragment.placement === "prefix"
         ? joinSpeechFragments([addition, clipped])
         : joinSpeechFragments([clipped, addition]);
@@ -936,7 +1268,7 @@ function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) 
     }
   }
 
-  if (priorityCoverageCount(value, normalized) >= targetCoverage) {
+  if (priorityCoverageCount(value, normalized) >= targetCoverage && coversMandatory(value)) {
     return value;
   }
   const compact = normalized
@@ -950,9 +1282,45 @@ function ensurePriorityFragmentCoverage(text, fragments, minCoverage, maxChars) 
     .filter((entry, index, arr) => arr.indexOf(entry) === index)
     .slice(0, targetCoverage)
     .join(" ");
-  return compact && compact.length <= maxChars && priorityCoverageCount(compact, normalized) >= targetCoverage
+  return compact && compact.length <= maxChars && priorityCoverageCount(compact, normalized) >= targetCoverage && coversMandatory(compact)
     ? compact
     : value;
+}
+
+function priorityFragmentComposite(fragments, minCoverage, maxSentences, maxChars) {
+  const normalized = (fragments ?? []).map(normalizePriorityFragment).filter(Boolean);
+  if (normalized.length === 0 || !Number.isFinite(Number(minCoverage)) || minCoverage <= 0) {
+    return "";
+  }
+  const targetCoverage = Math.min(normalized.length, Math.max(0, Number(minCoverage)));
+  const ordered = [...normalized].sort((a, b) => {
+    if (a.placement === "prefix" && b.placement !== "prefix") return -1;
+    if (b.placement === "prefix" && a.placement !== "prefix") return 1;
+    return b.priority - a.priority;
+  });
+  const selected = [];
+  ordered.filter((fragment) => fragment.priority >= 5).forEach((fragment) => selected.push(fragment));
+  ordered.forEach((fragment) => {
+    if (!selected.includes(fragment) && selected.length < targetCoverage) selected.push(fragment);
+  });
+  const entries = selected
+    .map((fragment) => fragment.appendText || fragment.texts[0] || "")
+    .filter(Boolean)
+    .filter((entry, index, values) => values.indexOf(entry) === index);
+  if (entries.length === 0) return "";
+  let candidate = entries.join("");
+  if (entries.length > maxSentences) {
+    const headCount = Math.max(0, maxSentences - 1);
+    const head = entries.slice(0, headCount);
+    const tailBodies = entries.slice(headCount).map((entry) => entry.replace(/[。！？；]+$/u, "").trim());
+    candidate = `${head.join("")}${tailBodies.join("，")}。`;
+  }
+  const mandatory = normalized.filter((fragment) => fragment.priority >= 5);
+  return candidate.length <= maxChars &&
+    priorityCoverageCount(candidate, normalized) >= targetCoverage &&
+    mandatory.every((fragment) => hasPriorityFragment(candidate, fragment))
+    ? candidate
+    : "";
 }
 
 export function applySpeechBudget(text, options = {}) {
@@ -962,18 +1330,31 @@ export function applySpeechBudget(text, options = {}) {
   }
   value = dedupePrivateEvidenceMentions(value);
   const audience = options.audience ?? "private";
+  const hardLimits = TABLE_SPEECH_LIMITS[audience] ?? TABLE_SPEECH_LIMITS.private;
+  const alliedHiddenTruth =
+    audience !== "public" && audience !== "nomination" && hasAlliedHiddenTruthMarkers(value);
+  if (alliedHiddenTruth) value = compactAlliedHiddenTruthIntro(value);
+  const requestedMaxSentences = options.maxSentences ?? hardLimits.maxSentences;
+  const requestedMaxChars = options.maxChars ?? hardLimits.maxChars;
   const maxSentences =
-    options.maxSentences ?? (audience === "public" ? 2 : audience === "nomination" ? 2 : 3);
-  const maxChars = options.maxChars ?? (audience === "public" ? 150 : audience === "nomination" ? 120 : 180);
+    options.allowHiddenTruth && audience === "ai-private"
+      ? Math.min(requestedMaxSentences, 5)
+      : Math.min(requestedMaxSentences, hardLimits.maxSentences);
+  const maxChars = Math.min(requestedMaxChars, hardLimits.maxChars);
   const sentences = value.match(/[^。！？；]+[。！？；]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [value];
+  const alliedContextSentence = audience === "public" || audience === "nomination"
+    ? ""
+    : sentences.find((entry) => /(自己人|一边|邪恶视角|对底|队伍信息|队伍牌面|只在我们之间)/u.test(entry)) ?? "";
   const evidenceSentence = sentences.find((entry) => /(我现在抓的点|这条还弱|卡点是|我卡的点|我过不去的是|我卡在这儿|证据还薄|这点还不够|短线|弱证据说明|证据线)：|进提名池|提名前|如果今天提/.test(entry));
   const followUpSentence = sentences.find((entry) => /(反问一句|下一句我会|下一步|票前我会问|我下|追问)/.test(entry));
+  const urgentSentence = sentences.find((entry) => /(马上听回应|需要马上听回应)/.test(entry));
+  const continuitySentence = sentences.find((entry) => /(刚才那条线|还是围绕|暂时不换目标|还是先看|接着刚才)/.test(entry));
   const tableStateSentence = sentences.find((entry) => /(我已经死了|我现在在台上|票型你们自己看|能验证的部分)/.test(entry));
   if (sentences.length > maxSentences) {
     const kept = sentences.slice(0, maxSentences);
     const requiredSentence =
       audience === "private"
-        ? followUpSentence ?? evidenceSentence ?? tableStateSentence
+        ? tableStateSentence ?? urgentSentence ?? continuitySentence ?? followUpSentence ?? evidenceSentence
         : tableStateSentence ?? evidenceSentence ?? followUpSentence;
     if (requiredSentence && !kept.includes(requiredSentence)) {
       kept[Math.max(0, kept.length - 1)] = requiredSentence;
@@ -981,15 +1362,12 @@ export function applySpeechBudget(text, options = {}) {
     value = kept.join("");
   }
   if (value.length > maxChars) {
-    const suffix = "…";
-    const preservedSentence = tableStateSentence && value.includes(tableStateSentence) ? tableStateSentence : evidenceSentence;
-    if (preservedSentence && value.includes(preservedSentence) && preservedSentence.length < maxChars - 12) {
-      const prefixBudget = Math.max(0, maxChars - preservedSentence.length - suffix.length - 1);
-      const prefix = value.slice(0, prefixBudget).trim();
-      value = `${prefix}${suffix}${preservedSentence}`;
-    } else {
-      value = `${value.slice(0, Math.max(0, maxChars - suffix.length)).trim()}${suffix}`;
-    }
+    value = compactTableSpeech(value, {
+      audience,
+      maxSentences,
+      maxChars,
+      priorityFragments: options.priorityFragments,
+    });
   }
   value = ensurePriorityFragmentCoverage(
     value,
@@ -1001,10 +1379,40 @@ export function applySpeechBudget(text, options = {}) {
     .replace(/我卡在这儿：[^。！？；]*…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。")
     .replace(/我卡在这儿：(?:发言)?…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。")
     .replace(/我卡在这儿：发言…（先对一下）。?/g, "我卡在这儿：前面的发言要回看。");
-  return sanitizePlayerVisibleText(audience === "public"
+  const cleaned = audience === "public"
     ? cleanPublicSurfaceWording(cleanClippedPublicEvidenceFragments(finalValue))
-    : cleanClippedPublicEvidenceFragments(finalValue)
+    : cleanClippedPublicEvidenceFragments(finalValue);
+  let compacted = compactTableSpeech(cleaned, {
+    audience,
+    maxSentences,
+    maxChars,
+    priorityFragments: options.priorityFragments,
+  });
+  const minPriorityFragments = options.minPriorityFragments ?? (audience === "public" ? 3 : 0);
+  const requiredComposite = priorityFragmentComposite(
+    options.priorityFragments,
+    minPriorityFragments,
+    maxSentences,
+    maxChars
   );
+  if (requiredComposite) {
+    const normalized = (options.priorityFragments ?? []).map(normalizePriorityFragment).filter(Boolean);
+    const targetCoverage = Math.min(normalized.length, Math.max(0, Number(minPriorityFragments)));
+    const mandatory = normalized.filter((fragment) => fragment.priority >= 5);
+    if (
+      priorityCoverageCount(compacted, normalized) < targetCoverage ||
+      mandatory.some((fragment) => !hasPriorityFragment(compacted, fragment))
+    ) {
+      compacted = requiredComposite;
+    }
+  }
+  if (alliedContextSentence && !/(自己人|一边|邪恶视角|对底|队伍信息|队伍牌面|只在我们之间)/u.test(compacted)) {
+    const withContext = `${alliedContextSentence}${compacted}`;
+    if (withContext.length <= maxChars && tableSpeechSentences(withContext).length <= maxSentences) {
+      compacted = withContext;
+    }
+  }
+  return sanitizePlayerVisibleText(compacted);
 }
 
 export function applyHumanSpeechCadence(state, aiPlayer, text, rng = Math.random, options = {}) {

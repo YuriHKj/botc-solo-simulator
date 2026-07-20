@@ -182,6 +182,26 @@ async function testEvaluationUsesMockRenderer() {
   assert.equal(summary.fallbackRows, 0);
 }
 
+async function testEvaluationKeepsDeterministicFallback() {
+  const payload = buildSampleEvaluationPayloads()[0];
+  const rows = await evaluateDialoguePayloads([payload], {
+    enabled: false,
+    provider: "mock",
+    mock: false,
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].deterministicDraft, payload.candidateText);
+  assert.equal(rows[0].llmFinal, "");
+  assert.equal(rows[0].llmFallbackUsed, true);
+  assert.ok(rows[0].fallbackReason, "disabled renderer should record why deterministic fallback was used");
+  assert.ok(rows[0].finalPlayerVisibleText, "fallback must still produce player-visible text");
+  assert.ok(
+    payload.requiredTerms.every((term) => rows[0].finalPlayerVisibleText.includes(term)),
+    "fallback must preserve required target anchors"
+  );
+  assert.deepEqual(inspectDialogueText(rows[0].finalPlayerVisibleText, payload), []);
+}
+
 function testSampleLocalDialoguePassesCurrentInspection() {
   const payloads = buildSampleEvaluationPayloads();
   const warnings = payloads.flatMap((payload) =>
@@ -227,5 +247,6 @@ testSampleLocalDialoguePassesCurrentInspection();
 testSampleDialogueVariesBySeed();
 testSampleBatchCoversRequiredDialogueModes();
 await testEvaluationUsesMockRenderer();
+await testEvaluationKeepsDeterministicFallback();
 
 console.log("ai llm dialogue eval contracts ok");
