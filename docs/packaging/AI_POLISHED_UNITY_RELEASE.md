@@ -150,6 +150,10 @@ npm run test:unity-action-bridge
 npm run ai:llm-dialogue-eval
 ```
 
+For revisions that change Unity C# or the capability certification surface, local checks do not replace the Hosted Unity gate. The GitHub Actions `capability-contract` check must consume a passing same-run receipt for Unity `2022.3.62f3`; a missing license, failed compile, stale receipt, cached `Library`, or prior build cannot certify the revision. See `docs/verification/HOSTED_UNITY_CSHARP_2026-07-20.md` for the evidence contract and observed hosted outcome.
+
+Hosted Unity credentials belong only in the protected `hosted-unity-compile` GitHub environment as environment secrets, with required trusted reviewers and self-review disabled. Naming that environment in the workflow does not configure its repository protection. Until maintainers establish and verify the external setting, hosted licensing remains a blocker; a Builder failure after credential readiness is reported conservatively as `unity-activation-or-execution-failed`, not guessed to be a compile-only failure.
+
 Run a live local model smoke after placing `LocalLLM`:
 
 ```powershell

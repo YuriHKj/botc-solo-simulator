@@ -19,6 +19,7 @@ const REVIEWED_SCRIPT_DEFINITIONS = new Map([
   ["test:full-game-loop", "node tests/full_game_loop_contracts.mjs"],
   ["test:unity-demo-acceptance", "node scripts/unity_demo_acceptance.mjs"],
   ["test:unity-viewmodel", "node tests/unity_viewmodel_contracts.mjs"],
+  ["test:unity-csharp-smoke", "powershell -ExecutionPolicy Bypass -File tools/unity_csharp_compile_smoke.ps1"],
   ["test:ai-flagship-replay", "node tests/ai_flagship_replay_eval_contracts.mjs"],
   ["test:electron-build", "node tests/electron_build_contracts.cjs"],
   ["test:ai-llm-renderer", "node tests/ai_llm_renderer_contracts.mjs"],
@@ -28,6 +29,8 @@ const ALLOWED_SCRIPT_SET = new Set(ALLOWED_CI_EVIDENCE_SCRIPTS);
 const DEFAULT_DIAGNOSTIC_LIMIT = 4096;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/iu;
+const HOSTED_UNITY_EVIDENCE_SCRIPT = "test:unity-csharp-smoke";
+const HOSTED_UNITY_REQUIRED_ENV = "BOTC_HOSTED_UNITY_EVIDENCE_REQUIRED";
 
 function readJson(filePath, label) {
   if (!fs.existsSync(filePath)) throw new Error(`${label} not found: ${filePath}`);
@@ -231,7 +234,7 @@ async function executeWithTimeout(executeScript, executionOptions, timeoutMs) {
   }
 }
 
-async function executeNpmScript({ root, command, scriptName, log, diagnosticLimit, signal: abortSignal }) {
+async function executeNpmScript({ root, command, scriptName, environment = {}, log, diagnosticLimit, signal: abortSignal }) {
   const invocation = buildNpmInvocation(scriptName);
   return await new Promise((resolve) => {
     let stdout = "";
@@ -239,9 +242,12 @@ async function executeNpmScript({ root, command, scriptName, log, diagnosticLimi
     let stdoutTruncated = false;
     let stderrTruncated = false;
     let spawnError = null;
+    const childEnvironment = { ...process.env };
+    delete childEnvironment[HOSTED_UNITY_REQUIRED_ENV];
+    Object.assign(childEnvironment, environment);
     const child = spawn(invocation.executable, invocation.args, {
       cwd: root,
-      env: process.env,
+      env: childEnvironment,
       shell: invocation.shell,
       detached: process.platform !== "win32",
       windowsHide: true,
@@ -337,6 +343,8 @@ export async function runProductCapabilityCi(options = {}) {
 
     for (const [index, evidence] of evidenceCommands.entries()) {
       log(`\n[capabilities] (${index + 1}/${evidenceCommands.length}) ${evidence.command}\n`, "stdout");
+      const environment =
+        evidence.scriptName === HOSTED_UNITY_EVIDENCE_SCRIPT ? { [HOSTED_UNITY_REQUIRED_ENV]: "1" } : {};
       let executed;
       try {
         executed = await executeWithTimeout(
@@ -345,6 +353,7 @@ export async function runProductCapabilityCi(options = {}) {
             root,
             command: evidence.command,
             scriptName: evidence.scriptName,
+            environment,
             log,
             diagnosticLimit,
           },

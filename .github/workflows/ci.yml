@@ -10,21 +10,331 @@ permissions:
   contents: read
 
 jobs:
-  capability-contract:
-    runs-on: windows-latest
-    timeout-minutes: 20
+  route_hosted_unity:
+    name: Route hosted Unity requirement
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      hosted-required: ${{ steps.route.outputs.hosted-required }}
+      source_revision: ${{ steps.route.outputs.source_revision }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Check out repository history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Classify compile-affecting paths
+        id: route
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+
+          # Git pathnames can contain newlines and non-ASCII bytes; NUL transport preserves them losslessly.
+          changed_paths="$RUNNER_TEMP/hosted-unity-changed-paths.zlist"
+          : > "$changed_paths"
+          source_revision="$PUSH_SHA"
+          diff_available=false
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            source_revision="$PR_HEAD_SHA"
+            if [[ "$PR_BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] &&
+               [[ "$PR_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] &&
+               git cat-file -e "$PR_BASE_SHA^{commit}" &&
+               git cat-file -e "$PR_HEAD_SHA^{commit}" &&
+               git diff --no-renames --name-only -z "$PR_BASE_SHA...$PR_HEAD_SHA" > "$changed_paths"; then
+              diff_available=true
+            fi
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            if [[ "$PUSH_BEFORE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] &&
+               [[ ! "$PUSH_BEFORE_SHA" =~ ^0{40}$ ]] &&
+               [[ "$PUSH_SHA" =~ ^[0-9a-fA-F]{40}$ ]] &&
+               git cat-file -e "$PUSH_BEFORE_SHA^{commit}" &&
+               git cat-file -e "$PUSH_SHA^{commit}" &&
+               git diff --no-renames --name-only -z "$PUSH_BEFORE_SHA" "$PUSH_SHA" > "$changed_paths"; then
+              diff_available=true
+            fi
+          fi
+
+          hosted_required=true
+          if [[ "$diff_available" == "true" ]]; then
+            hosted_required=false
+            while IFS= read -r -d '' changed_path; do
+              case "$changed_path" in
+                .github/workflows/* |
+                tools/unity_csharp_compile_smoke.ps1 |
+                unity-prototype/Assets/*.cs |
+                unity-prototype/Assets/*.cs.meta |
+                unity-prototype/Assets/*.asmdef |
+                unity-prototype/Assets/*.asmdef.meta |
+                unity-prototype/Assets/*.asmref |
+                unity-prototype/Assets/*.asmref.meta |
+                unity-prototype/Assets/*.rsp |
+                unity-prototype/Assets/*.rsp.meta |
+                unity-prototype/Assets/*.dll |
+                unity-prototype/Assets/*.dll.meta |
+                unity-prototype/Packages/* |
+                unity-prototype/ProjectSettings/* |
+                config/product_capabilities.json |
+                scripts/product_capability_contract.mjs |
+                scripts/run_product_capability_ci.mjs |
+                tests/product_capability_contracts.mjs |
+                tests/product_capability_ci_runner.mjs |
+                package.json |
+                README.md |
+                docs/CAPABILITY_STATUS.md)
+                  hosted_required=true
+                  break
+                  ;;
+              esac
+            done < "$changed_paths"
+          fi
+
+          echo "hosted-required=$hosted_required" >> "$GITHUB_OUTPUT"
+          echo "source_revision=${source_revision,,}" >> "$GITHUB_OUTPUT"
+          echo "### Hosted Unity path routing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Diff available: $diff_available" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Hosted Unity required: $hosted_required" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested revision: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source revision: ${source_revision,,}" >> "$GITHUB_STEP_SUMMARY"
+
+  hosted_unity:
+    name: Hosted Unity 2022.3 C# compile
+    needs: route_hosted_unity
+    if: ${{ needs.route_hosted_unity.outputs.hosted-required == 'true' }}
+    runs-on: ubuntu-latest
+    environment: hosted-unity-compile
+    timeout-minutes: 60
+    env:
+      BOTC_HOSTED_UNITY_SOURCE_REVISION: ${{ needs.route_hosted_unity.outputs.source_revision }}
+      BOTC_HOSTED_UNITY_EVIDENCE_PATH: ${{ github.workspace }}/output/hosted-unity-csharp/hosted-unity-csharp.json
+      UNITY_VERSION: 2022.3.62f3
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          clean: true
+          fetch-depth: 1
+      - name: Assert cold Unity inputs
+        id: cold_inputs
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          for stale_path in \
+            unity-prototype/Library \
+            unity-prototype/Temp \
+            unity-prototype/Obj \
+            build \
+            output
+          do
+            if [[ -e "$stale_path" ]]; then
+              echo "Cold hosted compile rejected pre-existing path: $stale_path" >&2
+              exit 1
+            fi
+          done
+      - name: Classify Unity license inputs
+        id: license
+        if: ${{ steps.cold_inputs.outcome == 'success' }}
+        shell: bash
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ready=false
+          mode=none
+          if [[ -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
+            ready=true
+            mode=professional
+          elif [[ -n "$UNITY_LICENSE" ]]; then
+            ready=true
+            mode=personal
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      - name: Import and build with Unity
+        id: unity
+        if: ${{ steps.cold_inputs.outcome == 'success' && steps.license.outputs.ready == 'true' }}
+        continue-on-error: true
+        uses: game-ci/unity-builder@1d4ee0697f193f54668e98961d79907911f4b4f2 # v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 2022.3.62f3
+          projectPath: unity-prototype
+          targetPlatform: StandaloneLinux64
+          buildsPath: output/hosted-unity-build
+          versioning: None
+      - name: Classify hosted Unity outcome
+        id: classify
+        if: ${{ always() }}
+        shell: bash
+        env:
+          COLD_OUTCOME: ${{ steps.cold_inputs.outcome }}
+          LICENSE_READY: ${{ steps.license.outputs.ready }}
+          LICENSE_MODE: ${{ steps.license.outputs.mode }}
+          UNITY_STEP_OUTCOME: ${{ steps.unity.outcome }}
+          ENGINE_EXIT_CODE: ${{ steps.unity.outputs.engineExitCode }}
+        run: |
+          set -euo pipefail
+          status=fail
+          failure_kind=""
+          license_ready=false
+          license_mode=none
+          activation_outcome=not-run
+          unity_outcome=not-run
+          clean_inputs=false
+
+          if [[ "$COLD_OUTCOME" != "success" ]]; then
+            failure_kind=cold-inputs-invalid
+          elif [[ "$LICENSE_READY" != "true" ]]; then
+            clean_inputs=true
+            failure_kind=licensing-unavailable
+          elif [[ "$UNITY_STEP_OUTCOME" == "success" && "$ENGINE_EXIT_CODE" == "0" ]]; then
+            clean_inputs=true
+            license_ready=true
+            license_mode="$LICENSE_MODE"
+            activation_outcome=success
+            unity_outcome=success
+            status=pass
+          else
+            clean_inputs=true
+            license_ready=true
+            license_mode="$LICENSE_MODE"
+            activation_outcome=unknown
+            unity_outcome=unknown
+            failure_kind=unity-activation-or-execution-failed
+          fi
+
+          {
+            echo "status=$status"
+            echo "failure_kind=$failure_kind"
+            echo "license_ready=$license_ready"
+            echo "license_mode=$license_mode"
+            echo "activation_outcome=$activation_outcome"
+            echo "unity_outcome=$unity_outcome"
+            echo "engine_exit_code=$ENGINE_EXIT_CODE"
+            echo "clean_inputs=$clean_inputs"
+            echo "cache_used=false"
+          } >> "$GITHUB_OUTPUT"
+      - name: Write revision-bound hosted receipt
+        id: write_receipt
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          BOTC_HOSTED_UNITY_STATUS: ${{ steps.classify.outputs.status }}
+          BOTC_HOSTED_UNITY_FAILURE_KIND: ${{ steps.classify.outputs.failure_kind }}
+          BOTC_HOSTED_UNITY_LICENSE_READY: ${{ steps.classify.outputs.license_ready }}
+          BOTC_HOSTED_UNITY_LICENSE_MODE: ${{ steps.classify.outputs.license_mode }}
+          BOTC_HOSTED_UNITY_ACTIVATION_OUTCOME: ${{ steps.classify.outputs.activation_outcome }}
+          BOTC_HOSTED_UNITY_ACTION_OUTCOME: ${{ steps.classify.outputs.unity_outcome }}
+          BOTC_HOSTED_UNITY_ENGINE_EXIT_CODE: ${{ steps.classify.outputs.engine_exit_code }}
+          BOTC_HOSTED_UNITY_CLEAN_INPUTS: ${{ steps.classify.outputs.clean_inputs }}
+          BOTC_HOSTED_UNITY_CACHE_USED: ${{ steps.classify.outputs.cache_used }}
+        run: ./tools/unity_csharp_compile_smoke.ps1 -WriteHostedEvidence
+      - name: Upload hosted Unity receipt
+        id: upload_receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hosted-unity-csharp-evidence
+          path: ${{ env.BOTC_HOSTED_UNITY_EVIDENCE_PATH }}
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce producer result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RECEIPT_STATUS: ${{ steps.classify.outputs.status }}
+          UNITY_STEP_OUTCOME: ${{ steps.unity.outcome }}
+          ENGINE_EXIT_CODE: ${{ steps.unity.outputs.engineExitCode }}
+          WRITE_OUTCOME: ${{ steps.write_receipt.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_receipt.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$RECEIPT_STATUS" != "pass" ||
+                "$UNITY_STEP_OUTCOME" != "success" ||
+                "$ENGINE_EXIT_CODE" != "0" ||
+                "$WRITE_OUTCOME" != "success" ||
+                "$UPLOAD_OUTCOME" != "success" ]]; then
+            echo "Hosted Unity producer did not produce passing compile evidence." >&2
+            exit 1
+          fi
+
+  capability_contract:
+    name: capability-contract
+    needs: [route_hosted_unity, hosted_unity]
+    if: ${{ always() }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      BOTC_HOSTED_UNITY_SOURCE_REVISION: ${{ needs.route_hosted_unity.outputs.source_revision }}
+      BOTC_HOSTED_UNITY_EVIDENCE_PATH: ${{ github.workspace }}\output\hosted-unity-csharp\hosted-unity-csharp.json
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Verify current capability evidence
+      - name: Download current-run hosted receipt
+        id: download
+        if: ${{ needs.route_hosted_unity.outputs.hosted-required == 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hosted-unity-csharp-evidence
+          path: output/hosted-unity-csharp
+      - name: Check static capability contract
+        id: verify_static
+        if: ${{ needs.route_hosted_unity.outputs.hosted-required == 'false' }}
+        continue-on-error: true
+        run: npm run capabilities:check
+      - name: Verify current hosted capability evidence
+        id: verify_hosted
+        if: ${{ needs.route_hosted_unity.outputs.hosted-required == 'true' }}
+        continue-on-error: true
         shell: pwsh
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $asOf = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
           npm run capabilities:verify -- --as-of $asOf
+      - name: Enforce terminal capability gate
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          HOSTED_REQUIRED: ${{ needs.route_hosted_unity.outputs.hosted-required }}
+          ROUTER_RESULT: ${{ needs.route_hosted_unity.result }}
+          HOSTED_RESULT: ${{ needs.hosted_unity.result }}
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          STATIC_OUTCOME: ${{ steps.verify_static.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_hosted.outcome }}
+        run: |
+          if ($env:ROUTER_RESULT -cne "success") {
+            throw "Hosted Unity path router did not succeed."
+          }
+          if ($env:HOSTED_REQUIRED -ceq "true") {
+            if ($env:HOSTED_RESULT -cne "success") { throw "Hosted Unity producer did not pass." }
+            if ($env:DOWNLOAD_OUTCOME -cne "success") { throw "Current-run hosted Unity receipt was not downloaded." }
+            if ($env:VERIFY_OUTCOME -cne "success") { throw "Capability verification rejected hosted Unity evidence." }
+          } elseif ($env:HOSTED_REQUIRED -ceq "false") {
+            if ($env:HOSTED_RESULT -cne "skipped") { throw "Irrelevant revisions must not run the hosted Unity producer." }
+            if ($env:STATIC_OUTCOME -cne "success") { throw "Static capability contract validation failed." }
+          } else {
+            throw "Hosted Unity path router returned no decision."
+          }

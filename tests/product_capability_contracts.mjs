@@ -38,6 +38,16 @@ const flagshipReplayNonClaims = [
   "known sentence-density or scripted-future-action warning families",
   "behavior/generalization on unseen seeds",
 ];
+const hostedUnityLabel = "Hosted Unity 2022.3 C# compile evidence";
+const hostedUnityCertifies = [
+  "Unity 2022.3.62f3 imports and compiles the C# project on a GitHub-hosted runner for the tested revision",
+];
+const hostedUnityNonClaims = [
+  "local Roslyn smoke compilation",
+  "cached Unity Library or prior build output",
+  "a different commit, workflow run, or attempt",
+  "public distribution eligibility",
+];
 
 function clone(value) {
   return structuredClone(value);
@@ -91,11 +101,15 @@ function gate(result, trackId, gateId) {
   return found;
 }
 
-function flagshipReplayEvidence(contract) {
+function flagshipAutomatedEvidence(contract, evidenceId) {
   const flagship = contract.tracks.find((entry) => entry.id === "tb-unity-deterministic");
   const automatedContracts = flagship?.promotionGates.find((entry) => entry.id === "automated-contracts");
-  return automatedContracts?.evidence.find((entry) => entry.id === "tb-ai-flagship-replay");
+  return automatedContracts?.evidence.find((entry) => entry.id === evidenceId);
 }
+
+const flagshipReplayEvidence = (contract) => flagshipAutomatedEvidence(contract, "tb-ai-flagship-replay");
+const flagshipHostedUnityEvidence = (contract) =>
+  flagshipAutomatedEvidence(contract, "tb-hosted-unity-csharp-compile");
 
 function assertFlagshipReplayBoundary(content, surface) {
   assert.match(content, new RegExp(flagshipReplayLabel, "u"), `${surface} should name the replay evidence`);
@@ -163,9 +177,14 @@ function testInitialAuthorityAndResultShape() {
   ).evidence;
   assert.deepEqual(
     stableAutomatedEvidence.map((entry) => entry.reference),
-    ["npm run test:unity-viewmodel", "npm run test:ai-flagship-replay"],
+    ["npm run test:unity-viewmodel", "npm run test:unity-csharp-smoke", "npm run test:ai-flagship-replay"],
     "stable automated evidence order is contract-owned and deterministic"
   );
+  const hostedUnityEvidence = flagshipHostedUnityEvidence(initialContract);
+  assert.ok(hostedUnityEvidence, "stable automated contracts should declare hosted Unity compile evidence");
+  assert.equal(hostedUnityEvidence.label, hostedUnityLabel);
+  assert.deepEqual(hostedUnityEvidence.certifies, hostedUnityCertifies);
+  assert.deepEqual(hostedUnityEvidence.doesNotCertify, hostedUnityNonClaims);
   const replayEvidence = flagshipReplayEvidence(initialContract);
   assert.ok(replayEvidence, "stable automated contracts should declare flagship replay evidence");
   assert.equal(replayEvidence.label, flagshipReplayLabel);

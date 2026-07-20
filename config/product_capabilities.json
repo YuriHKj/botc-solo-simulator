@@ -48,6 +48,21 @@
               "freshness": { "policy": "ci-run" }
             },
             {
+              "id": "tb-hosted-unity-csharp-compile",
+              "reference": "npm run test:unity-csharp-smoke",
+              "freshness": { "policy": "ci-run" },
+              "label": "Hosted Unity 2022.3 C# compile evidence",
+              "certifies": [
+                "Unity 2022.3.62f3 imports and compiles the C# project on a GitHub-hosted runner for the tested revision"
+              ],
+              "doesNotCertify": [
+                "local Roslyn smoke compilation",
+                "cached Unity Library or prior build output",
+                "a different commit, workflow run, or attempt",
+                "public distribution eligibility"
+              ]
+            },
+            {
               "id": "tb-ai-flagship-replay",
               "reference": "npm run test:ai-flagship-replay",
               "freshness": { "policy": "ci-run" },

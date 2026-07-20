@@ -25,6 +25,51 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const contractPath = path.join(root, "config", "product_capabilities.json");
 const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const unitySmokePath = path.join(root, "tools", "unity_csharp_compile_smoke.ps1");
+
+function runUnitySmoke(args = [], env = {}) {
+  return spawnSync(
+    "powershell",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", unitySmokePath, ...args],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+      shell: false,
+      windowsHide: true,
+    }
+  );
+}
+
+function hostedIdentity(receiptPath) {
+  return {
+    GITHUB_ACTIONS: "true",
+    GITHUB_SHA: "a".repeat(40),
+    GITHUB_RUN_ID: "123456789",
+    GITHUB_RUN_ATTEMPT: "2",
+    GITHUB_REPOSITORY: "YuriHKj/botc-solo-simulator",
+    GITHUB_WORKFLOW: "Capability contract CI",
+    RUNNER_ENVIRONMENT: "github-hosted",
+    RUNNER_OS: "Linux",
+    BOTC_HOSTED_UNITY_EVIDENCE_PATH: receiptPath,
+    BOTC_HOSTED_UNITY_SOURCE_REVISION: "b".repeat(40),
+  };
+}
+
+function passingHostedWriterEnvironment(receiptPath) {
+  return {
+    ...hostedIdentity(receiptPath),
+    BOTC_HOSTED_UNITY_STATUS: "pass",
+    BOTC_HOSTED_UNITY_LICENSE_READY: "true",
+    BOTC_HOSTED_UNITY_LICENSE_MODE: "personal",
+    BOTC_HOSTED_UNITY_ACTIVATION_OUTCOME: "success",
+    BOTC_HOSTED_UNITY_ACTION_OUTCOME: "success",
+    BOTC_HOSTED_UNITY_ENGINE_EXIT_CODE: "0",
+    BOTC_HOSTED_UNITY_CLEAN_INPUTS: "true",
+    BOTC_HOSTED_UNITY_CACHE_USED: "false",
+    BOTC_HOSTED_UNITY_FAILURE_KIND: "",
+  };
+}
 
 function snapshotFiles(directory, ignoredPrefixes = []) {
   const snapshot = new Map();
@@ -97,16 +142,90 @@ function testPackageScriptsAndWorkflow() {
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
   assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\[\s*(?:dev, main|main, dev)\s*\]/u);
   assert.match(workflow, /push:\s*\n\s*branches:\s*\[\s*(?:dev, main|main, dev)\s*\]/u);
-  assert.match(workflow, /runs-on:\s*windows-latest/u);
+  assert.doesNotMatch(workflow, /pull_request_target/u);
+  assert.doesNotMatch(workflow, /^\s+paths(?:-ignore)?:/mu, "path awareness must stay inside the always-present workflow");
   assert.match(workflow, /permissions:\s*\n\s*contents:\s*read/u);
-  assert.match(workflow, /timeout-minutes:\s*20/u);
-  assert.match(workflow, /uses:\s*actions\/checkout@v4/u);
-  assert.match(workflow, /uses:\s*actions\/setup-node@v4/u);
+  assert.match(workflow, /name:\s*capability-contract/u);
+  assert.match(workflow, /needs:\s*\[route_hosted_unity, hosted_unity\]/u);
+  assert.match(workflow, /if:\s*\$\{\{ always\(\) \}\}/u);
+  assert.match(workflow, /runs-on:\s*windows-latest/u);
+  assert.match(workflow, /runs-on:\s*ubuntu-latest/u);
+  assert.match(workflow, /uses:\s*actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5\s*#\s*v4/u);
+  assert.match(workflow, /uses:\s*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\s*#\s*v4/u);
+  assert.match(workflow, /uses:\s*actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\s*#\s*v4/u);
+  assert.match(workflow, /uses:\s*actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\s*#\s*v4/u);
+  assert.doesNotMatch(workflow, /uses:\s*game-ci\/unity-activate@/u);
+  assert.match(workflow, /uses:\s*game-ci\/unity-builder@1d4ee0697f193f54668e98961d79907911f4b4f2\s*#\s*v4/u);
   assert.match(workflow, /node-version:\s*["']?22["']?/u);
   assert.match(workflow, /run:\s*npm ci/u);
+  assert.equal(
+    workflow.match(/git diff --no-renames --name-only -z/gu)?.length,
+    2,
+    "both PR and push routing must use NUL-delimited Git paths"
+  );
+  assert.match(workflow, /while IFS= read -r -d '' changed_path/u);
+  assert.match(
+    workflow,
+    /Git pathnames can contain newlines and non-ASCII bytes; NUL transport preserves them losslessly\./u,
+    "the raw NUL transport rationale must remain reviewable"
+  );
+  assert.match(workflow, /hosted_required=true/u);
+  assert.match(workflow, /\.github\/workflows\/\*/u);
+  assert.match(workflow, /unity-prototype\/Assets\/\*\.cs/u);
+  assert.match(workflow, /unity-prototype\/Assets\/\*\.asmdef/u);
+  assert.match(workflow, /unity-prototype\/Assets\/\*\.asmref/u);
+  assert.match(workflow, /unity-prototype\/Assets\/\*\.rsp/u);
+  assert.match(workflow, /unity-prototype\/Assets\/\*\.dll/u);
+  assert.match(workflow, /unity-prototype\/Packages\/\*/u);
+  assert.match(workflow, /unity-prototype\/ProjectSettings\/\*/u);
+  assert.match(workflow, /config\/product_capabilities\.json/u);
+  assert.match(workflow, /tests\/product_capability_ci_runner\.mjs/u);
+  assert.doesNotMatch(workflow, /unity-prototype\/Assets\/\*\*|unity-prototype\/Assets\/\*\)/u);
+  assert.match(workflow, /unityVersion:\s*2022\.3\.62f3/u);
+  assert.match(workflow, /projectPath:\s*unity-prototype/u);
+  assert.match(workflow, /targetPlatform:\s*StandaloneLinux64/u);
+  assert.match(workflow, /environment:\s*hosted-unity-compile/u);
+  assert.match(workflow, /UNITY_LICENSE:\s*\$\{\{ secrets\.UNITY_LICENSE \}\}/u);
+  assert.match(workflow, /UNITY_SERIAL:\s*\$\{\{ secrets\.UNITY_SERIAL \}\}/u);
+  assert.match(workflow, /UNITY_EMAIL:\s*\$\{\{ secrets\.UNITY_EMAIL \}\}/u);
+  assert.match(workflow, /UNITY_PASSWORD:\s*\$\{\{ secrets\.UNITY_PASSWORD \}\}/u);
+  assert.match(workflow, /elif \[\[ -n "\$UNITY_LICENSE" \]\]; then/u);
+  assert.doesNotMatch(
+    workflow,
+    /elif \[\[ -n "\$UNITY_LICENSE" && -n "\$UNITY_EMAIL" && -n "\$UNITY_PASSWORD" \]\]; then/u,
+    "a GameCI personal license is complete when UNITY_LICENSE alone is present"
+  );
+  assert.match(workflow, /licensing-unavailable/u);
+  assert.match(workflow, /unity-activation-or-execution-failed/u);
+  assert.doesNotMatch(workflow, /licensing-activation-failed|unity-execution-failed-after-activation/u);
+  assert.equal(
+    workflow.match(/RUNNER_ENVIRONMENT:\s*\$\{\{ runner\.environment \}\}/gu)?.length,
+    2,
+    "runner context must be evaluated only on the receipt writer and hosted verifier steps"
+  );
+  assert.match(workflow, /name:\s*Write revision-bound hosted receipt[\s\S]*?env:\s*\n\s*RUNNER_ENVIRONMENT:/u);
+  assert.match(workflow, /name:\s*Verify current hosted capability evidence[\s\S]*?env:\s*\n\s*RUNNER_ENVIRONMENT:/u);
+  assert.match(workflow, /-WriteHostedEvidence/u);
+  assert.match(workflow, /hosted-unity-csharp-evidence/u);
+  assert.match(workflow, /retention-days:\s*7/u);
+  assert.doesNotMatch(workflow, /uses:\s*actions\/cache@/u);
+  assert.doesNotMatch(workflow, /skipActivation:\s*true/u);
+  assert.match(workflow, /npm run capabilities:check/u);
   assert.match(workflow, /\$asOf = \(Get-Date\)\.ToUniversalTime\(\)\.ToString\("yyyy-MM-dd"\)/u);
   assert.match(workflow, /npm run capabilities:verify -- --as-of \$asOf/u);
+  assert.match(workflow, /needs\.hosted_unity\.result/u);
+  assert.match(workflow, /steps\.download\.outcome/u);
+  assert.match(workflow, /steps\.verify_hosted\.outcome/u);
   assert.match(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), /^output\/$/mu);
+
+  const hostedVerification = fs.readFileSync(
+    path.join(root, "docs", "verification", "HOSTED_UNITY_CSHARP_2026-07-20.md"),
+    "utf8"
+  );
+  assert.match(hostedVerification, /environment secrets/u);
+  assert.match(hostedVerification, /required trusted reviewers/u);
+  assert.match(hostedVerification, /self-review disabled/u);
+  assert.match(hostedVerification, /external repository configuration remains a blocker/u);
 }
 
 function testBareInspectPackageScript() {
@@ -133,6 +252,7 @@ function testDistinctCollectionAndFailClosedSafety() {
     "test:full-game-loop": "node tests/full_game_loop_contracts.mjs",
     "test:unity-demo-acceptance": "node scripts/unity_demo_acceptance.mjs",
     "test:unity-viewmodel": "node tests/unity_viewmodel_contracts.mjs",
+    "test:unity-csharp-smoke": "powershell -ExecutionPolicy Bypass -File tools/unity_csharp_compile_smoke.ps1",
     "test:ai-flagship-replay": "node tests/ai_flagship_replay_eval_contracts.mjs",
     "test:electron-build": "node tests/electron_build_contracts.cjs",
     "test:ai-llm-renderer": "node tests/ai_llm_renderer_contracts.mjs",
@@ -146,6 +266,7 @@ function testDistinctCollectionAndFailClosedSafety() {
     "npm run test:role-actions",
     "npm run test:unity-demo-acceptance",
     "npm run test:unity-viewmodel",
+    "npm run test:unity-csharp-smoke",
     "npm run test:ai-flagship-replay",
     "npm run test:full-game-loop",
     "npm run test:electron-build",
@@ -243,6 +364,148 @@ function testRevisionSelection() {
   assert.throws(() => selectEvidenceRevision({ head: "", dirty: false }), /HEAD revision/u);
 }
 
+function testHostedUnityReceiptWriterAndValidator() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "botc-hosted-unity-receipt-"));
+  try {
+    const receiptPath = path.join(tempRoot, "hosted-unity-csharp.json");
+    const writerEnvironment = passingHostedWriterEnvironment(receiptPath);
+    const written = runUnitySmoke(["-WriteHostedEvidence"], writerEnvironment);
+    assert.equal(written.status, 0, `${written.stdout}\n${written.stderr}`);
+
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+    assert.equal(receipt.schema, "botc-hosted-unity-csharp-evidence");
+    assert.equal(receipt.version, 1);
+    assert.equal(receipt.status, "pass");
+    assert.equal(receipt.testedRevision, writerEnvironment.GITHUB_SHA);
+    assert.equal(receipt.sourceRevision, writerEnvironment.BOTC_HOSTED_UNITY_SOURCE_REVISION);
+    assert.equal(receipt.runId, writerEnvironment.GITHUB_RUN_ID);
+    assert.equal(receipt.runAttempt, 2);
+    assert.equal(receipt.runnerEnvironment, "github-hosted");
+    assert.equal(receipt.runnerOs, "Linux");
+    assert.equal(receipt.unityVersion, "2022.3.62f3");
+    assert.equal(receipt.projectVersionRevision, "96770f904ca7");
+    assert.equal(receipt.licenseReady, true);
+    assert.equal(receipt.licenseMode, "personal");
+    assert.equal(receipt.activationOutcome, "success");
+    assert.equal(receipt.unityOutcome, "success");
+    assert.equal(receipt.engineExitCode, 0);
+    assert.equal(receipt.cleanInputs, true);
+    assert.equal(receipt.cacheUsed, false);
+    assert.equal(receipt.failureKind, null);
+    assert.match(receipt.generatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u);
+
+    const validationEnvironment = {
+      ...hostedIdentity(receiptPath),
+      BOTC_HOSTED_UNITY_EVIDENCE_REQUIRED: "1",
+    };
+    const validated = runUnitySmoke([], validationEnvironment);
+    assert.equal(validated.status, 0, `${validated.stdout}\n${validated.stderr}`);
+    assert.match(validated.stdout, /HOSTED_UNITY_EVIDENCE=pass/u);
+
+    const failReceiptPath = path.join(tempRoot, "hosted-unity-csharp-fail.json");
+    const failureWritten = runUnitySmoke(["-WriteHostedEvidence"], {
+      ...hostedIdentity(failReceiptPath),
+      BOTC_HOSTED_UNITY_STATUS: "fail",
+      BOTC_HOSTED_UNITY_LICENSE_READY: "false",
+      BOTC_HOSTED_UNITY_LICENSE_MODE: "none",
+      BOTC_HOSTED_UNITY_ACTIVATION_OUTCOME: "not-run",
+      BOTC_HOSTED_UNITY_ACTION_OUTCOME: "not-run",
+      BOTC_HOSTED_UNITY_ENGINE_EXIT_CODE: "",
+      BOTC_HOSTED_UNITY_CLEAN_INPUTS: "true",
+      BOTC_HOSTED_UNITY_CACHE_USED: "false",
+      BOTC_HOSTED_UNITY_FAILURE_KIND: "licensing-unavailable",
+    });
+    assert.equal(failureWritten.status, 0, `${failureWritten.stdout}\n${failureWritten.stderr}`);
+    const failureReceipt = JSON.parse(fs.readFileSync(failReceiptPath, "utf8"));
+    assert.equal(failureReceipt.status, "fail");
+    assert.equal(failureReceipt.failureKind, "licensing-unavailable");
+    assert.equal(failureReceipt.engineExitCode, null);
+    const rejectedFailure = runUnitySmoke([], {
+      ...hostedIdentity(failReceiptPath),
+      BOTC_HOSTED_UNITY_EVIDENCE_REQUIRED: "1",
+    });
+    assert.notEqual(rejectedFailure.status, 0, "a machine-readable failure receipt must fail certification");
+
+    const combinedFailureWritten = runUnitySmoke(["-WriteHostedEvidence"], {
+      ...hostedIdentity(failReceiptPath),
+      BOTC_HOSTED_UNITY_STATUS: "fail",
+      BOTC_HOSTED_UNITY_LICENSE_READY: "true",
+      BOTC_HOSTED_UNITY_LICENSE_MODE: "personal",
+      BOTC_HOSTED_UNITY_ACTIVATION_OUTCOME: "unknown",
+      BOTC_HOSTED_UNITY_ACTION_OUTCOME: "unknown",
+      BOTC_HOSTED_UNITY_ENGINE_EXIT_CODE: "",
+      BOTC_HOSTED_UNITY_CLEAN_INPUTS: "true",
+      BOTC_HOSTED_UNITY_CACHE_USED: "false",
+      BOTC_HOSTED_UNITY_FAILURE_KIND: "unity-activation-or-execution-failed",
+    });
+    assert.equal(combinedFailureWritten.status, 0, `${combinedFailureWritten.stdout}\n${combinedFailureWritten.stderr}`);
+    const combinedFailureReceipt = JSON.parse(fs.readFileSync(failReceiptPath, "utf8"));
+    assert.equal(combinedFailureReceipt.failureKind, "unity-activation-or-execution-failed");
+    assert.equal(combinedFailureReceipt.activationOutcome, "unknown");
+    assert.equal(combinedFailureReceipt.unityOutcome, "unknown");
+    assert.equal(combinedFailureReceipt.engineExitCode, null);
+    const rejectedCombinedFailure = runUnitySmoke([], {
+      ...hostedIdentity(failReceiptPath),
+      BOTC_HOSTED_UNITY_EVIDENCE_REQUIRED: "1",
+    });
+    assert.notEqual(rejectedCombinedFailure.status, 0, "an ambiguous Builder failure receipt must fail certification");
+
+    const validReceipt = structuredClone(receipt);
+    const mutations = [
+      ["schema", "other-schema"],
+      ["version", 2],
+      ["status", "fail"],
+      ["testedRevision", "c".repeat(40)],
+      ["sourceRevision", "c".repeat(40)],
+      ["repository", "other/repository"],
+      ["workflow", "Other workflow"],
+      ["runId", "987654321"],
+      ["runAttempt", 3],
+      ["runnerEnvironment", "self-hosted"],
+      ["runnerOs", "Windows"],
+      ["unityVersion", "2022.3.61f1"],
+      ["projectVersionRevision", "deadbeef"],
+      ["licenseReady", false],
+      ["licenseMode", "none"],
+      ["activationOutcome", "unknown"],
+      ["unityOutcome", "unknown"],
+      ["engineExitCode", 1],
+      ["cleanInputs", false],
+      ["cacheUsed", true],
+      ["failureKind", "unity-activation-or-execution-failed"],
+    ];
+    for (const [field, value] of mutations) {
+      fs.writeFileSync(receiptPath, `${JSON.stringify({ ...validReceipt, [field]: value }, null, 2)}\n`);
+      const rejected = runUnitySmoke([], validationEnvironment);
+      assert.notEqual(rejected.status, 0, `validator must reject mismatched ${field}`);
+    }
+
+    fs.writeFileSync(receiptPath, "{ malformed\n");
+    assert.notEqual(runUnitySmoke([], validationEnvironment).status, 0, "malformed JSON must fail closed");
+    fs.rmSync(receiptPath);
+    assert.notEqual(runUnitySmoke([], validationEnvironment).status, 0, "missing receipt must fail closed");
+
+    const nonHosted = runUnitySmoke([], {
+      ...validationEnvironment,
+      GITHUB_ACTIONS: "false",
+    });
+    assert.notEqual(nonHosted.status, 0, "hosted certification must reject a non-Actions environment");
+
+    const noLocalFallback = runUnitySmoke(
+      ["-UnityEditor", path.join(tempRoot, "does-not-exist"), "-Dotnet", path.join(tempRoot, "also-missing")],
+      validationEnvironment
+    );
+    assert.notEqual(noLocalFallback.status, 0);
+    assert.doesNotMatch(
+      `${noLocalFallback.stdout}\n${noLocalFallback.stderr}`,
+      /Unity editor .* not found|dotnet|Roslyn/u,
+      "hosted-required mode must reject evidence before any local compiler discovery"
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 async function testManifestPassFailBindingsTruncationAndReadOnlyCheck() {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "botc-capability-ci-"));
   try {
@@ -257,15 +520,25 @@ async function testManifestPassFailBindingsTruncationAndReadOnlyCheck() {
       resultsPath,
       revision: "fixture-pass",
       githubSha: null,
-      executeScript: async ({ command, scriptName }) => {
-        seen.push(scriptName);
+      executeScript: async ({ command, scriptName, environment }) => {
+        seen.push({ scriptName, environment });
         return { exitCode: 0, stdout: `${command}\n${longOutput}`, stderr: "" };
       },
       log: () => {},
     });
     assert.equal(passingExit, 0);
-    assert.deepEqual(seen, collectCiRunCommands(contract).map((command) => command.slice("npm run ".length)));
-    assert.equal(new Set(seen).size, seen.length, "each distinct evidence script must execute exactly once");
+    assert.deepEqual(
+      seen.map((entry) => entry.scriptName),
+      collectCiRunCommands(contract).map((command) => command.slice("npm run ".length))
+    );
+    assert.equal(new Set(seen.map((entry) => entry.scriptName)).size, seen.length, "each distinct evidence script must execute exactly once");
+    for (const entry of seen) {
+      if (entry.scriptName === "test:unity-csharp-smoke") {
+        assert.deepEqual(entry.environment, { BOTC_HOSTED_UNITY_EVIDENCE_REQUIRED: "1" });
+      } else {
+        assert.deepEqual(entry.environment, {}, `${entry.scriptName} must not inherit hosted-required mode`);
+      }
+    }
 
     const passingManifest = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
     assert.equal(passingManifest.schema, CI_RESULTS_SCHEMA);
@@ -294,6 +567,12 @@ async function testManifestPassFailBindingsTruncationAndReadOnlyCheck() {
       passingFlagship.gates
         .find((entry) => entry.id === "automated-contracts")
         .evidence.find((entry) => entry.id === "tb-ai-flagship-replay").state,
+      "passed"
+    );
+    assert.equal(
+      passingFlagship.gates
+        .find((entry) => entry.id === "automated-contracts")
+        .evidence.find((entry) => entry.id === "tb-hosted-unity-csharp-compile").state,
       "passed"
     );
     assertSnapshotsEqual(snapshotFiles(tempRoot, ["output"]), before, "runner check must not write tracked fixture files");
@@ -343,6 +622,50 @@ async function testManifestPassFailBindingsTruncationAndReadOnlyCheck() {
     assert.equal(replayFailedFlagship.default, true);
     assert.equal(replayFailedFlagship.distribution.intendedClass, "private-development");
     assert.equal(replayFailedFlagship.distribution.publicDistribution, "blocked");
+
+    const unityFailureRevision = "fixture-hosted-unity-fail";
+    const unitySeen = [];
+    const unityFailureExit = await runProductCapabilityCi({
+      root: tempRoot,
+      contractPath: fixtureContractPath,
+      resultsPath,
+      revision: unityFailureRevision,
+      githubSha: null,
+      executeScript: async ({ command, scriptName, environment }) => {
+        unitySeen.push({ command, scriptName, environment });
+        return {
+          exitCode: scriptName === "test:unity-csharp-smoke" ? 31 : 0,
+          stdout: command,
+          stderr: scriptName === "test:unity-csharp-smoke" ? "injected hosted Unity evidence failure" : "",
+        };
+      },
+      log: () => {},
+    });
+    assert.equal(unityFailureExit, 1, "hosted Unity validation failure must fail strict verification");
+    assert.deepEqual(
+      unitySeen.map((entry) => entry.command),
+      collectCiRunCommands(contract),
+      "hosted Unity failure must not stop later evidence"
+    );
+    const unityFailureManifest = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
+    const unityResult = unityFailureManifest.results.find(
+      (entry) => entry.command === "npm run test:unity-csharp-smoke"
+    );
+    assert.equal(unityResult.exitCode, 31);
+    assert.equal(unityResult.revision, unityFailureRevision);
+    assert.equal(unityResult.contractHash, hashCapabilityContract(contract));
+    const unityFailedEvaluation = evaluateCapabilityContract(contract, {
+      revision: unityFailureRevision,
+      executionResults: unityFailureManifest.results,
+    });
+    const unityFailedFlagship = unityFailedEvaluation.tracks.find(
+      (entry) => entry.id === "tb-unity-deterministic"
+    );
+    assert.equal(unityFailedFlagship.gates.find((entry) => entry.id === "automated-contracts").state, "failed");
+    assert.equal(unityFailedFlagship.engineeringMaturity, "stable");
+    assert.equal(unityFailedFlagship.default, true);
+    assert.equal(unityFailedFlagship.distribution.intendedClass, "private-development");
+    assert.equal(unityFailedFlagship.distribution.publicDistribution, "blocked");
 
     let call = 0;
     const failingExit = await runProductCapabilityCi({
@@ -517,6 +840,7 @@ testBareInspectPackageScript();
 testDistinctCollectionAndFailClosedSafety();
 testShellFreeNpmInvocation();
 testRevisionSelection();
+testHostedUnityReceiptWriterAndValidator();
 await testManifestPassFailBindingsTruncationAndReadOnlyCheck();
 await testAsOfDateReachesExpiringStableEvidence();
 await testUnsafeContractIsAnInvocationError();
