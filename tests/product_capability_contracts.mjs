@@ -22,6 +22,22 @@ const contractPath = path.join(root, "config", "product_capabilities.json");
 const cliPath = path.join(root, "scripts", "product_capability_contract.mjs");
 const initialContract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 const expectedGateCategories = ["rules-fidelity", "player-journey", "automated-contracts", "intended-distribution"];
+const flagshipReplayLabel = "Fixed-seed replay-invariant evidence";
+const flagshipReplayCertifies = [
+  "completion",
+  "deterministic identity",
+  "legality",
+  "bounded v1 information safety",
+  "repetition",
+  "cross-day stance continuity",
+  "nomination justification",
+  "stance-to-vote alignment",
+];
+const flagshipReplayNonClaims = [
+  "general natural-language quality",
+  "known sentence-density or scripted-future-action warning families",
+  "behavior/generalization on unseen seeds",
+];
 
 function clone(value) {
   return structuredClone(value);
@@ -73,6 +89,19 @@ function gate(result, trackId, gateId) {
   const found = result.gates.find((entry) => entry.trackId === trackId && entry.id === gateId);
   assert.ok(found, `expected evaluated gate ${trackId}/${gateId}`);
   return found;
+}
+
+function flagshipReplayEvidence(contract) {
+  const flagship = contract.tracks.find((entry) => entry.id === "tb-unity-deterministic");
+  const automatedContracts = flagship?.promotionGates.find((entry) => entry.id === "automated-contracts");
+  return automatedContracts?.evidence.find((entry) => entry.id === "tb-ai-flagship-replay");
+}
+
+function assertFlagshipReplayBoundary(content, surface) {
+  assert.match(content, new RegExp(flagshipReplayLabel, "u"), `${surface} should name the replay evidence`);
+  for (const claim of [...flagshipReplayCertifies, ...flagshipReplayNonClaims]) {
+    assert.ok(content.includes(claim), `${surface} should preserve the replay claim boundary: ${claim}`);
+  }
 }
 
 function withAllCurrentGates(contract, trackId) {
@@ -128,6 +157,20 @@ function testInitialAuthorityAndResultShape() {
   assert.equal(flagship.name, "Unity + Trouble Brewing + deterministic AI");
   assert.equal(flagship.entryCommand, "npm run unity:demo");
   assert.ok(flagship.claimAliases.includes("暗流涌动"));
+
+  const stableAutomatedEvidence = initialContract.tracks[0].promotionGates.find(
+    (entry) => entry.id === "automated-contracts"
+  ).evidence;
+  assert.deepEqual(
+    stableAutomatedEvidence.map((entry) => entry.reference),
+    ["npm run test:unity-viewmodel", "npm run test:ai-flagship-replay"],
+    "stable automated evidence order is contract-owned and deterministic"
+  );
+  const replayEvidence = flagshipReplayEvidence(initialContract);
+  assert.ok(replayEvidence, "stable automated contracts should declare flagship replay evidence");
+  assert.equal(replayEvidence.label, flagshipReplayLabel);
+  assert.deepEqual(replayEvidence.certifies, flagshipReplayCertifies);
+  assert.deepEqual(replayEvidence.doesNotCertify, flagshipReplayNonClaims);
 }
 
 function testStructuralFailuresAreCollected() {
@@ -188,6 +231,27 @@ function testStructuralFailuresAreCollected() {
   const invalidEntryCommand = clone(initialContract);
   invalidEntryCommand.tracks[0].entryCommand = "powershell tools/run_unity_demo.ps1";
   assertDiagnostic(invalidEntryCommand, "invalid-default-entry-command");
+
+  const invalidEvidenceLabel = clone(initialContract);
+  flagshipReplayEvidence(invalidEvidenceLabel).label = "";
+  assertDiagnostic(invalidEvidenceLabel, "invalid-evidence-label");
+
+  const incompleteClaimBoundary = clone(initialContract);
+  delete flagshipReplayEvidence(incompleteClaimBoundary).doesNotCertify;
+  assertDiagnostic(incompleteClaimBoundary, "incomplete-evidence-claim-boundary");
+
+  const labelOnlyClaimBoundary = clone(initialContract);
+  delete flagshipReplayEvidence(labelOnlyClaimBoundary).certifies;
+  delete flagshipReplayEvidence(labelOnlyClaimBoundary).doesNotCertify;
+  assertDiagnostic(labelOnlyClaimBoundary, "incomplete-evidence-claim-boundary");
+
+  const invalidCertifiedClaims = clone(initialContract);
+  flagshipReplayEvidence(invalidCertifiedClaims).certifies = ["completion", "completion"];
+  assertDiagnostic(invalidCertifiedClaims, "invalid-evidence-certifies");
+
+  const overlappingClaimBoundary = clone(initialContract);
+  flagshipReplayEvidence(overlappingClaimBoundary).doesNotCertify.push("completion");
+  assertDiagnostic(overlappingClaimBoundary, "overlapping-evidence-claim-boundary");
 }
 
 function testMissingUnverifiedAndStableNoncomplianceDoNotChangeClassification() {
@@ -210,7 +274,17 @@ function testExecutedEvidenceMustMatchRevisionAndContractHash() {
   const passed = evaluateCapabilityContract(initialContract, { revision, executionResults: results });
   assert.equal(gate(passed, "tb-unity-deterministic", "rules-fidelity").state, "passed");
   assert.equal(track(passed, "tb-unity-deterministic").compliance.engineeringCompliant, true);
+  assert.equal(gate(passed, "tb-unity-deterministic", "automated-contracts").state, "passed");
+  assert.equal(
+    gate(passed, "tb-unity-deterministic", "automated-contracts").evidence.find(
+      (entry) => entry.id === "tb-ai-flagship-replay"
+    ).state,
+    "passed"
+  );
+  assert.equal(track(passed, "tb-unity-deterministic").engineeringMaturity, "stable");
+  assert.equal(track(passed, "tb-unity-deterministic").default, true);
   assert.equal(track(passed, "tb-unity-deterministic").distribution.publicDistribution, "blocked");
+  assert.equal(track(passed, "tb-unity-deterministic").distribution.intendedClass, "private-development");
   assert.equal(passed.compliance.currentVerificationCompliant, true);
 
   const failedResults = clone(results);
@@ -338,6 +412,12 @@ function testNondefaultStableTracksRemainVisible() {
   assert.match(renderReadmeCapabilityBlock(contract, result), /Bad Moon Rising.*stable track; not the default flagship/);
 }
 
+function testFlagshipReplayClaimBoundaryRendering() {
+  const result = evaluateCapabilityContract(initialContract);
+  assertFlagshipReplayBoundary(renderCapabilityStatus(initialContract, result), "capability status");
+  assertFlagshipReplayBoundary(renderReadmeCapabilityBlock(initialContract, result), "README capability block");
+}
+
 function writeCliFixture(tempRoot, contract = initialContract) {
   const tempContractPath = path.join(tempRoot, "config", "product_capabilities.json");
   fs.mkdirSync(path.dirname(tempContractPath), { recursive: true });
@@ -420,6 +500,8 @@ function testCliJsonChannelsExitCodesAndNoWrite() {
     assert.match(generatedReadme, /Sects & Violets.*laboratory/s);
     assert.match(generatedReadme, /Electron player UI.*laboratory/s);
     assert.match(generatedReadme, /LocalLLM dialogue renderer.*laboratory/s);
+    assertFlagshipReplayBoundary(generatedStatus, "generated capability status");
+    assertFlagshipReplayBoundary(generatedReadme, "generated README");
     const statusMtimeAfterWrite = fs.statSync(path.join(tempRoot, "docs", "CAPABILITY_STATUS.md")).mtimeMs;
     const readmeMtimeAfterWrite = fs.statSync(path.join(tempRoot, "README.md")).mtimeMs;
 
@@ -650,6 +732,7 @@ testEligibilityRequiresAllGatesButNeverPromotes();
 testEvergreenEvidenceCannotAloneSatisfyTimeSensitiveGate();
 testRenderedDistributionSummaryComesFromEvaluation();
 testNondefaultStableTracksRemainVisible();
+testFlagshipReplayClaimBoundaryRendering();
 testCliJsonChannelsExitCodesAndNoWrite();
 
 console.log("product capability contracts ok");

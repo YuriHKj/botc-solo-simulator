@@ -19,6 +19,7 @@ const REVIEWED_SCRIPT_DEFINITIONS = new Map([
   ["test:full-game-loop", "node tests/full_game_loop_contracts.mjs"],
   ["test:unity-demo-acceptance", "node scripts/unity_demo_acceptance.mjs"],
   ["test:unity-viewmodel", "node tests/unity_viewmodel_contracts.mjs"],
+  ["test:ai-flagship-replay", "node tests/ai_flagship_replay_eval_contracts.mjs"],
   ["test:electron-build", "node tests/electron_build_contracts.cjs"],
   ["test:ai-llm-renderer", "node tests/ai_llm_renderer_contracts.mjs"],
 ]);

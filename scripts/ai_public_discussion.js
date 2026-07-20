@@ -1,3 +1,32 @@
+const EXPLICIT_CROSS_DAY_TARGET_SWITCH_PATTERN =
+  /(昨天主线|前天主线|\d+天前主线|今天先转|不等于放掉|改看|转向|重新看)/u;
+
+export function ensureCrossDayTargetSwitchExplanation(
+  line,
+  { previousDay = 0, currentDay = 0, previousTargetName = "", currentTargetName = "", maxChars = 190 } = {}
+) {
+  const value = `${line ?? ""}`.replace(/\s+/g, " ").trim();
+  const previousTarget = `${previousTargetName ?? ""}`.trim();
+  const currentTarget = `${currentTargetName ?? ""}`.trim();
+  if (
+    !value ||
+    !previousTarget ||
+    !currentTarget ||
+    previousTarget === currentTarget ||
+    EXPLICIT_CROSS_DAY_TARGET_SWITCH_PATTERN.test(value)
+  ) {
+    return value;
+  }
+  const dayGap = Math.max(1, Number(currentDay) - Number(previousDay));
+  const priorDayLabel = dayGap === 1 ? "昨天" : `${dayGap}天前`;
+  const prefix = `记忆连续性：${priorDayLabel}主线在${previousTarget}，今天先转${currentTarget}，不等于放掉${previousTarget}。`;
+  const joined = `${prefix}${value}`;
+  if (!Number.isFinite(maxChars) || joined.length <= maxChars) return joined;
+  const tailRoom = Math.max(0, maxChars - prefix.length);
+  const tail = value.slice(0, tailRoom).replace(/[，。！？；、\s]+$/u, "").trim();
+  return `${prefix}${tail}`;
+}
+
 export function createAIPublicDiscussion(deps) {
   const {
     QUESTION_INTENT,
@@ -6,6 +35,7 @@ export function createAIPublicDiscussion(deps) {
     ensureDialogueState,
     refreshAIBeliefs,
     buildAgentView,
+    getAIAgent,
     buildAIStrategyContext,
     buildAIThoughtFrame,
     rankTargets,
@@ -1243,6 +1273,14 @@ function ensurePublicTargetSwitchInLine(line, targetSwitchLine, maxChars = 190) 
   const tailRoom = Math.max(0, maxChars - targetSwitch.length - 1);
   const tail = value.slice(0, tailRoom).replace(/[，。！？；、\s]+$/u, "").trim();
   return joinSpeechFragments([targetSwitch, tail]);
+}
+
+function latestPriorDaySpeech(speechHistory, currentDay) {
+  for (let index = (speechHistory?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const entry = speechHistory[index];
+    if (Number(entry?.day) < Number(currentDay) && entry?.focusId) return entry;
+  }
+  return null;
 }
 
 function ensurePublicScriptPressureInLine(line, scriptPressureLine, maxChars = 190) {
@@ -2594,7 +2632,61 @@ function shouldForceOpeningPublicClaim(state, aiPlayer, roundInDay, orderIndex, 
   return thoughtFrame?.selfDisclosureNeed === "range" && orderIndex <= 2;
 }
 
-function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, debateBeat = "opening", rng = Math.random, source = "ai_public_discussion" } = {}) {
+function deepFreezePublicObservation(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  Object.values(value).forEach((child) => deepFreezePublicObservation(child));
+  return Object.freeze(value);
+}
+
+function immutableAgentViewSnapshot(agentView) {
+  if (!agentView) {
+    return null;
+  }
+  const snapshot = JSON.parse(JSON.stringify(agentView));
+  return deepFreezePublicObservation(snapshot);
+}
+
+function immutableLegalKnowledgeSnapshot(state, aiPlayer, agentView) {
+  const agent = typeof getAIAgent === "function" ? getAIAgent(state, aiPlayer) : null;
+  const publicRoleRevealByPlayerId = new Map();
+  (agentView?.visibleClaims ?? []).forEach((claim) => {
+    if (claim?.private !== true && claim?.playerId && claim?.roleId) {
+      publicRoleRevealByPlayerId.set(claim.playerId, claim.roleId);
+    }
+  });
+  (agentView?.targets ?? []).forEach((target) => {
+    if (target?.id && target?.publicClaimRoleId) {
+      publicRoleRevealByPlayerId.set(target.id, target.publicClaimRoleId);
+    }
+  });
+  return deepFreezePublicObservation({
+    viewerId: aiPlayer?.id ?? agentView?.viewerId ?? null,
+    self: {
+      roleId: agent?.knownSelfRoleId ?? aiPlayer?.apparentRoleId ?? null,
+      team: agent?.knownSelfTeam ?? aiPlayer?.apparentTeam ?? null,
+    },
+    knownAllyIds: [...(agent?.knownAllyIds ?? [])],
+    knownDemonId: agent?.knownDemonId ?? null,
+    knownMinionIds: [...(agent?.knownMinionIds ?? [])],
+    knownBluffRoleIds: [...(agent?.knownBluffRoleIds ?? [])],
+    publicRoleReveals: [...publicRoleRevealByPlayerId].map(([playerId, roleId]) => ({ playerId, roleId })),
+  });
+}
+
+function publishPublicSpeech(
+  state,
+  aiPlayer,
+  {
+    roundInDay = 1,
+    orderIndex = 0,
+    debateBeat = "opening",
+    rng = Math.random,
+    source = "ai_public_discussion",
+    onPublicSpeech = null,
+  } = {}
+) {
   const dialogue = ensureDialogueState(state);
   const sourceEventAnchor = publicDialogueEventAnchor(state, aiPlayer, {
     roundInDay,
@@ -2603,6 +2695,9 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
     source,
   });
   const agentView = buildAgentView(state, aiPlayer, { audience: "public" });
+  const agentViewSnapshot = typeof onPublicSpeech === "function" ? immutableAgentViewSnapshot(agentView) : null;
+  const legalKnowledgeSnapshot =
+    typeof onPublicSpeech === "function" ? immutableLegalKnowledgeSnapshot(state, aiPlayer, agentView) : null;
   const thoughtFrame = buildAIThoughtFrame(state, aiPlayer, {
     agentView,
     audience: "public",
@@ -2824,6 +2919,16 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
     composed.decisionRationale?.focusScore ?? composed.score ?? 0,
     aiPlayer.alive === false ? 210 : 190
   );
+  const priorDaySpeech = latestPriorDaySpeech(aiPlayer.speechHistory, state.day);
+  if (priorDaySpeech?.focusId && composed.focusId && priorDaySpeech.focusId !== composed.focusId) {
+    polishedLine = ensureCrossDayTargetSwitchExplanation(polishedLine, {
+      previousDay: priorDaySpeech.day,
+      currentDay: state.day,
+      previousTargetName: statementTargetLabel ? statementTargetLabel(state, priorDaySpeech.focusId) : priorDaySpeech.focusId,
+      currentTargetName: statementTargetLabel ? statementTargetLabel(state, composed.focusId) : composed.focusId,
+      maxChars: aiPlayer.alive === false ? 210 : 190,
+    });
+  }
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
   polishedLine = sanitizePlayerVisibleText ? sanitizePlayerVisibleText(polishedLine) : polishedLine;
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
@@ -2861,6 +2966,25 @@ function publishPublicSpeech(state, aiPlayer, { roundInDay = 1, orderIndex = 0, 
     rolePressureLine: composed.rolePressureLine ?? "",
   };
   state.events.speeches.push(speechEvent);
+  if (typeof onPublicSpeech === "function") {
+    const visibleEvent = deepFreezePublicObservation({
+      day: state.day ?? 0,
+      phase: "day/public",
+      speakerId: aiPlayer.id,
+      focusId: composed.focusId ?? null,
+      text: composed.line,
+      debateBeat,
+      roundInDay,
+      orderIndex,
+    });
+    onPublicSpeech(
+      Object.freeze({
+        visibleEvent,
+        agentView: agentViewSnapshot,
+        legalKnowledge: legalKnowledgeSnapshot,
+      })
+    );
+  }
   rememberStatementMemory(
     state,
     aiPlayer,
@@ -3231,7 +3355,7 @@ function runAIConversationStep(state, rng = Math.random) {
   };
 }
 
-function runAIDiscussion(state, rng = Math.random) {
+function runAIDiscussion(state, rng = Math.random, options = {}) {
   if (state.phase !== "day" || state.gameOver) {
     return;
   }
@@ -3239,6 +3363,7 @@ function runAIDiscussion(state, rng = Math.random) {
   refreshAIBeliefs(state);
   const dialogue = ensureDialogueState(state);
   const roundInDay = nextPublicRound(state);
+  const onPublicSpeech = typeof options === "function" ? options : options?.onPublicSpeech;
 
   const speakingAIs = state.players
     .filter((entry) => !entry.isHuman)
@@ -3253,6 +3378,7 @@ function runAIDiscussion(state, rng = Math.random) {
       debateBeat,
       rng,
       source: "ai_public_discussion",
+      onPublicSpeech,
     });
   });
 }

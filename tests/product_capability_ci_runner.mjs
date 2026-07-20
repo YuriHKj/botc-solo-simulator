@@ -79,9 +79,19 @@ function testPackageScriptsAndWorkflow() {
     "node tests/product_capability_contracts.mjs && node tests/product_capability_ci_runner.mjs"
   );
   assert.equal(
+    scripts["test:ai-flagship-replay"],
+    "node tests/ai_flagship_replay_eval_contracts.mjs",
+    "the replay evidence script body is part of the reviewed contract"
+  );
+  assert.equal(
     scripts.test.split("npm run test:product-capabilities").length - 1,
     1,
     "npm test must reach the focused capability suite exactly once"
+  );
+  assert.equal(
+    scripts.test.split("npm run test:ai-flagship-replay").length - 1,
+    1,
+    "npm test must reach the flagship replay gate exactly once"
   );
 
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
@@ -123,6 +133,7 @@ function testDistinctCollectionAndFailClosedSafety() {
     "test:full-game-loop": "node tests/full_game_loop_contracts.mjs",
     "test:unity-demo-acceptance": "node scripts/unity_demo_acceptance.mjs",
     "test:unity-viewmodel": "node tests/unity_viewmodel_contracts.mjs",
+    "test:ai-flagship-replay": "node tests/ai_flagship_replay_eval_contracts.mjs",
     "test:electron-build": "node tests/electron_build_contracts.cjs",
     "test:ai-llm-renderer": "node tests/ai_llm_renderer_contracts.mjs",
   };
@@ -135,6 +146,7 @@ function testDistinctCollectionAndFailClosedSafety() {
     "npm run test:role-actions",
     "npm run test:unity-demo-acceptance",
     "npm run test:unity-viewmodel",
+    "npm run test:ai-flagship-replay",
     "npm run test:full-game-loop",
     "npm run test:electron-build",
     "npm run test:ai-llm-renderer",
@@ -171,12 +183,14 @@ function testDistinctCollectionAndFailClosedSafety() {
     () => validateCiRunCommands(["npm run test:role-actions"], { "test:role-actions": "npm test" }),
     /does not match its reviewed PR-safe definition/u
   );
-  for (const lifecycleName of ["pretest:role-actions", "posttest:role-actions"]) {
-    assert.throws(
-      () => validateCiRunCommands(["npm run test:role-actions"], { ...packageJson.scripts, [lifecycleName]: "npm test" }),
-      /cannot declare npm lifecycle hooks/u,
-      lifecycleName
-    );
+  for (const scriptName of ["test:role-actions", "test:ai-flagship-replay"]) {
+    for (const lifecycleName of [`pre${scriptName}`, `post${scriptName}`]) {
+      assert.throws(
+        () => validateCiRunCommands([`npm run ${scriptName}`], { ...packageJson.scripts, [lifecycleName]: "npm test" }),
+        /cannot declare npm lifecycle hooks/u,
+        lifecycleName
+      );
+    }
   }
   assert.deepEqual(collectCiRunCommands({ tracks: 42 }), []);
 }
@@ -271,7 +285,64 @@ async function testManifestPassFailBindingsTruncationAndReadOnlyCheck() {
       executionResults: passingManifest.results,
     });
     assert.equal(evaluated.compliance.currentVerificationCompliant, true);
+    const passingFlagship = evaluated.tracks.find((entry) => entry.id === "tb-unity-deterministic");
+    assert.equal(passingFlagship.engineeringMaturity, "stable");
+    assert.equal(passingFlagship.default, true);
+    assert.equal(passingFlagship.distribution.intendedClass, "private-development");
+    assert.equal(passingFlagship.distribution.publicDistribution, "blocked");
+    assert.equal(
+      passingFlagship.gates
+        .find((entry) => entry.id === "automated-contracts")
+        .evidence.find((entry) => entry.id === "tb-ai-flagship-replay").state,
+      "passed"
+    );
     assertSnapshotsEqual(snapshotFiles(tempRoot, ["output"]), before, "runner check must not write tracked fixture files");
+
+    const replayFailureRevision = "fixture-replay-fail";
+    const replaySeen = [];
+    const replayFailureExit = await runProductCapabilityCi({
+      root: tempRoot,
+      contractPath: fixtureContractPath,
+      resultsPath,
+      revision: replayFailureRevision,
+      githubSha: null,
+      executeScript: async ({ command, scriptName }) => {
+        replaySeen.push(command);
+        return {
+          exitCode: scriptName === "test:ai-flagship-replay" ? 23 : 0,
+          stdout: command,
+          stderr: scriptName === "test:ai-flagship-replay" ? "injected replay failure" : "",
+        };
+      },
+      log: () => {},
+    });
+    assert.equal(replayFailureExit, 1, "replay evidence failure must fail strict verification");
+    assert.deepEqual(replaySeen, collectCiRunCommands(contract), "replay failure must not stop later evidence");
+    const replayFailureManifest = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
+    const replayIndex = replayFailureManifest.results.findIndex(
+      (entry) => entry.command === "npm run test:ai-flagship-replay"
+    );
+    assert.ok(replayIndex >= 0, "replay result must be recorded");
+    const replayFailure = replayFailureManifest.results[replayIndex];
+    assert.equal(replayFailure.exitCode, 23);
+    assert.equal(replayFailure.revision, replayFailureRevision);
+    assert.equal(replayFailure.contractHash, hashCapabilityContract(contract));
+    assert.ok(
+      replayFailureManifest.results.slice(replayIndex + 1).every((entry) => entry.exitCode === 0),
+      "all evidence after the replay gate must still execute"
+    );
+    const replayFailedEvaluation = evaluateCapabilityContract(contract, {
+      revision: replayFailureRevision,
+      executionResults: replayFailureManifest.results,
+    });
+    const replayFailedFlagship = replayFailedEvaluation.tracks.find(
+      (entry) => entry.id === "tb-unity-deterministic"
+    );
+    assert.equal(replayFailedFlagship.gates.find((entry) => entry.id === "automated-contracts").state, "failed");
+    assert.equal(replayFailedFlagship.engineeringMaturity, "stable");
+    assert.equal(replayFailedFlagship.default, true);
+    assert.equal(replayFailedFlagship.distribution.intendedClass, "private-development");
+    assert.equal(replayFailedFlagship.distribution.publicDistribution, "blocked");
 
     let call = 0;
     const failingExit = await runProductCapabilityCi({

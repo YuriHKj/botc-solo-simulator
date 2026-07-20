@@ -74,6 +74,84 @@ function isRepositoryRelativeReference(reference) {
   return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 
+function isValidEvidenceClaimList(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 16) return false;
+  const normalized = new Set();
+  for (const entry of value) {
+    if (
+      typeof entry !== "string" ||
+      entry.length === 0 ||
+      entry.length > 200 ||
+      entry.trim() !== entry ||
+      /[\r\n]/u.test(entry)
+    ) {
+      return false;
+    }
+    const key = entry.toLocaleLowerCase("en-US");
+    if (normalized.has(key)) return false;
+    normalized.add(key);
+  }
+  return true;
+}
+
+function validateEvidenceMetadata(evidence, evidencePath, diagnostics) {
+  if (
+    evidence.label !== undefined &&
+    (typeof evidence.label !== "string" ||
+      evidence.label.length === 0 ||
+      evidence.label.length > 120 ||
+      evidence.label.trim() !== evidence.label ||
+      /[\r\n]/u.test(evidence.label))
+  ) {
+    diagnostics.push(
+      diagnostic("invalid-evidence-label", `${evidencePath}.label`, "Evidence label must be a non-empty single-line string.")
+    );
+  }
+
+  const hasLabel = evidence.label !== undefined;
+  const hasCertifies = evidence.certifies !== undefined;
+  const hasNonClaims = evidence.doesNotCertify !== undefined;
+  if ((hasLabel || hasCertifies || hasNonClaims) && !(hasLabel && hasCertifies && hasNonClaims)) {
+    diagnostics.push(
+      diagnostic(
+        "incomplete-evidence-claim-boundary",
+        evidencePath,
+        "Evidence claim boundaries require a label plus both certifies and doesNotCertify lists."
+      )
+    );
+  }
+  if (hasCertifies && !isValidEvidenceClaimList(evidence.certifies)) {
+    diagnostics.push(
+      diagnostic(
+        "invalid-evidence-certifies",
+        `${evidencePath}.certifies`,
+        "certifies must be a non-empty list of unique, trimmed, single-line claims."
+      )
+    );
+  }
+  if (hasNonClaims && !isValidEvidenceClaimList(evidence.doesNotCertify)) {
+    diagnostics.push(
+      diagnostic(
+        "invalid-evidence-non-claims",
+        `${evidencePath}.doesNotCertify`,
+        "doesNotCertify must be a non-empty list of unique, trimmed, single-line non-claims."
+      )
+    );
+  }
+  if (isValidEvidenceClaimList(evidence.certifies) && isValidEvidenceClaimList(evidence.doesNotCertify)) {
+    const certified = new Set(evidence.certifies.map((entry) => entry.toLocaleLowerCase("en-US")));
+    if (evidence.doesNotCertify.some((entry) => certified.has(entry.toLocaleLowerCase("en-US")))) {
+      diagnostics.push(
+        diagnostic(
+          "overlapping-evidence-claim-boundary",
+          evidencePath,
+          "certifies and doesNotCertify must not contain the same claim."
+        )
+      );
+    }
+  }
+}
+
 function validateEvidence(evidence, evidencePath, diagnostics, evidenceIds) {
   if (!isPlainObject(evidence)) {
     diagnostics.push(diagnostic("invalid-evidence", evidencePath, "Evidence must be an object."));
@@ -87,6 +165,8 @@ function validateEvidence(evidence, evidencePath, diagnostics, evidenceIds) {
   } else {
     evidenceIds.add(evidence.id);
   }
+
+  validateEvidenceMetadata(evidence, evidencePath, diagnostics);
 
   const isNpmReference = typeof evidence.reference === "string" && NPM_REFERENCE_PATTERN.test(evidence.reference);
   const isRepoReference = isRepositoryRelativeReference(evidence.reference);
@@ -636,11 +716,35 @@ function nextGateAction(gate) {
   return "Add current, reviewable evidence for this gate.";
 }
 
+function collectEvidenceClaimBoundaries(contract) {
+  return contract.tracks.flatMap((track) =>
+    track.promotionGates.flatMap((gate) =>
+      gate.evidence
+        .filter(
+          (evidence) =>
+            typeof evidence.label === "string" &&
+            Array.isArray(evidence.certifies) &&
+            Array.isArray(evidence.doesNotCertify)
+        )
+        .map((evidence) => ({
+          trackId: track.id,
+          trackName: track.name,
+          gateId: gate.id,
+          label: evidence.label,
+          reference: evidence.reference,
+          certifies: evidence.certifies,
+          doesNotCertify: evidence.doesNotCertify,
+        }))
+    )
+  );
+}
+
 export function renderCapabilityStatus(contract, result) {
   if (!result.valid) throw new Error("Cannot render capability status from an invalid contract.");
   const defaultTrack = result.tracks.find((track) => track.id === contract.defaultTrackId);
   const otherStableTracks = result.tracks.filter((track) => track.engineeringMaturity === "stable" && !track.default);
   const laboratoryTracks = result.tracks.filter((track) => track.engineeringMaturity === "laboratory");
+  const claimBoundaries = collectEvidenceClaimBoundaries(contract);
   const distributionSummary = [
     `${result.distribution.blockedTrackIds.length} blocked`,
     `${result.distribution.eligibleForReviewTrackIds.length} eligible for public-release review`,
@@ -705,6 +809,26 @@ export function renderCapabilityStatus(contract, result) {
     );
   }
 
+  if (claimBoundaries.length > 0) {
+    lines.push(
+      "## Evidence claim boundaries",
+      "",
+      "These boundaries are declared by each evidence entry in `config/product_capabilities.json`; passing evidence must not be read as a broader product claim.",
+      ""
+    );
+    for (const boundary of claimBoundaries) {
+      lines.push(
+        `### ${boundary.label}`,
+        "",
+        `- Track and gate: ${boundary.trackName} (\`${boundary.trackId}\`) / \`${boundary.gateId}\``,
+        `- Evidence command: \`${boundary.reference}\``,
+        `- Certifies only: ${boundary.certifies.join("; ")}.`,
+        `- Does not certify: ${boundary.doesNotCertify.join("; ")}.`,
+        ""
+      );
+    }
+  }
+
   lines.push(
     "## Engineering maturity and distribution",
     "",
@@ -730,6 +854,7 @@ export function renderReadmeCapabilityBlock(contract, result) {
   const defaultTrack = result.tracks.find((track) => track.id === contract.defaultTrackId);
   const otherStableTracks = result.tracks.filter((track) => track.engineeringMaturity === "stable" && !track.default);
   const laboratoryTracks = result.tracks.filter((track) => track.engineeringMaturity === "laboratory");
+  const claimBoundaries = collectEvidenceClaimBoundaries(contract);
   const lines = [
     README_BLOCK_START,
     "## Current product capabilities (generated)",
@@ -743,6 +868,17 @@ export function renderReadmeCapabilityBlock(contract, result) {
     ),
     "- Engineering maturity does not grant public distribution permission. See the status page for each track's current distribution posture.",
     "",
+    ...(claimBoundaries.length === 0
+      ? []
+      : [
+          "### Evidence claim boundaries",
+          "",
+          ...claimBoundaries.flatMap((boundary) => [
+            `- **${boundary.label}** (\`${boundary.reference}\`) certifies only: ${boundary.certifies.join("; ")}.`,
+            `- **Does not certify:** ${boundary.doesNotCertify.join("; ")}.`,
+          ]),
+          "",
+        ]),
     README_BLOCK_END,
   ];
   return `${lines.join("\n")}\n`;
