@@ -26,6 +26,158 @@
   PO: "po",
 };
 
+export const BMR_NIGHT_ORDER = Object.freeze({
+  first: Object.freeze([
+    BMR.LUNATIC,
+    BMR.SAILOR,
+    BMR.COURTIER,
+    BMR.GODFATHER,
+    BMR.DEVILS_ADVOCATE,
+    BMR.PUKKA,
+    BMR.GRANDMOTHER,
+    BMR.CHAMBERMAID,
+  ]),
+  other: Object.freeze([
+    BMR.SAILOR,
+    BMR.INNKEEPER,
+    BMR.COURTIER,
+    BMR.GAMBLER,
+    BMR.DEVILS_ADVOCATE,
+    BMR.LUNATIC,
+    BMR.EXORCIST,
+    BMR.ZOMBUUL,
+    BMR.PUKKA,
+    BMR.SHABALOTH,
+    BMR.PO,
+    BMR.ASSASSIN,
+    BMR.GODFATHER,
+    BMR.PROFESSOR,
+    BMR.GOSSIP,
+    BMR.TINKER,
+    BMR.MOONCHILD,
+    BMR.GRANDMOTHER,
+    BMR.CHAMBERMAID,
+  ]),
+});
+
+export const BMR_STORYTELLER_POLICIES = Object.freeze({
+  pacifist: Object.freeze({
+    id: "pacifist-first-eligible-good-execution",
+    rule: "Protect the first eligible good execution death each day while a healthy Pacifist is alive.",
+    determinism: "state predicate; no random draw",
+  }),
+  tinker: Object.freeze({
+    id: "tinker-explicit-checkpoint-only",
+    rule: "Kill a Tinker only when tinkersToAutoKill explicitly names the current night; no schedule means never.",
+    determinism: "explicit state schedule; no random draw",
+  }),
+  "shabaloth-regurgitation": Object.freeze({
+    id: "shabaloth-regurgitate-first-seat",
+    rule: "Before new attacks, revive the lowest-seat eligible prior-night victim, if one exists.",
+    determinism: "stable player order; no random draw",
+  }),
+  "gossip-unparsed": Object.freeze({
+    id: "gossip-unparsed-is-false",
+    rule: "Treat statements outside the local deterministic parser as false and log the policy decision.",
+    determinism: "parser result; no random draw",
+  }),
+  "gossip-target": Object.freeze({
+    id: "gossip-uniform-alive-passed-rng",
+    rule: "Choose the Gossip death from all currently alive players using the caller-provided RNG.",
+    determinism: "caller-provided seeded RNG",
+  }),
+  grandmother: Object.freeze({
+    id: "grandmother-uniform-good-passed-rng",
+    rule: "Choose the grandchild from eligible good players using the caller-provided RNG.",
+    determinism: "caller-provided seeded RNG",
+  }),
+  sailor: Object.freeze({
+    id: "sailor-one-of-pair-passed-rng",
+    rule: "Choose exactly one member of the selected pair using the caller-provided RNG.",
+    determinism: "caller-provided seeded RNG",
+  }),
+  innkeeper: Object.freeze({
+    id: "innkeeper-one-guest-passed-rng",
+    rule: "Choose exactly one selected guest using the caller-provided RNG.",
+    determinism: "caller-provided seeded RNG",
+  }),
+});
+
+export const BMR_AGENT_POLICIES = Object.freeze({
+  sailor: Object.freeze({
+    id: "sailor-ai-chooses-self",
+    rule: "An AI Sailor chooses themself, producing a legal one-player pair and avoiding privileged alignment knowledge.",
+    determinism: "actor identity",
+  }),
+  innkeeper: Object.freeze({
+    id: "innkeeper-ai-prefers-good-passed-rng",
+    rule: "An AI Innkeeper samples living good guests using the caller-provided RNG.",
+    determinism: "eligible pool plus caller-provided seeded RNG",
+  }),
+  exorcist: Object.freeze({
+    id: "exorcist-ai-avoids-privileged-demon-hit",
+    rule: "An AI Exorcist samples legal good targets so hidden role truth cannot grant an automatic Demon hit.",
+    determinism: "eligible pool plus caller-provided seeded RNG",
+  }),
+  courtier: Object.freeze({
+    id: "courtier-ai-hold-until-five-alive",
+    rule: "An AI Courtier keeps the once-per-game choice while more than five players are alive.",
+    determinism: "alive-count predicate",
+  }),
+  assassin: Object.freeze({
+    id: "assassin-ai-hold-until-late",
+    rule: "An AI Assassin waits until night three and six or fewer players are alive, then uses its ability.",
+    determinism: "night and alive-count predicate",
+  }),
+  po: Object.freeze({
+    id: "po-ai-charge-on-third-night-cycle",
+    rule: "An uncharged AI Po charges on every third night while more than three players are alive; otherwise it attacks once.",
+    determinism: "night modulo and alive-count predicate",
+  }),
+  pukka: Object.freeze({
+    id: "pukka-ai-prefers-fresh-living-good-passed-rng",
+    rule: "An AI Pukka prefers a fresh living good target and samples that pool with the caller-provided RNG.",
+    determinism: "eligible pool plus caller-provided seeded RNG",
+  }),
+  shabaloth: Object.freeze({
+    id: "shabaloth-ai-prefers-living-good-passed-rng",
+    rule: "An AI Shabaloth samples living good targets with the caller-provided RNG while human choices retain the official dead-player domain.",
+    determinism: "eligible pool plus caller-provided seeded RNG",
+  }),
+});
+
+function fidelity(roleId, officialRule, dimensions, contracts, coverage = "local-complete") {
+  return Object.freeze({ roleId, officialRule, dimensions: Object.freeze(dimensions), contracts: Object.freeze(contracts), coverage });
+}
+
+export const BMR_RULE_FIDELITY = Object.freeze({
+  [BMR.GRANDMOTHER]: fidelity(BMR.GRANDMOTHER, "Know one good grandchild; die at the Grandmother slot if the Demon killed that grandchild.", ["setup", "death-chain", "information"], ["grandmother-setup", "grandmother-delayed-grief"]),
+  [BMR.SAILOR]: fidelity(BMR.SAILOR, "Choose a living player nightly; exactly one of the pair is drunk and a sober Sailor cannot die.", ["night", "intoxication", "protection"], ["sailor-pair", "sailor-sober-protection"]),
+  [BMR.CHAMBERMAID]: fidelity(BMR.CHAMBERMAID, "Choose two other living players and learn how many woke for their own ability.", ["night", "information"], ["chambermaid-wake-receipts"], "shared-interface-required"),
+  [BMR.EXORCIST]: fidelity(BMR.EXORCIST, "Choose a player other than last night; a chosen Demon does not act and learns the Exorcist.", ["night", "information", "continuation"], ["exorcist-suppression", "exorcist-demon-notice"]),
+  [BMR.INNKEEPER]: fidelity(BMR.INNKEEPER, "Choose two living players: neither can die tonight and exactly one is drunk.", ["night", "intoxication", "protection"], ["innkeeper-guests", "innkeeper-all-night-deaths"], "shared-interface-required"),
+  [BMR.GAMBLER]: fidelity(BMR.GAMBLER, "Choose any player and character; the Gambler dies if the guess is wrong.", ["night", "death", "intoxication"], ["gambler-target-domain", "gambler-wager"], "shared-interface-required"),
+  [BMR.GOSSIP]: fidelity(BMR.GOSSIP, "A true public daytime statement causes one Storyteller-chosen death that night.", ["day", "night", "storyteller"], ["gossip-parser", "gossip-policy"]),
+  [BMR.COURTIER]: fidelity(BMR.COURTIER, "Once, choose a character to be drunk for three nights and days while the Courtier has ability.", ["night", "intoxication", "continuation"], ["courtier-character-choice"], "shared-interface-required"),
+  [BMR.PROFESSOR]: fidelity(BMR.PROFESSOR, "Once, choose a dead player; a Townsfolk revives as a fresh ability instance.", ["night", "revival", "information"], ["professor-attempt"], "shared-interface-required"),
+  [BMR.MINSTREL]: fidelity(BMR.MINSTREL, "If an executed Minion dies, everyone except Minstrel and Travellers is drunk until dusk.", ["day", "death", "intoxication"], ["minstrel-actual-execution-death"]),
+  [BMR.TEA_LADY]: fidelity(BMR.TEA_LADY, "If both closest living neighbours are good, those neighbours cannot die.", ["continuous", "protection"], ["tea-lady-dynamic-neighbours"]),
+  [BMR.PACIFIST]: fidelity(BMR.PACIFIST, "An executed good player might not die.", ["day", "protection", "storyteller"], ["pacifist-policy"]),
+  [BMR.FOOL]: fidelity(BMR.FOOL, "The first actual death that would occur is prevented while the Fool has ability.", ["death", "protection", "intoxication"], ["fool-first-would-die"]),
+  [BMR.TINKER]: fidelity(BMR.TINKER, "The Storyteller may kill the Tinker at any time or never.", ["day", "night", "storyteller"], ["tinker-policy"], "shared-interface-required"),
+  [BMR.MOONCHILD]: fidelity(BMR.MOONCHILD, "On learning they died, choose a living player; if good at selection, that player dies next night if Moonchild still has ability.", ["death-chain", "night", "intoxication"], ["moonchild-alignment-snapshot", "moonchild-resolution-health"], "shared-interface-required"),
+  [BMR.GOON]: fidelity(BMR.GOON, "The first ability selecting the Goon each night makes its actor drunk and changes Goon alignment.", ["night", "intoxication", "alignment"], ["goon-first-selector"], "shared-interface-required"),
+  [BMR.LUNATIC]: fidelity(BMR.LUNATIC, "Think you are a Demon; the real Demon learns you and your selections before acting.", ["setup", "night", "information"], ["lunatic-fake-setup", "lunatic-before-demon"], "shared-interface-required"),
+  [BMR.GODFATHER]: fidelity(BMR.GODFATHER, "Setup adjusts Outsiders and reveals them; an Outsider day death enables one night death.", ["setup", "day", "night"], ["godfather-outsider-info", "godfather-day-death"], "shared-interface-required"),
+  [BMR.DEVILS_ADVOCATE]: fidelity(BMR.DEVILS_ADVOCATE, "Choose a different living player nightly; that player cannot die by execution tomorrow.", ["night", "day", "protection"], ["devils-advocate-no-repeat", "devils-advocate-execution"]),
+  [BMR.ASSASSIN]: fidelity(BMR.ASSASSIN, "Once per game, choose a player to die even if protected.", ["night", "death", "intoxication"], ["assassin-unstoppable"]),
+  [BMR.MASTERMIND]: fidelity(BMR.MASTERMIND, "If Demon execution would end the game, continue one night/day; extra-day execution outcome decides the winner.", ["day", "win", "continuation"], ["mastermind-would-end", "mastermind-extra-day"]),
+  [BMR.ZOMBUUL]: fidelity(BMR.ZOMBUUL, "The first death registers dead while actually alive; kill at night only after no actual daytime death.", ["death", "registration", "night", "win"], ["zombuul-fake-death", "zombuul-no-day-death"]),
+  [BMR.PUKKA]: fidelity(BMR.PUKKA, "Each night poison a new player, then the previous poisoned player dies and becomes healthy.", ["first-night", "night", "intoxication", "death"], ["pukka-select-before-death", "pukka-continuation"]),
+  [BMR.SHABALOTH]: fidelity(BMR.SHABALOTH, "Before choosing two sequential deaths, the Storyteller may revive one prior-night victim.", ["night", "death-chain", "revival", "storyteller"], ["shabaloth-regurgitation", "shabaloth-sequential-deaths"], "shared-interface-required"),
+  [BMR.PO]: fidelity(BMR.PO, "Choose one death or charge; after charging, the next actual wake requires three sequential choices.", ["night", "death-chain", "continuation"], ["po-charge", "po-three-sequential"], "shared-interface-required"),
+});
+
 function hasDeathToday(state) {
   return (
     (state.events?.executions ?? []).some((entry) => entry.day === state.day && entry.died !== false) ||
@@ -33,8 +185,9 @@ function hasDeathToday(state) {
   );
 }
 
-function clampNumber(value, min, max) {
-  return Math.min(max, Math.max(min, Number(value) || 0));
+export function countBMRAbilityWakes(state, targetIds) {
+  const receipts = state?.bmr?.wokeTonightByPlayerId ?? {};
+  return (targetIds ?? []).filter((targetId) => typeof receipts[targetId] === "string" && receipts[targetId].length > 0).length;
 }
 
 function isZombuulRegisteringDead(state, player) {
@@ -56,7 +209,7 @@ export const BMR_ROLE_ACTION_RULES = {
   [BMR.SAILOR]: {
     kind: "player-target",
     targetCount: 1,
-    allowSelf: false,
+    allowSelf: true,
     allowDead: false,
     minNight: 1,
     prompt: "选择 1 名存活玩家一起喝酒；你们之中一人会醉酒。",
@@ -93,10 +246,10 @@ export const BMR_ROLE_ACTION_RULES = {
     kind: "player-target",
     targetCount: 1,
     allowSelf: false,
-    allowDead: false,
+    allowDead: true,
     targetFilter: ({ state, actor, target }) => state.bmr?.exorcistLastTargetById?.[actor.id] !== target.id,
     minNight: 2,
-    prompt: "选择 1 名存活玩家驱魔；如果 ta 是恶魔，今晚不会行动。",
+    prompt: "选择 1 名其他玩家驱魔；如果 ta 是恶魔，今晚不会行动。",
     interaction: {
       title: "驱魔人的圣铃",
       subtitle: "选择一名玩家。如果选中恶魔，恶魔今晚不会醒来杀人。",
@@ -130,10 +283,10 @@ export const BMR_ROLE_ACTION_RULES = {
     kind: "player-target",
     inputType: "player-role",
     targetCount: 1,
-    allowSelf: false,
-    allowDead: false,
+    allowSelf: true,
+    allowDead: true,
     minNight: 2,
-    prompt: "选择 1 名存活玩家，并声明你认为 ta 是什么角色。",
+    prompt: "选择 1 名玩家，并声明你认为 ta 是什么角色。",
     interaction: {
       title: "赌徒的午夜下注",
       subtitle: "选择一名玩家和一个角色。若猜错，你会在夜里死亡。",
@@ -243,9 +396,9 @@ export const BMR_ROLE_ACTION_RULES = {
     kind: "player-target",
     targetCount: 1,
     allowSelf: false,
-    allowDead: false,
-    minNight: 2,
-    prompt: "选择 1 名存活玩家中毒；此前中毒者会死亡。",
+    allowDead: true,
+    minNight: 1,
+    prompt: "选择 1 名其他玩家中毒；此前中毒者会死亡。",
     interaction: {
       title: "普卡的慢性毒",
       subtitle: "选择新的毒目标。上一个被普卡毒中的玩家会在今晚死亡。",
@@ -261,16 +414,16 @@ export const BMR_ROLE_ACTION_RULES = {
     kind: "player-target",
     targetCount: 2,
     allowSelf: false,
-    allowDead: false,
+    allowDead: true,
     minNight: 2,
-    prompt: "选择 2 名存活玩家吞食；曾被吞食者之后可能复活。",
+    prompt: "选择 2 名其他玩家吞食；曾被吞食者之后可能复活。",
     interaction: {
       title: "沙巴洛斯的饥饿",
       subtitle: "选择两名目标。前夜被吞食的玩家之后可能被反刍复活。",
       style: "demon",
       badge: "双杀",
       targetLabels: ["吞食对象一", "吞食对象二"],
-      helper: "本地规则会记录上一夜目标，并在之后按概率复活其中一人。",
+      helper: "本地规则会记录上一夜目标，并按已声明的座位顺序策略决定是否反刍复活。",
       confirmText: "吞食",
       skipText: "让系统代选",
     },
@@ -291,11 +444,11 @@ export const BMR_ROLE_ACTION_RULES = {
     ],
     interaction: {
       title: "珀的蓄力",
-      subtitle: "你可以今晚不杀，下一次夜晚将最多选择三名目标。",
+      subtitle: "你可以今晚不杀；下一次真正因自身能力醒来时必须依次选择三次。",
       style: "demon",
       badge: "可蓄力",
       targetLabels: ["击杀目标"],
-      helper: "若上一夜蓄力，本夜会显示最多 3 个目标栏。若选择蓄力，本夜不会造成恶魔击杀。",
+      helper: "蓄力状态会跨越驱魔压制保留；下一次实际行动必须完成三次顺序选择。",
       confirmText: "确认恶魔行动",
       skipText: "让系统代选",
     },
@@ -449,56 +602,73 @@ export function runBadMoonRisingNight(ctx) {
     return goodTargets.length > 0 ? goodTargets : targets;
   };
 
-  Object.entries(bmr.moonchildPendingById ?? {}).forEach(([, targetId]) => {
-    const target = getPlayerById(state, targetId);
-    if (target?.alive && target.team === "good") {
-      processNightDeath(state, target, "moonchild-trigger", {}, rng);
-    }
-  });
-  bmr.moonchildPendingById = {};
-
-  state.players
-    .filter((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.TINKER)
-    .forEach((tinker) => {
-      if (rng() < 0.08) {
-        processNightDeath(state, tinker, "tinker-random-death", {}, rng);
+  const chambermaidReads = [];
+  const afterDemonActions = [];
+  let exorcistAction = () => {};
+  const resolveGrandmotherGrief = () => {
+    Object.entries(bmr.grandmotherGriefPendingById ?? {}).forEach(([grandmotherId, payload]) => {
+      const grandmother = getPlayerById(state, grandmotherId);
+      if (grandmother?.alive && !isAbilityBlocked(grandmother, state)) {
+        processNightDeath(state, grandmother, "grandmother-grief", { by: payload?.by ?? null }, rng);
       }
     });
-
-  if (bmr.pukkaPoisonedId) {
-    const delayed = getPlayerById(state, bmr.pukkaPoisonedId);
-    const activePukka = state.players.find(
-      (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.PUKKA && !isAbilityBlocked(entry, state)
-    );
-    if (activePukka && delayed?.alive) {
-      processNightDeath(state, delayed, "pukka-delayed-kill", {}, rng);
-      bmr.pukkaPoisonedId = null;
-    } else if (activePukka || !delayed?.alive) {
-      bmr.pukkaPoisonedId = null;
-    } else if (delayed) {
-      delayed.poisoned = true;
-      delayed.poisonedTomorrowDay = true;
-      addAbilityInterference(state, 1);
-      addLog(state, "night-effect", "Pukka 当前失效，上一名中毒者继续处于延迟毒状态。", {
-        targetId: delayed.id,
+    bmr.grandmotherGriefPendingById = {};
+  };
+  const resolveChambermaidReads = () => {
+    chambermaidReads.forEach(({ maid, targets }) => {
+      const count = countBMRAbilityWakes(state, targets.map((entry) => entry.id));
+      const text = `[第${state.night}夜] 你选择的两名玩家中有 ${count} 人在夜间因自身能力醒来。`;
+      addPrivateInfo(state, maid, text);
+      state.events.infoPings.push({
+        night: state.night,
+        actorId: maid.id,
+        type: "chambermaid",
+        targetIds: targets.map((entry) => entry.id),
+        count,
+        source: "actual-wake-receipts",
+        text,
       });
-    }
-  }
+    });
+  };
+  const runAfterDemonActions = () => {
+    afterDemonActions
+      .sort((left, right) => left.order - right.order)
+      .forEach((entry) => entry.run());
+  };
 
-  const shabaloth = state.players.find(
-    (entry) => entry.alive && getEffectiveRoleId(entry) === BMR.SHABALOTH && !isAbilityBlocked(entry, state)
-  );
-  if (shabaloth && Array.isArray(bmr.shabalothLastTargets) && bmr.shabalothLastTargets.length > 0 && rng() < 0.36) {
-    const revivePool = bmr.shabalothLastTargets
-      .map((entry) => getPlayerById(state, entry))
-      .filter((entry) => entry && !entry.alive);
-    const revived = chooseOne(revivePool, rng);
-    if (revived) {
-      revived.alive = true;
-      revived.ghostVoteAvailable = true;
-      addLog(state, "night-effect", "Shabaloth 反刍使一名玩家复活。", { targetId: revived.id });
-    }
-  }
+  try {
+
+  afterDemonActions.push({
+    order: 150,
+    run: () => {
+      state.players
+        .filter((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.TINKER)
+        .forEach((tinker) => {
+          if (Number(bmr.tinkersToAutoKill?.[tinker.id]) === state.night) {
+            processNightDeath(state, tinker, "tinker-storyteller-policy", {
+              policyId: BMR_STORYTELLER_POLICIES.tinker.id,
+            }, rng);
+            delete bmr.tinkersToAutoKill[tinker.id];
+          }
+        });
+    },
+  });
+  afterDemonActions.push({
+    order: 160,
+    run: () => {
+      Object.entries(bmr.moonchildPendingById ?? {}).forEach(([moonchildId, pendingValue]) => {
+        const pending = typeof pendingValue === "string"
+          ? { targetId: pendingValue, selectedTeam: getPlayerById(state, pendingValue)?.team ?? null }
+          : pendingValue;
+        const moonchild = getPlayerById(state, moonchildId);
+        const target = getPlayerById(state, pending?.targetId);
+        if (target?.alive && pending?.selectedTeam === "good" && moonchild && !isAbilityBlocked(moonchild, state)) {
+          processNightDeath(state, target, "moonchild-trigger", { by: moonchild.id, selectedTeam: pending.selectedTeam }, rng);
+        }
+      });
+      bmr.moonchildPendingById = {};
+    },
+  });
 
   state.players
     .filter(
@@ -514,10 +684,15 @@ export function runBadMoonRisingNight(ctx) {
         state,
         sailor,
         1,
-        { allowSelf: false, allowDead: false, preferredPool: livingTargets([sailor.id]) },
+        {
+          allowSelf: true,
+          allowDead: false,
+          preferredPool: sailor.isHuman ? livingTargets([sailor.id]) : [sailor],
+        },
         rng
       )[0];
-      const drunkTarget = rng() < 0.5 ? sailor : target;
+      const pair = [sailor, target].filter((entry, index, list) => entry && list.findIndex((probe) => probe.id === entry.id) === index);
+      const drunkTarget = chooseOne(pair, rng);
       if (!drunkTarget) {
         return;
       }
@@ -528,9 +703,12 @@ export function runBadMoonRisingNight(ctx) {
       addLog(state, "night-effect", "Sailor 生效：一名玩家被醉酒。", {
         by: sailor.id,
         targetId: drunkTarget.id,
+        policyId: BMR_STORYTELLER_POLICIES.sailor.id,
+        agentPolicyId: sailor.isHuman ? null : BMR_AGENT_POLICIES.sailor.id,
       });
     });
 
+  exorcistAction = () => {
   state.players
     .filter(
       (entry) =>
@@ -542,23 +720,31 @@ export function runBadMoonRisingNight(ctx) {
     .forEach((exorcist) => {
       markWokeTonight(state, exorcist, "exorcist");
       const previousId = bmr.exorcistLastTargetById[exorcist.id];
-      const candidates = livingTargets([exorcist.id, previousId]);
+      const candidates = state.players.filter((entry) => entry.id !== exorcist.id && entry.id !== previousId);
+      const preferred = exorcist.isHuman ? candidates : candidates.filter((entry) => entry.team === "good");
       const target = pickNightTargets(
         state,
         exorcist,
         1,
-        { allowSelf: false, allowDead: false, preferredPool: candidates.length > 0 ? candidates : null },
+        { allowSelf: false, allowDead: true, preferredPool: preferred.length > 0 ? preferred : candidates },
         rng
       )[0];
       if (!target) {
         return;
       }
       bmr.exorcistLastTargetById[exorcist.id] = target.id;
+      addLog(state, "night-effect", "Exorcist 记录了本夜驱魔目标。", {
+        by: exorcist.id,
+        targetId: target.id,
+        agentPolicyId: exorcist.isHuman ? null : BMR_AGENT_POLICIES.exorcist.id,
+      });
       if (target.category === "demon") {
         bmr.exorcisedDemonId = target.id;
         addLog(state, "night-effect", "Exorcist 压制了恶魔本夜行动。", { by: exorcist.id, targetId: target.id });
+        addPrivateInfo(state, target, `[第${state.night}夜] 驱魔人 ${exorcist.name} 选择了你；你今晚不会因自己的能力醒来。`);
       }
     });
+  };
 
   state.players
     .filter(
@@ -574,16 +760,29 @@ export function runBadMoonRisingNight(ctx) {
         state,
         innkeeper,
         2,
-        { allowSelf: false, allowDead: false, preferredPool: livingTargets([innkeeper.id]) },
+        {
+          allowSelf: false,
+          allowDead: false,
+          preferredPool: innkeeper.isHuman
+            ? livingTargets([innkeeper.id])
+            : livingTargets([innkeeper.id]).filter((entry) => entry.team === "good"),
+        },
         rng
       );
       bmr.innkeeperProtectedIds = targets.map((entry) => entry.id);
+      bmr.innkeeperProtectionNight = state.night;
       const drunkTarget = chooseOne(targets, rng);
       if (drunkTarget) {
         bmr.innkeeperDrunkId = drunkTarget.id;
         drunkTarget.poisoned = true;
         drunkTarget.poisonedTomorrowDay = true;
         addAbilityInterference(state, 1);
+        addLog(state, "night-effect", "Innkeeper 的一名住客按显式策略醉酒。", {
+          by: innkeeper.id,
+          targetId: drunkTarget.id,
+          policyId: BMR_STORYTELLER_POLICIES.innkeeper.id,
+          agentPolicyId: innkeeper.isHuman ? null : BMR_AGENT_POLICIES.innkeeper.id,
+        });
       }
     });
 
@@ -598,6 +797,13 @@ export function runBadMoonRisingNight(ctx) {
     .forEach((courtier) => {
       markWokeTonight(state, courtier, "courtier");
       if (bmr.courtierUsedByIds.includes(courtier.id)) {
+        return;
+      }
+      if (!courtier.isHuman && getAlivePlayers(state).length > 5) {
+        addLog(state, "night-effect", "Courtier 按显式 AI 策略保留一次性能力。", {
+          by: courtier.id,
+          policyId: BMR_AGENT_POLICIES.courtier.id,
+        });
         return;
       }
       const humanSelectedRoleId = courtier.isHuman
@@ -657,7 +863,7 @@ export function runBadMoonRisingNight(ctx) {
     .forEach((gambler) => {
       markWokeTonight(state, gambler, "gambler");
       const planned = gambler.isHuman
-        ? consumeHumanNightPlan(state, gambler, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        ? consumeHumanNightPlan(state, gambler, { allowSelf: true, allowDead: true, minTargets: 1, maxTargets: 1 })
         : null;
       const target =
         planned?.targets?.[0] ??
@@ -665,7 +871,7 @@ export function runBadMoonRisingNight(ctx) {
           state,
           gambler,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: livingTargets([gambler.id]) },
+          { allowSelf: true, allowDead: true, preferredPool: state.players },
           rng
         )[0];
       if (!target) {
@@ -695,27 +901,7 @@ export function runBadMoonRisingNight(ctx) {
         { allowSelf: false, allowDead: false, preferredPool: livingTargets([maid.id]) },
         rng
       );
-      const wakingRoles = new Set(getNightOrderRoleIds("bmr", state.night));
-      const count = targets.filter((entry) => {
-        const roleId = getEffectiveRoleId(entry);
-        if (!wakingRoles.has(roleId)) {
-          return false;
-        }
-        if (!isRoleNightWindowOpen(state, roleId, state.night)) {
-          return false;
-        }
-        return entry.alive || roleId === BMR.LUNATIC;
-      }).length;
-      const text = `[第${state.night}夜] 你选择的两名玩家中有 ${count} 人在夜间因自身能力醒来。`;
-      addPrivateInfo(state, maid, text);
-      state.events.infoPings.push({
-        night: state.night,
-        actorId: maid.id,
-        type: "chambermaid",
-        targetIds: targets.map((entry) => entry.id),
-        count,
-        text,
-      });
+      chambermaidReads.push({ maid, targets });
     });
 
   state.players
@@ -783,9 +969,11 @@ export function runBadMoonRisingNight(ctx) {
         return;
       }
       bmr.devilsAdvocateProtectedId = target.id;
+      bmr.devilsAdvocateProtectionSourceId = advisor.id;
       bmr.devilsAdvocateLastTargetById[advisor.id] = target.id;
     });
 
+  afterDemonActions.push({ order: 110, run: () => {
   state.players
     .filter(
       (entry) =>
@@ -806,7 +994,7 @@ export function runBadMoonRisingNight(ctx) {
         addLog(state, "night-effect", "Assassin waits and keeps the once-per-game kill for a later night.", { by: assassin.id, skipped: true });
         return;
       }
-      if (!plannedAction && !assassin.isHuman && rng() > 0.28) {
+      if (!plannedAction && !assassin.isHuman && (state.night < 3 || getAlivePlayers(state).length > 6)) {
         return;
       }
       const target =
@@ -822,8 +1010,16 @@ export function runBadMoonRisingNight(ctx) {
         return;
       }
       bmr.assassinUsedByIds.push(assassin.id);
-      processNightDeath(state, target, "assassin-kill", { by: assassin.id }, rng, { unstoppable: true });
+      processNightDeath(
+        state,
+        target,
+        "assassin-kill",
+        { by: assassin.id, policyId: assassin.isHuman ? null : BMR_AGENT_POLICIES.assassin.id },
+        rng,
+        { unstoppable: true }
+      );
     });
+  } });
 
   if (bmr.godfatherBonusKillTonight) {
     const godfathers = state.players.filter(
@@ -843,14 +1039,18 @@ export function runBadMoonRisingNight(ctx) {
     bmr.godfatherBonusKillTonight = false;
   }
 
+  afterDemonActions.push({ order: 130, run: () => {
   for (let idx = 0; idx < Number(bmr.gossipPendingKills ?? 0); idx += 1) {
     const target = chooseOne(getAlivePlayers(state), rng);
     if (!target) {
       break;
     }
-    processNightDeath(state, target, "gossip-kill", {}, rng);
+    processNightDeath(state, target, "gossip-kill", {
+      policyId: BMR_STORYTELLER_POLICIES["gossip-target"].id,
+    }, rng);
   }
   bmr.gossipPendingKills = 0;
+  } });
 
   state.players
     .filter(
@@ -903,15 +1103,81 @@ export function runBadMoonRisingNight(ctx) {
         });
     });
 
+  exorcistAction();
+
   const demon = getAliveDemons(state)[0];
   if (!demon) {
     return;
   }
+  const demonRole = getEffectiveRoleId(demon);
+  if (demonRole === BMR.PUKKA) {
+    const previousId = bmr.pukkaPoisonedId;
+    const previous = getPlayerById(state, previousId);
+    if (isAbilityBlocked(demon, state)) {
+      if (previous) {
+        previous.poisoned = true;
+        previous.poisonedTomorrowDay = true;
+        addAbilityInterference(state, 1);
+        addLog(state, "night-effect", "Pukka 当前失效，上一名中毒者继续处于延迟毒状态。", {
+          targetId: previous.id,
+          continuation: true,
+        });
+      }
+      return;
+    }
+
+    let selected = null;
+    if (bmr.exorcisedDemonId !== demon.id && isRoleNightWindowOpen(state, demonRole, state.night)) {
+      markWokeTonight(state, demon, "demon");
+      const selectable = state.players.filter((entry) => entry.id !== demon.id);
+      const goodTargets = selectable.filter((entry) => entry.team === "good" && entry.alive);
+      const freshGoodTargets = goodTargets.filter((entry) => entry.id !== previousId);
+      const preferred = freshGoodTargets.length > 0 ? freshGoodTargets : goodTargets;
+      selected = pickNightTargets(
+        state,
+        demon,
+        1,
+        { allowSelf: false, allowDead: true, preferredPool: preferred.length > 0 ? preferred : selectable },
+        rng
+      )[0] ?? null;
+      if (selected) {
+        selected.poisoned = true;
+        selected.poisonedTomorrowDay = true;
+        bmr.pukkaPoisonedId = selected.id;
+        addAbilityInterference(state, 1);
+        addLog(state, "night-effect", "Pukka 先选择并毒害了新的目标。", {
+          by: demon.id,
+          targetId: selected.id,
+          policyId: "pukka-select-before-death",
+          agentPolicyId: demon.isHuman ? null : BMR_AGENT_POLICIES.pukka.id,
+        });
+      }
+    }
+
+    if (previous) {
+      if (previous.alive) {
+        processNightDeath(state, previous, "pukka-delayed-kill", { by: demon.id }, rng);
+      }
+      previous.poisoned = false;
+      previous.poisonedTomorrowDay = false;
+      addLog(state, "night-effect", "Pukka 上一名中毒者完成死亡尝试并恢复健康。", {
+        by: demon.id,
+        targetId: previous.id,
+        selectedBeforeDeath: true,
+      });
+      if (!selected || selected.id === previous.id) {
+        bmr.pukkaPoisonedId = null;
+      }
+    } else if (!selected) {
+      bmr.pukkaPoisonedId = null;
+    }
+    return;
+  }
+
   if (bmr.exorcisedDemonId === demon.id) {
     return;
   }
 
-  const demonRole = getEffectiveRoleId(demon);
   if (!isRoleNightWindowOpen(state, demonRole, state.night)) {
     return;
   }
@@ -937,38 +1203,39 @@ export function runBadMoonRisingNight(ctx) {
     return;
   }
 
-  if (demonRole === BMR.PUKKA) {
-    const target = pickNightTargets(
-      state,
-      demon,
-      1,
-      { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
-      rng
-    )[0];
-    if (target) {
-      target.poisoned = true;
-      target.poisonedTomorrowDay = true;
-      bmr.pukkaPoisonedId = target.id;
-      addAbilityInterference(state, 1);
-      addLog(state, "night-effect", "Pukka 本夜对一名玩家施加了延迟致死毒素。", {
-        by: demon.id,
-        targetId: target.id,
+  if (demonRole === BMR.SHABALOTH) {
+    const revivePool = (bmr.shabalothLastTargets ?? [])
+      .map((entry) => getPlayerById(state, entry))
+      .filter((entry) => entry && !entry.alive)
+      .sort((left, right) => Number(left.seatIndex ?? 0) - Number(right.seatIndex ?? 0));
+    const revived = revivePool[0] ?? null;
+    if (revived) {
+      revived.alive = true;
+      revived.ghostVoteAvailable = true;
+      addLog(state, "night-effect", "Shabaloth 反刍使一名玩家复活。", {
+        targetId: revived.id,
+        policyId: BMR_STORYTELLER_POLICIES["shabaloth-regurgitation"].id,
       });
     }
-    return;
-  }
-
-  if (demonRole === BMR.SHABALOTH) {
+    const selectable = state.players.filter((entry) => entry.id !== demon.id);
+    const livingGoodTargets = selectable.filter((entry) => entry.alive && entry.team === "good");
     const targets = pickNightTargets(
       state,
       demon,
       2,
-      { allowSelf: false, allowDead: false, preferredPool: demonAttackTargets(demon) },
+      {
+        allowSelf: false,
+        allowDead: true,
+        preferredPool: demon.isHuman || livingGoodTargets.length < 2 ? selectable : livingGoodTargets,
+      },
       rng
     );
     bmr.shabalothLastTargets = targets.map((entry) => entry.id);
     targets.forEach((target) => {
-      processNightDeath(state, target, "shabaloth-kill", { by: demon.id }, rng);
+      processNightDeath(state, target, "shabaloth-kill", {
+        by: demon.id,
+        agentPolicyId: demon.isHuman ? null : BMR_AGENT_POLICIES.shabaloth.id,
+      }, rng);
     });
     return;
   }
@@ -990,17 +1257,19 @@ export function runBadMoonRisingNight(ctx) {
     }
     if (bmr.poCharged) {
       const targetsPool = demonAttackTargets(demon);
-      targets =
-        plannedPo?.targets ??
-        sample(
-          targetsPool,
-          Math.min(3, targetsPool.length),
-          rng
-        );
+      targets = [...(plannedPo?.targets ?? sample(targetsPool, Math.min(3, targetsPool.length), rng))];
+      const selectedIds = new Set(targets.map((entry) => entry.id));
+      const remaining = targetsPool.filter((entry) => !selectedIds.has(entry.id));
+      if (targets.length < 3 && remaining.length > 0) {
+        targets.push(...sample(remaining, Math.min(3 - targets.length, remaining.length), rng));
+      }
       bmr.poCharged = false;
-    } else if (!demon.isHuman && rng() < 0.28) {
+    } else if (!demon.isHuman && state.night % 3 === 0 && getAlivePlayers(state).length > 3) {
       bmr.poCharged = true;
-      addLog(state, "night-effect", "Po 正在蓄力，下次将造成三重击杀。", { demonId: demon.id });
+      addLog(state, "night-effect", "Po 正在蓄力，下次将造成三重击杀。", {
+        demonId: demon.id,
+        policyId: BMR_AGENT_POLICIES.po.id,
+      });
       return;
     } else {
       targets =
@@ -1013,10 +1282,15 @@ export function runBadMoonRisingNight(ctx) {
           rng
         );
     }
-    targets.forEach((target) => {
+    targets.slice(0, bmr.poCharged ? 1 : 3).forEach((target) => {
       processNightDeath(state, target, "demon-kill", { by: demon.id }, rng);
     });
     return;
+  }
+  } finally {
+    runAfterDemonActions();
+    resolveGrandmotherGrief();
+    resolveChambermaidReads();
   }
 }
 
@@ -1053,6 +1327,7 @@ function onSetup(ctx) {
         type: "grandmother",
         targetId: child.id,
         shownRoleId: child.roleId,
+        policyId: BMR_STORYTELLER_POLICIES.grandmother.id,
         text,
       });
     });
@@ -1151,7 +1426,7 @@ function maybeBlockDeathByInnkeeper(ctx, victim, reason, logType) {
     !state.bmr ||
     !victim?.alive ||
     !state.bmr.innkeeperProtectedIds?.includes(victim.id) ||
-    !isDemonNightDeathReason(reason)
+    (!isDemonNightDeathReason(reason) && Number(state.bmr.innkeeperProtectionNight) !== state.night)
   ) {
     return false;
   }
@@ -1214,62 +1489,8 @@ function maybeSaveByZombuul(ctx, victim, reason, logType) {
   return true;
 }
 
-function pacifistSaveWeight(ctx, victim, reason) {
-  const { state, getAlivePlayers } = ctx;
-  const factors = [];
-  let weight = 0.22;
-
-  const push = (id, delta) => {
-    if (!delta) {
-      return;
-    }
-    weight += delta;
-    factors.push({ id, delta: Number(delta.toFixed(3)) });
-  };
-
-  if (victim.category === "townsfolk") {
-    push("townsfolk", 0.12);
-  } else if (victim.category === "outsider") {
-    push("outsider", 0.04);
-  }
-  if (victim.roleId === BMR.PACIFIST) {
-    push("self", 0.08);
-  }
-  if (victim.roleId === BMR.MOONCHILD) {
-    push("avoid-moonchild-chain", 0.05);
-  }
-  if (victim.roleId === BMR.FOOL) {
-    push("fool-backup-only", -0.08);
-  }
-  if (reason === "virgin-trigger") {
-    push("sudden-execution", 0.08);
-  }
-  if ((state.day ?? 0) <= 1) {
-    push("early-day", 0.05);
-  }
-
-  const alive = getAlivePlayers(state);
-  const aliveGood = alive.filter((entry) => entry.team === "good").length;
-  if (aliveGood <= 3) {
-    push("protect-low-good-count", 0.16);
-  } else if (aliveGood <= 4) {
-    push("protect-tight-good-count", 0.08);
-  }
-  if (state.bmr?.mastermindPendingDay === state.day) {
-    push("mastermind-extra-day", -0.18);
-  }
-  if (victim.category === "outsider" && state.players.some((entry) => entry.alive && entry.roleId === BMR.GODFATHER)) {
-    push("avoid-blocking-godfather-signal-too-often", -0.06);
-  }
-
-  return {
-    weight: clampNumber(weight, 0.05, 0.65),
-    factors,
-  };
-}
-
 function maybeSaveByPacifist(ctx, victim, reason) {
-  const { state, rng, addLog, getEffectiveRoleId, isAbilityBlocked } = ctx;
+  const { state, addLog, getEffectiveRoleId, isAbilityBlocked } = ctx;
   if (!state.bmr || victim.team !== "good" || !victim.alive || state.bmr.pacifistSavedToday) {
     return false;
   }
@@ -1279,25 +1500,21 @@ function maybeSaveByPacifist(ctx, victim, reason) {
   if (activePacifists.length === 0) {
     return false;
   }
-  const decision = pacifistSaveWeight(ctx, victim, reason);
-  const roll = rng();
-  if (roll >= decision.weight) {
-    return false;
-  }
   state.bmr.pacifistSavedToday = true;
   addLog(state, "day-skill", `${victim.name} 受到 Pacifist 影响，免于本次处决。`, {
     victimId: victim.id,
     reason,
-    weight: decision.weight,
-    roll,
-    factors: decision.factors,
+    policyId: BMR_STORYTELLER_POLICIES.pacifist.id,
+    weight: 1,
+    roll: 0,
+    factors: [{ id: "deterministic-storyteller-policy", delta: 1 }],
     pacifistIds: activePacifists.map((entry) => entry.id),
   });
   return true;
 }
 
 function onBeforeExecutionDeath(ctx, { victim, reason }) {
-  const { state, addLog } = ctx;
+  const { state, addLog, getPlayerById, getEffectiveRoleId, isAbilityBlocked } = ctx;
   if (!state.bmr) {
     return { prevented: false };
   }
@@ -1307,18 +1524,28 @@ function onBeforeExecutionDeath(ctx, { victim, reason }) {
   if (maybeBlockDeathByTeaLady(ctx, victim, reason, "day-skill")) {
     return { prevented: true };
   }
-  if (maybeSaveByFool(ctx, victim, reason, "night-effect")) {
-    return { prevented: true };
-  }
-  if (state.bmr.devilsAdvocateProtectedId === victim.id && victim.alive) {
+  const advocateSourceId = state.bmr.devilsAdvocateProtectionSourceId;
+  const advocateSource = advocateSourceId ? getPlayerById(state, advocateSourceId) : null;
+  const advocateProtectionActive =
+    !advocateSourceId ||
+    (advocateSource?.alive && getEffectiveRoleId(advocateSource) === BMR.DEVILS_ADVOCATE && !isAbilityBlocked(advocateSource, state));
+  if (state.bmr.devilsAdvocateProtectedId === victim.id && victim.alive && advocateProtectionActive) {
     addLog(state, "day-skill", `${victim.name} 受到 Devil's Advocate 保护，免于本次处决。`, {
       victimId: victim.id,
       reason,
     });
     state.bmr.devilsAdvocateProtectedId = null;
+    state.bmr.devilsAdvocateProtectionSourceId = null;
     return { prevented: true };
   }
+  if (!advocateProtectionActive) {
+    state.bmr.devilsAdvocateProtectedId = null;
+    state.bmr.devilsAdvocateProtectionSourceId = null;
+  }
   if (maybeSaveByPacifist(ctx, victim, reason)) {
+    return { prevented: true };
+  }
+  if (maybeSaveByFool(ctx, victim, reason, "day-skill")) {
     return { prevented: true };
   }
   if (maybeSaveByZombuul(ctx, victim, reason, "day-skill")) {
@@ -1366,7 +1593,7 @@ function onBeforeDayDeath(ctx, { victim, reason }) {
 }
 
 function triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload) {
-  const { state, rng, getPlayerById, processNightDeath } = ctx;
+  const { state, getPlayerById, isAbilityBlocked } = ctx;
   if (!state.bmr) {
     return;
   }
@@ -1378,16 +1605,17 @@ function triggerGrandmotherDeathIfNeeded(ctx, victim, reason, payload) {
       return;
     }
     const grandmother = getPlayerById(state, grandmotherId);
-    if (!grandmother?.alive) {
+    if (!grandmother?.alive || isAbilityBlocked(grandmother, state)) {
       return;
     }
-    processNightDeath(state, grandmother, "grandmother-grief", { by: payload?.by ?? null }, rng);
+    state.bmr.grandmotherGriefPendingById = state.bmr.grandmotherGriefPendingById ?? {};
+    state.bmr.grandmotherGriefPendingById[grandmother.id] = { by: payload?.by ?? null, childId: victim.id };
   });
 }
 
 function triggerMoonchildChoice(ctx, victim, phase) {
-  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, playerChoiceOptions, processNightDeath, rng } = ctx;
-  if (!state.bmr || victim.roleId !== BMR.MOONCHILD) {
+  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, isAbilityBlocked, playerChoiceOptions, processNightDeath, rng } = ctx;
+  if (!state.bmr || victim.roleId !== BMR.MOONCHILD || isAbilityBlocked(victim, state)) {
     return;
   }
   if (victim.isHuman && enqueueStorytellerAction) {
@@ -1432,7 +1660,12 @@ function triggerMoonchildChoice(ctx, victim, phase) {
     });
     return;
   }
-  state.bmr.moonchildPendingById[victim.id] = target.id;
+  state.bmr.moonchildPendingById[victim.id] = {
+    targetId: target.id,
+    selectedTeam: target.team,
+    selectedNight: state.night,
+    selectedPhase: phase,
+  };
   addLog(state, "death-trigger", `${victim.name} 触发 Moonchild，指定了 ${target.name}。`, {
     victimId: victim.id,
     targetId: target.id,
@@ -1458,12 +1691,14 @@ function onAfterExecutionDeath(ctx, { victim }) {
 
   if (
     victim.category === "demon" &&
+    !getAlivePlayers(state).some((entry) => entry.category === "demon") &&
     state.players.some((entry) => entry.alive && getEffectiveRoleId(entry) === BMR.MASTERMIND && !isAbilityBlocked(entry))
   ) {
     state.bmr.mastermindPendingDay = state.day + 1;
     addLog(state, "day-skill", "Mastermind 生效：恶魔被处决后进入额外一天结算。", {
       day: state.day,
       pendingDay: state.bmr.mastermindPendingDay,
+      wouldEndByNoLivingDemon: true,
     });
   }
 }
@@ -1505,6 +1740,15 @@ function onAfterNightDeath(ctx, { victim, reason, payload }) {
 }
 
 function onAfterDeath(ctx, { victim, phase }) {
+  const { state, getPlayerById } = ctx;
+  if (state.bmr && victim.roleId === BMR.PUKKA && state.bmr.pukkaPoisonedId) {
+    const poisoned = getPlayerById(state, state.bmr.pukkaPoisonedId);
+    if (poisoned) {
+      poisoned.poisoned = false;
+      poisoned.poisonedTomorrowDay = false;
+    }
+    state.bmr.pukkaPoisonedId = null;
+  }
   triggerMoonchildChoice(ctx, victim, phase);
 }
 
@@ -1604,17 +1848,17 @@ function onEndOfDay(ctx) {
     const submitted = statementsToday[gossip.id];
     if (submitted && !submitted.resolved) {
       const evaluated = evaluateKnownGossipStatement(ctx, submitted.text);
-      const trueStatement = evaluated === null ? rng() < 0.5 : !!evaluated;
+      const trueStatement = evaluated === null ? false : !!evaluated;
       submitted.resolved = true;
       submitted.trueStatement = trueStatement;
-      submitted.heuristic = evaluated === null;
+      submitted.policyId = evaluated === null ? BMR_STORYTELLER_POLICIES["gossip-unparsed"].id : "gossip-deterministic-parser";
       if (trueStatement) {
         addedKills += 1;
       }
       addLog(state, "day-skill", `Gossip 声明已判定：${trueStatement ? "为真" : "不为真"}。`, {
         day: state.day,
         playerId: gossip.id,
-        heuristic: evaluated === null,
+        policyId: submitted.policyId,
       });
       return;
     }
@@ -1622,9 +1866,11 @@ function onEndOfDay(ctx) {
     if (!spokeToday && gossip.isHuman) {
       return;
     }
-    if (rng() < 0.5) {
-      addedKills += 1;
-    }
+    addLog(state, "day-skill", "Gossip 未提交可解析声明，按显式裁判策略判定为不真。", {
+      day: state.day,
+      playerId: gossip.id,
+      policyId: BMR_STORYTELLER_POLICIES["gossip-unparsed"].id,
+    });
   });
   if (addedKills > 0) {
     state.bmr.gossipPendingKills += addedKills;
