@@ -65,7 +65,7 @@ export const SNV_ROLE_ACTION_RULES = {
     kind: "player-target",
     targetCount: 2,
     allowSelf: false,
-    allowDead: false,
+    allowDead: true,
     minNight: 1,
     maxUses: 1,
     optional: true,
@@ -90,7 +90,7 @@ export const SNV_ROLE_ACTION_RULES = {
     targetCount: 0,
     allowSelf: false,
     allowDead: false,
-    roleCategories: ["townsfolk"],
+    roleCategories: ["townsfolk", "outsider"],
     excludeRoleIds: [SNV.PHILOSOPHER],
     minNight: 1,
     maxUses: 1,
@@ -99,10 +99,10 @@ export const SNV_ROLE_ACTION_RULES = {
       { id: "act", label: "Choose a good character" },
       { id: "skip", label: "Wait for a later night" },
     ],
-    prompt: "选择你想获得的一个镇民角色能力。",
+    prompt: "选择你想获得的一个善良角色能力。",
     interaction: {
       title: "哲学家的顿悟",
-      subtitle: "选择一个镇民能力。若该角色在场，原持有者会醉酒。",
+      subtitle: "选择一个善良角色能力。若该角色在场，原持有者会醉酒。",
       style: "divination",
       badge: "选择角色",
       helper: "这是官方能力的关键交互：不是选玩家，而是直接选择一个角色能力。",
@@ -131,8 +131,9 @@ export const SNV_ROLE_ACTION_RULES = {
     kind: "player-target",
     inputType: "player-role",
     targetCount: 1,
-    allowSelf: false,
-    allowDead: false,
+    allowSelf: true,
+    allowDead: true,
+    roleCategories: ["townsfolk", "outsider"],
     minNight: 1,
     prompt: "选择 1 名玩家，并指定 ta 明天应声称的角色。",
     interaction: {
@@ -149,8 +150,8 @@ export const SNV_ROLE_ACTION_RULES = {
     kind: "player-target",
     inputType: "player-role",
     targetCount: 1,
-    allowSelf: false,
-    allowDead: false,
+    allowSelf: true,
+    allowDead: true,
     minNight: 1,
     prompt: "选择 1 名玩家，并把 ta 变成指定角色。",
     interaction: {
@@ -322,7 +323,6 @@ export function runSectsAndVioletsNight(ctx) {
     getEffectiveRoleId,
     getPlayerById,
     getRoleById,
-    getTownsfolkRoles,
     isAbilityBlocked,
     isRoleNightWindowOpen,
     nearestAliveTownsfolkByDirection,
@@ -339,6 +339,7 @@ export function runSectsAndVioletsNight(ctx) {
     return;
   }
   const snv = state.snv;
+  let pitHagChangedDemonState = false;
 
   if (snv.sweetheartDrunkId) {
     const drunkTarget = getPlayerById(state, snv.sweetheartDrunkId);
@@ -359,6 +360,24 @@ export function runSectsAndVioletsNight(ctx) {
     }
     applyVigormortisNeighborPoison(state, minion);
   });
+
+  state.players
+    .filter(
+      (entry) =>
+        entry.alive &&
+        entry.roleId === SNV.PHILOSOPHER &&
+        !isAbilityBlocked(entry, state) &&
+        !!(snv.philosopherCopiedById[entry.id] ?? entry.philosopherAbilityRoleId)
+    )
+    .forEach((philosopher) => {
+      const copiedRoleId = snv.philosopherCopiedById[philosopher.id] ?? philosopher.philosopherAbilityRoleId;
+      state.players
+        .filter((entry) => entry.id !== philosopher.id && entry.roleId === copiedRoleId)
+        .forEach((carrier) => {
+          carrier.poisoned = true;
+          carrier.poisonedTomorrowDay = true;
+        });
+    });
 
   state.players
     .filter(
@@ -390,7 +409,7 @@ export function runSectsAndVioletsNight(ctx) {
     )
     .forEach((cerenovus) => {
       const planned = cerenovus.isHuman
-        ? consumeHumanNightPlan(state, cerenovus, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        ? consumeHumanNightPlan(state, cerenovus, { allowSelf: true, allowDead: true, minTargets: 1, maxTargets: 1 })
         : null;
       const target =
         planned?.targets?.[0] ??
@@ -398,13 +417,15 @@ export function runSectsAndVioletsNight(ctx) {
           state,
           cerenovus,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== cerenovus.id) },
+          { allowSelf: true, allowDead: true, preferredPool: state.players },
           rng
         )[0];
       if (!target) {
         return;
       }
-      const forcedRole = planned?.role ?? chooseOne(getAllRoles(state.scriptId), rng);
+      const goodRoles = getAllRoles(state.scriptId).filter((role) => role.team === "good");
+      const plannedRole = planned?.role?.team === "good" ? planned.role : null;
+      const forcedRole = planned ? plannedRole : chooseOne(goodRoles, rng);
       if (!forcedRole) {
         return;
       }
@@ -424,7 +445,7 @@ export function runSectsAndVioletsNight(ctx) {
     )
     .forEach((pitHag) => {
       const planned = pitHag.isHuman
-        ? consumeHumanNightPlan(state, pitHag, { allowSelf: false, allowDead: false, minTargets: 1, maxTargets: 1 })
+        ? consumeHumanNightPlan(state, pitHag, { allowSelf: true, allowDead: true, minTargets: 1, maxTargets: 1 })
         : null;
       const target =
         planned?.targets?.[0] ??
@@ -432,19 +453,24 @@ export function runSectsAndVioletsNight(ctx) {
           state,
           pitHag,
           1,
-          { allowSelf: false, allowDead: false, preferredPool: getAlivePlayers(state).filter((entry) => entry.id !== pitHag.id) },
+          { allowSelf: true, allowDead: true, preferredPool: state.players },
           rng
         )[0];
       if (!target) {
         return;
       }
-      const pool = getAllRoles(state.scriptId).filter((role) => role.id !== target.roleId);
-      const plannedRoleStillValid = planned?.role && planned.role.id !== target.roleId ? planned.role : null;
-      const nextRole = plannedRoleStillValid ?? chooseOne(pool, rng);
+      const inPlayRoleIds = new Set(state.players.map((entry) => entry.roleId));
+      const pool = getAllRoles(state.scriptId).filter((role) => !inPlayRoleIds.has(role.id));
+      // The frozen human-action contract still permits an in-play character and
+      // an existing shared entry-info contract relies on that submission. Keep
+      // this compatibility path explicit; AI selection remains not-in-play.
+      const plannedRole = planned?.role && planned.role.id !== target.roleId ? planned.role : null;
+      const nextRole = planned ? plannedRole : chooseOne(pool, rng);
       if (!nextRole) {
         return;
       }
       const beforeRole = target.roleName;
+      const wasDemon = target.category === "demon";
       setRole(target, nextRole, {
         preserveTeam: true,
         state,
@@ -452,6 +478,7 @@ export function runSectsAndVioletsNight(ctx) {
         deliverEntryInfo: true,
         rng,
       });
+      pitHagChangedDemonState = pitHagChangedDemonState || wasDemon !== (target.category === "demon");
       refreshEvilRecognitionAfterRoleChange?.(state, {
         reason: "pit-hag-transform",
         changedPlayerIds: [target.id],
@@ -464,8 +491,9 @@ export function runSectsAndVioletsNight(ctx) {
       addLog(state, "night-effect", "Pit-Hag 改变了一名玩家身份。", { by: pitHag.id, targetId: target.id });
     });
 
-  const aliveDemonsAfterTransform = getAliveDemons(state);
-  if (aliveDemonsAfterTransform.length > 1) {
+  const shouldQueuePitHagBalance = pitHagChangedDemonState && !snv.pitHagDemonBalancePending;
+  const aliveDemonsAfterTransform = shouldQueuePitHagBalance ? getAliveDemons(state) : [];
+  if (shouldQueuePitHagBalance && aliveDemonsAfterTransform.length > 1) {
     const survivor = chooseOne(aliveDemonsAfterTransform, rng);
     const defaultTargets = aliveDemonsAfterTransform.filter((entry) => survivor && entry.id !== survivor.id);
     snv.pitHagDemonBalancePending = true;
@@ -500,7 +528,7 @@ export function runSectsAndVioletsNight(ctx) {
       survivorId: survivor?.id ?? null,
       demonIds: aliveDemonsAfterTransform.map((entry) => entry.id),
     });
-  } else if (aliveDemonsAfterTransform.length === 0) {
+  } else if (shouldQueuePitHagBalance && aliveDemonsAfterTransform.length === 0) {
     snv.pitHagDemonBalancePending = true;
     enqueueStorytellerAction?.(state, {
       type: "pit-hag-demon-balance",
@@ -590,7 +618,7 @@ export function runSectsAndVioletsNight(ctx) {
     .filter(
       (entry) =>
         entry.alive &&
-        getEffectiveRoleId(entry) === SNV.PHILOSOPHER &&
+        entry.roleId === SNV.PHILOSOPHER &&
         isRoleNightWindowOpen(state, SNV.PHILOSOPHER, state.night) &&
         !isAbilityBlocked(entry, state)
     )
@@ -604,14 +632,17 @@ export function runSectsAndVioletsNight(ctx) {
         return;
       }
 
-      const townsfolkPool = (getTownsfolkRoles(state.scriptId) ?? []).filter((entry) => entry.id !== SNV.PHILOSOPHER);
-      if (townsfolkPool.length === 0) {
+      const goodRolePool = getAllRoles(state.scriptId).filter(
+        (entry) => entry.team === "good" && entry.id !== SNV.PHILOSOPHER
+      );
+      if (goodRolePool.length === 0) {
         return;
       }
 
       snv.philosopherUsedByIds.push(philosopher.id);
-      const plannedRole = planned?.role && planned.role.category === "townsfolk" && planned.role.id !== SNV.PHILOSOPHER ? planned.role : null;
-      const copiedRoleId = plannedRole?.id ?? chooseOne(townsfolkPool, rng)?.id ?? null;
+      const plannedRole =
+        planned?.role && planned.role.team === "good" && planned.role.id !== SNV.PHILOSOPHER ? planned.role : null;
+      const copiedRoleId = (planned ? plannedRole?.id : chooseOne(goodRolePool, rng)?.id) ?? null;
       const role = copiedRoleId ? getRoleById(state.scriptId, copiedRoleId) : null;
       if (!role) {
         return;
@@ -684,14 +715,14 @@ function activeEvilTwinHolder(ctx, options = {}) {
 }
 
 function chooseEvilTwinOpposite(ctx, holder, currentPair = null) {
-  const { state, chooseOne, getPlayerById } = ctx;
+  const { state, chooseOne, getPlayerById, rng } = ctx;
   if (!holder) {
     return null;
   }
-  if (currentPair?.evilTwinId === holder.id && currentPair.opposingTwinId) {
-    return getPlayerById(state, currentPair.opposingTwinId);
-  }
   const currentOpposite = getPlayerById(state, currentPair?.opposingTwinId ?? "");
+  if (currentPair?.evilTwinId === holder.id && currentOpposite && !currentOpposite.alive) {
+    return currentOpposite;
+  }
   if (currentOpposite?.alive && currentOpposite.team !== holder.team) {
     return currentOpposite;
   }
@@ -700,7 +731,7 @@ function chooseEvilTwinOpposite(ctx, holder, currentPair = null) {
     return currentGoodTwin;
   }
   const candidates = state.players.filter((entry) => entry.alive && entry.id !== holder.id && entry.team !== holder.team);
-  return chooseOne(candidates) ?? null;
+  return chooseOne(candidates, rng) ?? null;
 }
 
 function syncEvilTwinPair(ctx, options = {}) {
@@ -747,6 +778,10 @@ function syncEvilTwinPair(ctx, options = {}) {
   return nextPair;
 }
 
+function isBarberSwapTarget(player, actingDemonId) {
+  return player.id === actingDemonId || player.category !== "demon";
+}
+
 function resolveAIBarberSwap(ctx) {
   const { state, addLog, getAliveDemons, refreshEvilRecognitionAfterRoleChange, sample, swapRolesByRoleId, rng } = ctx;
   if (!state.snv) {
@@ -756,7 +791,7 @@ function resolveAIBarberSwap(ctx) {
   if (!demon || demon.isHuman) {
     return false;
   }
-  const candidates = state.players.filter((entry) => entry.alive && entry.category !== "demon");
+  const candidates = state.players.filter((entry) => isBarberSwapTarget(entry, demon.id));
   const swapTargets = sample(candidates, Math.min(2, candidates.length), rng);
   if (
     swapTargets.length !== 2 ||
@@ -786,11 +821,11 @@ function resolveAIBarberSwap(ctx) {
 }
 
 function triggerSweetheartDrunk(ctx, victim) {
-  const { state, addLog, chooseRandomAliveExcluding } = ctx;
-  if (!state.snv || victim.roleId !== SNV.SWEETHEART) {
+  const { state, addLog, chooseRandomAliveExcluding, getEffectiveRoleId, isAbilityBlocked, rng } = ctx;
+  if (!state.snv || getEffectiveRoleId(victim) !== SNV.SWEETHEART || isAbilityBlocked(victim, state)) {
     return;
   }
-  const target = chooseRandomAliveExcluding(state, [victim.id]);
+  const target = chooseRandomAliveExcluding(state, [victim.id], rng);
   if (!target) {
     return;
   }
@@ -804,8 +839,18 @@ function triggerSweetheartDrunk(ctx, victim) {
 }
 
 function triggerKlutzChoice(ctx, victim) {
-  const { state, addLog, chooseRandomAliveExcluding, enqueueStorytellerAction, finalizeWinner, playerChoiceOptions } = ctx;
-  if (!state.snv || victim.roleId !== SNV.KLUTZ) {
+  const {
+    state,
+    addLog,
+    chooseRandomAliveExcluding,
+    enqueueStorytellerAction,
+    finalizeWinner,
+    getEffectiveRoleId,
+    isAbilityBlocked,
+    playerChoiceOptions,
+    rng,
+  } = ctx;
+  if (!state.snv || getEffectiveRoleId(victim) !== SNV.KLUTZ || isAbilityBlocked(victim, state)) {
     return;
   }
   if (victim.isHuman && enqueueStorytellerAction) {
@@ -833,16 +878,18 @@ function triggerKlutzChoice(ctx, victim) {
     });
     return;
   }
-  const target = chooseRandomAliveExcluding(state, [victim.id]);
+  const target = chooseRandomAliveExcluding(state, [victim.id], rng);
   if (!target) {
     return;
   }
   if (target.team === "evil") {
-    addLog(state, "death-trigger", `${victim.name} 触发 Klutz 并错误点中邪恶玩家，善良阵营立即失败。`, {
+    const winningTeam = victim.team === "evil" ? "good" : "evil";
+    addLog(state, "death-trigger", `${victim.name} 触发 Klutz 并点中邪恶玩家，${victim.team} 阵营立即失败。`, {
       victimId: victim.id,
       targetId: target.id,
+      losingTeam: victim.team,
     });
-    finalizeWinner(state, "evil", "Klutz 点中了邪恶玩家，善良阵营失败。");
+    finalizeWinner(state, winningTeam, `Klutz 点中了邪恶玩家，${victim.team} 阵营失败。`);
     return;
   }
   addLog(state, "death-trigger", `${victim.name} 触发 Klutz，点中了善良玩家 ${target.name}，未触发失败。`, {
@@ -852,8 +899,8 @@ function triggerKlutzChoice(ctx, victim) {
 }
 
 function triggerBarberChoice(ctx, victim) {
-  const { state, enqueueStorytellerAction, getAliveDemons, playerChoiceOptions } = ctx;
-  if (!state.snv || victim.roleId !== SNV.BARBER) {
+  const { state, enqueueStorytellerAction, getAliveDemons, getEffectiveRoleId, isAbilityBlocked, playerChoiceOptions } = ctx;
+  if (!state.snv || getEffectiveRoleId(victim) !== SNV.BARBER || isAbilityBlocked(victim, state)) {
     return;
   }
   const humanDemon = getAliveDemons(state).find((entry) => entry.isHuman);
@@ -871,18 +918,18 @@ function triggerBarberChoice(ctx, victim) {
     targetCount: 2,
     options: playerChoiceOptions(state, {
       actorId: humanDemon.id,
-      allowDead: false,
+      allowDead: true,
       allowSelf: true,
-      filter: (player) => player.category !== "demon",
+      filter: (player) => isBarberSwapTarget(player, humanDemon.id),
     }),
-    prompt: "理发师死亡。作为恶魔，你可以选择 2 名非恶魔玩家交换角色。",
+    prompt: "理发师死亡。作为恶魔，你可以选择 2 名玩家交换角色，但不能选择另一名恶魔。",
     phaseLabel: `第${state.day}天 / 第${state.night}夜`,
     interaction: {
       title: "理发师死亡",
       subtitle: "恶魔醒来，可以交换两名玩家的角色。",
       badge: "Barber",
       targetLabels: ["交换对象一", "交换对象二"],
-      helper: "第一版实现限制为两名存活非恶魔玩家。",
+      helper: "可以选择死亡玩家或自己，但不能选择另一名恶魔。",
       confirmText: "确认交换",
       skipText: "自动交换",
     },
@@ -891,18 +938,33 @@ function triggerBarberChoice(ctx, victim) {
 }
 
 function triggerSageInfo(ctx, victim, killerDemonId) {
-  const { state, addPrivateInfo, chooseOne, enqueueStorytellerAction, getPlayerById, shuffle } = ctx;
-  if (!state.snv || victim.roleId !== SNV.SAGE) {
+  const {
+    state,
+    addPrivateInfo,
+    chooseOne,
+    enqueueStorytellerAction,
+    getEffectiveRoleId,
+    getPlayerById,
+    isAbilityBlocked,
+    rng,
+    sample,
+    shuffle,
+  } = ctx;
+  if (!state.snv || getEffectiveRoleId(victim) !== SNV.SAGE) {
     return;
   }
   const demon = getPlayerById(state, killerDemonId);
-  const others = state.players.filter((entry) => entry.id !== victim.id && entry.id !== killerDemonId);
-  const randomOther = chooseOne(others);
-  const pair = [demon, randomOther].filter(Boolean);
+  const vortoxActive = state.players.some(
+    (entry) => entry.alive && getEffectiveRoleId(entry) === SNV.VORTOX && !isAbilityBlocked(entry, state)
+  );
+  const nonDemons = state.players.filter((entry) => entry.id !== victim.id && entry.category !== "demon");
+  const pair = vortoxActive
+    ? sample(nonDemons, 2, rng)
+    : [demon, chooseOne(nonDemons.filter((entry) => entry.id !== killerDemonId), rng)].filter(Boolean);
   if (pair.length < 2) {
     return;
   }
-  const shuffled = shuffle(pair);
+  const shuffled = shuffle(pair, rng);
   const informationText = `[第${state.night}夜] 你作为贤者看见两人中有一名恶魔：${shuffled[0].name} / ${shuffled[1].name}。`;
   if (victim.isHuman && enqueueStorytellerAction) {
     enqueueStorytellerAction(state, {
@@ -981,34 +1043,39 @@ function evilTwinPairAliveBlocksGoodWin(ctx) {
 }
 
 function onAfterExecutionDeath(ctx, { victim }) {
-  const { state } = ctx;
+  const { state, getEffectiveRoleId } = ctx;
   if (!state.snv) {
     return;
   }
-  state.snv.dayDeathsByRoleId[victim.roleId] = (state.snv.dayDeathsByRoleId[victim.roleId] ?? 0) + 1;
-  if (victim.roleId === SNV.BARBER) {
-    state.snv.barberDiedToday = true;
-  }
+  const effectiveRoleId = getEffectiveRoleId(victim);
+  state.snv.dayDeathsByRoleId[effectiveRoleId] = (state.snv.dayDeathsByRoleId[effectiveRoleId] ?? 0) + 1;
 }
 
 function onAfterNightDeath(ctx, { victim, reason, payload }) {
-  const { state } = ctx;
+  const { state, getEffectiveRoleId } = ctx;
   if (!state.snv) {
     return;
   }
+  const effectiveRoleId = getEffectiveRoleId(victim);
   if (reason === "demon-kill") {
-    state.snv.dayDeathsByRoleId[victim.roleId] = (state.snv.dayDeathsByRoleId[victim.roleId] ?? 0) + 1;
+    state.snv.dayDeathsByRoleId[effectiveRoleId] = (state.snv.dayDeathsByRoleId[effectiveRoleId] ?? 0) + 1;
   }
-  if (victim.roleId === SNV.SAGE && reason === "demon-kill") {
+  if (effectiveRoleId === SNV.SAGE && reason === "demon-kill") {
     triggerSageInfo(ctx, victim, payload?.by);
+  }
+  if (reason === "fang-gu-jump") {
+    syncEvilTwinPair(ctx, {
+      reason,
+      changedPlayerIds: [victim.id, payload?.by].filter(Boolean),
+    });
   }
 }
 
 function onAfterDeath(ctx, { victim, phase }) {
-  const { state } = ctx;
+  const { state, getEffectiveRoleId, isAbilityBlocked } = ctx;
   triggerSweetheartDrunk(ctx, victim);
   triggerKlutzChoice(ctx, victim);
-  if (victim.roleId === SNV.BARBER && state.snv) {
+  if (state.snv && getEffectiveRoleId(victim) === SNV.BARBER && !isAbilityBlocked(victim, state)) {
     state.snv.barberDiedToday = true;
     triggerBarberChoice(ctx, victim);
     if (phase === "night" && resolveAIBarberSwap(ctx)) {
@@ -1047,14 +1114,11 @@ function onEndOfDay(ctx) {
       continue;
     }
     const player = getPlayerById(state, playerId);
-    if (!player?.alive || isAbilityBlocked(player)) {
-      continue;
-    }
     const forcedRoleId = snv.cerenovusForcedByPlayerId[playerId];
     if (!forcedRoleId) {
       continue;
     }
-    if (player.publicClaimRoleId !== forcedRoleId) {
+    if (player?.alive && player.publicClaimRoleId !== forcedRoleId) {
       processExecutionDeath(state, player, "cerenovus-break", { forcedRoleId }, rng);
       addLog(state, "day-skill", "Cerenovus 惩罚触发：目标未按要求发言而死亡。", {
         playerId,
@@ -1068,14 +1132,17 @@ function onEndOfDay(ctx) {
     }
   }
 
-  for (const mutant of state.players.filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.MUTANT && !isAbilityBlocked(entry))) {
+  const mutantViolations = snv.mutantClaimViolationByDay[state.day] ?? null;
+  for (const mutant of state.players.filter((entry) => entry.alive && getEffectiveRoleId(entry) === SNV.MUTANT && !isAbilityBlocked(entry, state))) {
     if (state.gameOver) {
       return;
     }
-    if (!mutant.publicClaimRoleId) {
+    const violation = mutantViolations?.[mutant.id];
+    if (!violation || violation.adjudicated) {
       continue;
     }
-    const claimedRole = getRoleById(state.scriptId, mutant.publicClaimRoleId);
+    violation.adjudicated = true;
+    const claimedRole = getRoleById(state.scriptId, violation.roleId);
     if (!claimedRole || claimedRole.category !== "outsider") {
       continue;
     }
@@ -1097,11 +1164,12 @@ function onEndOfDay(ctx) {
       .forEach((juggler) => {
         const candidates = sample(
           state.players.filter((entry) => entry.id !== juggler.id),
-          Math.min(5, Math.max(0, state.players.length - 1))
+          Math.min(5, Math.max(0, state.players.length - 1)),
+          rng
         );
         const guesses = candidates.map((entry) => ({
           playerId: entry.id,
-          roleId: entry.publicClaimRoleId ?? chooseOne(getAllRoles(state.scriptId))?.id ?? entry.roleId,
+          roleId: entry.publicClaimRoleId ?? chooseOne(getAllRoles(state.scriptId), rng)?.id ?? entry.roleId,
         }));
         snv.jugglerGuessesByDay[juggler.id] = {
           day: state.day,
@@ -1113,19 +1181,26 @@ function onEndOfDay(ctx) {
 }
 
 function onRegisterClaim(ctx, { player, roleId }) {
-  const { state, addLog, checkWin, getEffectiveRoleId, getRoleById, isAbilityBlocked, processExecutionDeath } = ctx;
+  const { state, addLog, getEffectiveRoleId, getRoleById, isAbilityBlocked } = ctx;
   if (state.scriptId !== "snv" || getEffectiveRoleId(player) !== SNV.MUTANT || !player.alive) {
     return;
   }
   const claimedRole = getRoleById(state.scriptId, roleId);
-  if (claimedRole?.category === "outsider" && !isAbilityBlocked(player) && Math.random() < 0.7) {
-    processExecutionDeath(state, player, "mutant-claim-break", { roleId }, Math.random);
-    addLog(state, "day-skill", "Mutant 公开声称外来者后被判定违规处决。", {
-      playerId: player.id,
-      roleId,
-    });
-    checkWin(state);
+  if (claimedRole?.category !== "outsider" || isAbilityBlocked(player, state)) {
+    return;
   }
+  const violations = (state.snv.mutantClaimViolationByDay[state.day] ??= {});
+  if (violations[player.id]) {
+    return;
+  }
+  violations[player.id] = {
+    roleId,
+    adjudicated: false,
+  };
+  addLog(state, "day-skill", "Mutant 公开声称外来者；已记录 madness 违规证据，等待日终裁量。", {
+    playerId: player.id,
+    roleId,
+  });
 }
 
 function onNomination(ctx, { nominator, nominee }) {
