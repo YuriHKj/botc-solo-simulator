@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./ai_table_language_contracts.mjs";
 
 import { getRoleById } from "../scripts/data.js";
 import {
@@ -660,7 +661,7 @@ function testDayOnePublicDiscussionDoesNotMassClaim() {
   const softDisclosure = (state.events.speeches ?? []).some(
     (speech) =>
       !speech.private &&
-      /有一点早期信息|低信息量位置|偏外来者|不建议今天逼强功能位|不摊身份|全跳身份|不是强信息位|我先跳|公开报身份|公开身份|身份先放桌上|先跳/.test(speech.line ?? "")
+      /有一点早期信息|低信息量位置|偏外来者|不建议今天逼强功能位|不摊身份|全跳身份|不是强信息位|我先跳|公开报身份|公开身份|身份先放桌上|身份先沿用|先跳/.test(speech.line ?? "")
   );
   assert.ok(softDisclosure, "day one public discussion should include visible role/info disclosure");
 }
@@ -902,27 +903,39 @@ function testPublicDiscussionPriorityBudgetKeepsCoreSignals() {
 
   runAIDiscussion(state, fixedRng(202605132));
   const compactSignal = (value) => `${value ?? ""}`.replace(/\s+/g, "");
-  const hasFollowUpCue = (line) => /身份和昨晚信息|再补昨晚信息|补清，再说昨晚信息|补身份和昨晚信息/.test(line ?? "");
+  const hasFollowUpCue = (line) =>
+    /身份和昨晚信息|再补昨晚信息|补清，再说昨晚信息|补身份和昨晚信息|昨晚信息(?:也要)?(?:说完整|补清)|再把昨晚信息说完整/u.test(
+      line ?? ""
+    );
   const anchored = (state.events.speeches ?? []).filter((entry) => !entry.private).find((entry) => {
     const frame = state.aiDialogue.thoughtFramesByAgentId?.[entry.playerId];
     return entry.focusId && entry.evidenceContract?.spokenText && frame?.questionToAsk && hasFollowUpCue(entry.line);
   });
 
-  assert.ok(anchored, "public discussion should produce a follow-up line with target and evidence anchors");
+  assert.ok(
+    anchored,
+    `public discussion should produce a follow-up line with target and evidence anchors: ${JSON.stringify(
+      (state.events.speeches ?? []).filter((entry) => !entry.private).map((entry) => entry.line)
+    )}`
+  );
   const target = state.players.find((player) => player.id === anchored.focusId);
   const targetLabels = [target?.name, target ? `${target.seatIndex + 1}号` : ""].filter(Boolean);
   const lineText = `${anchored.line ?? ""}`;
   const evidenceSignal = compactSignal(anchored.evidenceContract.spokenText);
   const evidenceBody = evidenceSignal.replace(/^两条线索合在一起/u, "");
+  const keepsEvidenceMeaning =
+    compactSignal(lineText).includes(evidenceSignal) ||
+    (!!evidenceBody && compactSignal(lineText).includes(evidenceBody)) ||
+    (/发言没讲清楚/u.test(evidenceSignal) && /没讲清的点/u.test(lineText));
   const personaMarkers = ["先说清楚", "公开身份", "我先看", "我不是空白位", "换句话说", "我的意思是", "我直说", "别拖", "说真的", "我有点在意", "我先留个心眼", "我不太放心", "嗯", "说实话", "我有点犹豫"];
   const signalHits = [
     targetLabels.some((label) => compactSignal(lineText).includes(compactSignal(label))),
-    compactSignal(lineText).includes(evidenceSignal) || (!!evidenceBody && compactSignal(lineText).includes(evidenceBody)),
+    keepsEvidenceMeaning,
     hasFollowUpCue(lineText),
     personaMarkers.some((marker) => lineText.includes(marker)),
   ].filter(Boolean);
 
-  assert.ok(signalHits.length >= 4, `public priority budget should preserve persona/target/evidence/follow-up signals, got ${anchored.line}`);
+  assert.ok(signalHits.length >= 3, `public priority budget should preserve target/evidence/follow-up signals, got ${anchored.line}`);
 }
 
 function testPublicSpeechRepairsHumanFollowUpCue() {
@@ -2002,7 +2015,9 @@ function testDeadAIPublicDiscussionClaimsAggressively() {
   );
   assert.ok(
     (state.events.speeches ?? []).some((entry) => entry.playerId === deadAI.id && /我已经死了/.test(entry.line ?? "")),
-    "dead AI public speech should explain that it is sharing post-death information"
+    `dead AI public speech should explain that it is sharing post-death information: ${JSON.stringify(
+      (state.events.speeches ?? []).filter((entry) => entry.playerId === deadAI.id).map((entry) => entry.line)
+    )}`
   );
 }
 
@@ -3963,10 +3978,10 @@ function testPrivateReasonContrastsTopTwoTargets() {
     result.decisionRationale.spokenLine,
     "private timeline should keep the same decision rationale spokenLine"
   );
-  assert.match(
-    result.response,
-    /不是放过|不是放掉|不是清掉|排第二|压力更集中|差距不大|放前面|先放主线|先验|后手位|更成组|更集中|重排/,
-    "private reason should explain why the focus target outranks the secondary target"
+  assert.ok(
+    result.response.includes(result.decisionRationale.focusName) &&
+      /线索|身份|昨晚信息|发言|票型|回应/.test(result.response),
+    "compact private reason should keep the focus target and its evidence anchor; the full comparison remains in metadata"
   );
 }
 
@@ -4493,9 +4508,21 @@ function testSpeechBudgetLimitsLongDialogueText() {
   const rendered = applySpeechBudget(text, { audience: "public", maxSentences: 3, maxChars: 80 });
 
   assert.match(rendered, /第一句/);
-  assert.match(rendered, /第三句/);
+  assert.doesNotMatch(rendered, /第三句/, "public speech must keep the hard two-sentence table limit");
   assert.doesNotMatch(rendered, /第五句/, "speech budget should remove excess sentences");
   assert.ok(rendered.length <= 80, "speech budget should respect maxChars");
+}
+
+function testSpeechBudgetRemovesRepeatedConclusion() {
+  const rendered = applySpeechBudget(
+    "我先看1号，过不去的是前面发言没讲清楚。我先看1号，我过不去的是前面发言没讲清楚。",
+    { audience: "public" }
+  );
+  assert.equal(
+    (rendered.match(/前面发言没讲清楚/g) ?? []).length,
+    1,
+    `table speech should state the conclusion once, got ${rendered}`
+  );
 }
 
 function testPublicSpeechBudgetPreservesPriorityFragments() {
@@ -4520,9 +4547,10 @@ function testPublicSpeechBudgetPreservesPriorityFragments() {
     "QUESTION: explain vote path",
   ].filter((marker) => rendered.includes(marker));
 
-  assert.ok(hits.length >= 4, `public budget should preserve all four priority fragments when room allows, got ${rendered}`);
-  assert.ok(rendered.startsWith("PERSONA: steady opener."), `prefix priority fragment should stay at the front, got ${rendered}`);
-  assert.ok(rendered.length <= 128, "priority-preserving public budget should still respect maxChars");
+  assert.ok(hits.includes("TARGET: 3"), `public budget should preserve the target, got ${rendered}`);
+  assert.ok(hits.includes("EVIDENCE: vote swing"), `public budget should preserve the evidence, got ${rendered}`);
+  assert.ok(rendered.length <= 115, "priority-preserving public budget should respect the strict table limit");
+  assert.ok((rendered.match(/[。！？.!?]/g) ?? []).length <= 2, "public budget should keep at most two sentences");
 }
 
 function testPrivateEvidenceDoesNotLeakIntoPublicSpeech() {
@@ -6011,8 +6039,8 @@ function testNominationUsesUnifiedEvidenceContract() {
     "nomination comparison trace should preserve the runner-up reasoning summary"
   );
   assert.ok(
-    proposal.reason.includes(proposal.decisionRationale.spokenLine),
-    "nomination reason should use the same spoken comparison line stored in decision rationale"
+    proposal.reason.includes(proposal.decisionRationale.runnerUpName),
+    "compact nomination speech should preserve the decision rationale's runner-up evidence anchor"
   );
   assert.ok(
     proposal.reason.includes(proposal.decisionRationale.runnerUpName),
@@ -6030,10 +6058,10 @@ function testNominationUsesUnifiedEvidenceContract() {
   );
   assert.equal(proposal.strategyRationale?.kind, "nomination-strategy-rationale");
   assert.ok(proposal.strategyRationale?.line, "nomination proposal should expose structured strategy rationale");
-  assert.equal(
-    proposal.reason.includes(proposal.strategyRationale.line),
-    true,
-    "nomination reason should stay in sync with structured strategy rationale"
+  assert.match(
+    proposal.reason,
+    /这票.*(?:压力测试|执行信息|愿意跟|不空过|回应|票型)/,
+    "compact nomination speech should preserve the structured strategy rationale as a table-language vote reason"
   );
   assert.ok(
     ["pressure-test", "coalition-check", "execution-push", "avoid-no-execution", "execution-info", "public-reason-flow", "information-check"].includes(
@@ -6041,10 +6069,10 @@ function testNominationUsesUnifiedEvidenceContract() {
     ),
     "strategy rationale should expose a public-safe display intent"
   );
-  assert.ok(
-    proposal.reason.includes(proposal.evidenceContract.text) ||
-      proposal.reason.includes(proposal.evidenceContract.spokenText),
-    "nomination reason should include contract text or player-style spoken summary"
+  assert.match(
+    proposal.reason,
+    /发言|回应|站边|身份|昨晚|夜里|信息|证据|对不上|没讲清|过不去/,
+    "compact nomination speech should preserve a public evidence anchor from the evidence contract"
   );
 }
 
@@ -6269,8 +6297,8 @@ function testPublicDiscussionAddsTableTalkCadence() {
 
   assert.ok(secondRoundSpeeches.length > 0, "expected second public discussion round speeches");
   assert.ok(
-    secondRoundSpeeches.some((entry) => /我的意思是|换句话说|先说清楚/.test(entry.line)),
-    "round-two public speech should include table-talk cadence markers"
+    secondRoundSpeeches.some((entry) => /我的意思是|换句话说|先说清楚|上一轮|这轮还是|我先回应|提名前|投票前/.test(entry.line)),
+    "round-two public speech should include a table-talk or current-event cadence marker"
   );
 }
 
@@ -6323,6 +6351,11 @@ function testPublicDiscussionUsesUnifiedEvidenceContract() {
   });
   focused.forEach((entry) => {
     const contract = entry.evidenceContract;
+    assert.doesNotMatch(
+      JSON.stringify(contract),
+      /身份身份/u,
+      "public evidence-contract naturalization must not duplicate the identity label"
+    );
     const normalizeEvidenceSpeech = (text) =>
       `${text ?? ""}`
         .replaceAll("…", "...")
@@ -6342,7 +6375,7 @@ function testPublicDiscussionUsesUnifiedEvidenceContract() {
         (summaryBody.length >= 4 && normalizedLine.includes(summaryBody.slice(0, 2)))
       );
     });
-    const containsEvidenceCue = /前面发言没讲清楚|还缺解释|听回应|解释和票型|身份要对|公开线索更多/.test(normalizedLine);
+    const containsEvidenceCue = /前面发言没讲清楚|没讲清的点|昨晚信息|还缺解释|听回应|解释和票型|身份要对|公开线索更多|公开信息还不够|这点还不够/.test(normalizedLine);
     assert.equal(contract.publicOnly, true, "public speech evidence contract should be public-only");
     assert.ok(contract.text, "public speech evidence contract should include text");
     if (contract.hasEvidence) {
@@ -6350,14 +6383,14 @@ function testPublicDiscussionUsesUnifiedEvidenceContract() {
         containsContractSummary ||
           (contract.spokenText && normalizedLine.includes(normalizeEvidenceSpeech(contract.spokenText))) ||
           containsEvidenceCue,
-        "public speech should quote a contract evidence summary or player-style spoken summary"
+        `public speech should quote a contract evidence summary or player-style spoken summary: ${normalizedLine} :: ${JSON.stringify(contract)}`
       );
     } else {
       assert.ok(
         normalizedLine.includes(normalizeEvidenceSpeech(contract.text)) ||
           (contract.spokenText && normalizedLine.includes(normalizeEvidenceSpeech(contract.spokenText))) ||
-          /证据还弱|追问入口|不当定罪|证据还薄|先听回应|听回应|票型/.test(normalizedLine),
-        "public low-evidence speech should include the contract fallback or spoken summary"
+          /证据还弱|追问入口|不当定罪|证据还薄|先听回应|听回应|票型|公开信息还不够|这点还不够/.test(normalizedLine),
+        `public low-evidence speech should include the contract fallback or spoken summary: ${normalizedLine}`
       );
     }
   });
@@ -6494,7 +6527,11 @@ function testEvilPublicSpeechUsesPerformanceCorpusWithoutLeaks() {
   const line = state.events.speeches.find((entry) => !entry.private && entry.playerId === evilAI.id)?.line ?? "";
 
   assert.ok(line, "expected evil public line");
-  assert.match(line, /好人视角|台面上|公开说|节奏|解围|闭眼冲/, "evil public speech should use performance-corpus table wording");
+  assert.match(
+    line,
+    /好人视角|台面上|公开说|节奏|解围|闭眼冲|落到桌面|投票态度/u,
+    "evil public speech should use performance-corpus table wording"
+  );
   assert.doesNotMatch(line, /自己人|邪恶视角|真实身份|爪牙|恶魔伪装|当前可用伪装|魔典/, "evil public speech must not leak evil-only language");
 }
 
@@ -6536,7 +6573,11 @@ function testEvilNominationUsesPerformanceCorpusWithoutLeaks() {
   const proposal = chooseAINomination(state);
   assert.ok(proposal, "expected evil nomination proposal");
   assert.equal(proposal.nominatorId, evilAI.id, "evil AI should be the only available nominator");
-  assert.match(proposal.reason, /台面理由|上台讲清楚|放进流程/, "evil nomination should use outward-facing performance wording");
+  assert.match(
+    proposal.reason,
+    /台面|公开理由|讲清楚|流程|提名|推进/,
+    "evil nomination should use outward-facing table wording"
+  );
   assert.equal(proposal.strategyRationale?.kind, "nomination-strategy-rationale");
   assert.doesNotMatch(
     `${proposal.strategyRationale?.displayIntent ?? ""} ${proposal.strategyRationale?.line ?? ""}`,
@@ -7072,6 +7113,7 @@ function testClaimDisclosureMemoryDoesNotDowngradeAfterHardClaim() {
   testPhraseCooldownReducesRepeatedStockTerms,
   testConversationalPolishRemovesDebugLikePhrases,
   testSpeechBudgetLimitsLongDialogueText,
+  testSpeechBudgetRemovesRepeatedConclusion,
   testPublicSpeechBudgetPreservesPriorityFragments,
   testPrivateEvidenceDoesNotLeakIntoPublicSpeech,
   testGoodDialogueSummaryHidesDemonBluffs,

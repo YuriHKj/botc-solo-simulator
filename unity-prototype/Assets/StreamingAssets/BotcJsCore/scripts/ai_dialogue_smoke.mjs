@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { advanceDayStage, createNewGame, runNight } from "./engine.js";
 import {
@@ -9,6 +10,7 @@ import {
   runAIToAIPrivateWhispers,
   runPrivateWhisper,
 } from "./ai.js";
+import { TABLE_SPEECH_LIMITS } from "./ai_speech_renderer.js";
 
 const OUTPUT_DIR = path.resolve("output", "ai_dialogue_smoke");
 const STRICT = process.argv.includes("--strict");
@@ -279,7 +281,7 @@ function collectNominationScenario() {
   };
 }
 
-const BAD_TASTE_RULES = [
+export const BAD_TASTE_RULES = [
   { id: "debug-layering", pattern: /分两层看|核心还是|证据线|证据摘要|evidence|contract|agent|JS Core/i, advice: "去掉工程/审计口吻，改成桌边短句。" },
   { id: "table-jargon", pattern: /口径|无理由改口|身份说法|可复核|信息来源|交叉验证|身份范围|身份链|裸跳|摊开|硬信息|当前主线|可信度|污染风险/i, advice: "把复盘/魔典整理词换成玩家会顺口说出的身份、昨晚信息、能对上、直接跳身份等表达。" },
   { id: "numeric-label", pattern: /暂时偏清白|高度可疑|低信息量位置|怀疑度\s*\d+%|\d+%\s*vs/i, advice: "不要把 UI/评分标签直接说出口。" },
@@ -287,23 +289,49 @@ const BAD_TASTE_RULES = [
   { id: "generic-evidence-placeholder", pattern: /这条行为和我手里的信息对不上|手里的信息对不上/i, advice: "不要用占位式理由，改成具体桌边焦点，如发言、站边、身份或票型。" },
   { id: "evil-cover-jargon", pattern: /说法范围|口径范围|好人位上靠|低信息好人位/i, advice: "邪恶方伪装也要像玩家说话，改成“按 X 方向聊/低信息身份”。" },
   { id: "report-tone", pattern: /本轮|当前主线|低证据提名|压力提名|自动提名|可信度|污染风险/i, advice: "把复盘报告词改成玩家发言词。" },
+  { id: "analysis-report", pattern: /来源.*节奏|先拆(?:独立)?来源|同源回声|收益线|加权|权重|验证点是|核法是|第一层|第二层/i, advice: "删掉分析报告层级，只保留当前目标、桌面证据和动作。" },
   { id: "stock-ending", pattern: /一句结论更值钱|问出反应比|先看票型和回应。?$/i, advice: "尾句需要更短、更像临场补一句。" },
   { id: "hidden-truth-risk", pattern: /真实身份|邪恶互认|恶魔伪装|爪牙|魔典|bluff/i, advice: "确认是否只出现在邪恶私聊；公开或好人视角必须禁用。" },
   { id: "nested-prompt", pattern: /你能把\s*让他|把\s*让他|让他把.*讲清楚|信息链是：?\[/i, advice: "不要把内部追问指令或原始夜间日志直接塞进成句模板。" },
   { id: "abstract-subject", pattern: /该玩家|当前目标|这个位置(?=.*(行为|信息|口径))/i, advice: "把抽象主体换成具体座位，避免像系统摘要。" },
   { id: "empty-transition", pattern: /简单讲，我现在是这么看|我尽量不绕，先把我的判断摊开/i, advice: "删除空转过渡句，直接说判断和原因。" },
-  { id: "future-script", pattern: /下一句我会|我会问\s*\d+号|票前我会问/i, advice: "不要把内部下一步计划说成脚本，改成“接下来先问 X”。" },
+  { id: "future-script", pattern: /下一句我会|我会问\s*\d+号|我会先(?:看|把|压)|票前我会问|到投票我会看|如果今天要动流程|后续追问|后续回应|下一轮|接下来(?:会|再)|等今天公聊|接不住就进提名位|再决定要不要提|再决定投不投|再决定票|回应(?:之后|后)再(?:决定|定|重排)/i, advice: "不要把内部下一步计划说成脚本，改成当前桌面正在做的追问。" },
   { id: "cleanup-remnant", pattern: /先复核|先再对一下|…（先对一下）|\s他\s回应|接…|[：。！？；]\s+|[0-9]+号\s+(这边|那条|放进|进|被|先|需要|可以|把|回应|解释|讲|说|问)|我跳\s+[^，。；！？\s]+|我会往\s+[^，。；！？\s]+\s+这类/i, advice: "去掉整理残留和断裂空格，改成自然短句。" },
   { id: "role-spacing", pattern: /按\s+[^，。；！？\s]+\s+这个方向聊/i, advice: "角色名和句子不要断裂成“按 X 这个”，改成“按X这个方向聊”。" },
   { id: "compressed-nomination-reason", pattern: /没讲清楚过不去|对不上过不去|还不够过不去/i, advice: "提名理由不要把证据和“过不去”硬粘在一起，改成“这点过不去”。" },
 ];
 
-function sentenceCount(text) {
+export const DIALOGUE_LIMITS = Object.freeze({
+  public: TABLE_SPEECH_LIMITS.public,
+  nomination: TABLE_SPEECH_LIMITS.nomination,
+  private: TABLE_SPEECH_LIMITS.private,
+  "ai-private": Object.freeze({ ...TABLE_SPEECH_LIMITS["ai-private"], hiddenTruthMaxSentences: 5 }),
+});
+
+export function sentenceCount(text) {
   const matches = oneLine(text).match(/[^。！？；.!?;]+[。！？；.!?;]?/g);
   return matches?.filter((entry) => entry.trim()).length ?? 0;
 }
 
-function inspectOutput(output) {
+function hasRepeatedTableAction(text) {
+  const seen = new Set();
+  const sentences = oneLine(text).match(/[^。！？；.!?;]+[。！？；.!?;]?/gu) ?? [];
+  for (const sentence of sentences) {
+    const seat = sentence.match(/\d+号/u)?.[0] ?? "";
+    const categories = [
+      /没讲清的点.*(?:补清|补上|说完整)/u.test(sentence) ? "clarify-speech" : "",
+      /昨晚信息.*(?:补清|补齐|补上|说清|说完整)/u.test(sentence) ? "night-info" : "",
+    ].filter(Boolean);
+    for (const category of categories) {
+      const key = `${seat}:${category}`;
+      if (seen.has(key)) return true;
+      seen.add(key);
+    }
+  }
+  return false;
+}
+
+export function inspectOutput(output) {
   const text = oneLine(output.text);
   const warnings = [];
   BAD_TASTE_RULES.forEach((rule) => {
@@ -329,7 +357,7 @@ function inspectOutput(output) {
       advice: "把信息链/ta/围着你这类模板残留改成座位号和短玩家话。",
     });
   }
-  if (output.audience === "public" && /(?:接下来先问你|我会问你|问你：)/.test(text)) {
+  if (output.audience === "public" && /(?:接下来先问你|先问你|我会问你|问你：)/.test(text)) {
     warnings.push({
       rule: "public-target-pronoun",
       advice: "公聊追问具体目标时使用座位号，不要保留像私聊一样的“问你”。",
@@ -339,6 +367,12 @@ function inspectOutput(output) {
     warnings.push({
       rule: "duplicate-private-evidence",
       advice: "同一句里不要重复同一个私聊线索，合并成一次证据描述。",
+    });
+  }
+  if (hasRepeatedTableAction(text)) {
+    warnings.push({
+      rule: "repeated-table-action",
+      advice: "同一目标的追问动作不要在两句里重复；保留一次证据和一次当前动作。",
     });
   }
   if ((text.match(/别当铁证/g) ?? []).length >= 2) {
@@ -377,7 +411,8 @@ function inspectOutput(output) {
       advice: "玩家要求直接回答时，AI 需要先接住这个对话动作，再给判断。",
     });
   }
-  const limit = output.audience === "public" ? 115 : output.audience === "nomination" ? 120 : 170;
+  const audienceLimits = DIALOGUE_LIMITS[output.audience] ?? DIALOGUE_LIMITS.private;
+  const limit = audienceLimits.maxChars;
   if (text.length > limit) {
     warnings.push({
       rule: "too-long",
@@ -386,12 +421,8 @@ function inspectOutput(output) {
   }
   const maxSentences =
     output.allowHiddenTruth && output.audience === "ai-private"
-      ? 5
-      : output.audience === "public"
-      ? 2
-      : output.audience === "nomination"
-      ? 2
-      : 3;
+      ? audienceLimits.hiddenTruthMaxSentences
+      : audienceLimits.maxSentences;
   if (sentenceCount(text) > maxSentences) {
     warnings.push({
       rule: "too-many-sentences",
@@ -404,7 +435,7 @@ function inspectOutput(output) {
   return warnings;
 }
 
-function runScenarios() {
+export function runScenarios() {
   return [
     collectPrivateFollowUpScenario(),
     collectFocusSwitchScenario(),
@@ -416,7 +447,7 @@ function runScenarios() {
   ];
 }
 
-function buildReport(scenarios, generatedAt) {
+export function buildReport(scenarios, generatedAt) {
   const allOutputs = scenarios.flatMap((scenario) =>
     scenario.outputs.map((output) => ({
       scenario: scenario.title,
@@ -509,4 +540,6 @@ function main() {
   }
 }
 
-main();
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  main();
+}

@@ -306,7 +306,7 @@ function polishPublicLineSurface(text) {
     .replace(/^我不太放心，台面上，([0-9]+号这条先单独记)/u, "先别急，台面上，$1")
     .replace(/核法是先听([0-9]+号)/gu, "先听$1")
     .replace(/核法先交给([0-9]+号)来/gu, "这条让$1")
-    .replace(/身份口径/gu, "身份说法")
+    .replace(/身份口径/gu, "身份")
     .replace(/公开口径/g, "公开说法")
     .replace(/私下口径/g, "私下说法")
     .replace(/口径/g, "说法")
@@ -756,14 +756,14 @@ function publicEvidenceSynthesisFragment(evidenceSummaries = [], targetName = ""
 
 const PUBLIC_EVIDENCE_SYNTHESIS_PHRASES = [
   "身份口径和票型一起压过来",
-  "身份说法和票型一起压过来",
+  "身份和票型一起压过来",
   "身份解释和投票线卡在同一处",
   "身份线和票型互相咬住",
   "公开站队和票型在同一方向",
   "台面压力和投票线同向",
   "公开压力和票型互相推高",
   "身份口径和提名压力卡在一起",
-  "身份说法和提名压力卡在一起",
+  "身份和提名压力卡在一起",
   "身份解释和上台窗口撞在一起",
   "身份线被提名压力顶住",
   "台面压力和提名窗口卡在一起",
@@ -1004,10 +1004,10 @@ function publicScriptPressureContextLine(state, targetName, evidenceCount, score
     return "";
   }
   if (state?.scriptId === "bmr") {
-    return sentenceFragment(`BMR里死亡/保护会搅票型，先请${name}解释票型，再把身份和昨晚信息补齐`);
+    return sentenceFragment(`BMR里死亡/保护会搅票型，身份线和票型一起看，台面压力和提名窗口卡在一起，先请${name}解释票型、台面压力和提名压力，再补昨晚信息`);
   }
   if (state?.scriptId === "snv") {
-    return sentenceFragment(`SnV里身份线和疯狂压力要分开听，先看${name}回应，再把身份和昨晚信息补清`);
+    return sentenceFragment(`SnV里身份线和疯狂压力要分开听，身份线和票型一起看，先请${name}解释票型再补昨晚信息`);
   }
   return "";
 }
@@ -1033,10 +1033,10 @@ function publicTimingPressureContextLine(debateBeat, targetName, evidenceCount, 
     return "";
   }
   if (debateBeat === "nomination-pressure") {
-    return sentenceFragment(`提名前先把${name}的身份和票型压实，不然上台只剩防守`);
+    return sentenceFragment(`先把${name}的身份和票型压实，上台前把理由讲清`);
   }
   if (debateBeat === "vote-intent") {
-    return sentenceFragment(`到投票我会看${name}有没有补出解释，没补就按压力票处理`);
+    return sentenceFragment(`${name}先补解释，这票暂按压力票`);
   }
   return "";
 }
@@ -1161,7 +1161,7 @@ function publicRolePressureContextLine(state, targetName, targetId, evidenceCoun
         ])
       : "";
   const synthesis = claimNominationSynthesis || publicEvidenceSynthesisFragment(evidenceSummaries, name);
-  const synthesisPrefix = synthesis ? `${synthesis}；` : "";
+  const synthesisPrefix = synthesis ? `两条线合在一起：${synthesis}，` : "";
   if (mode === "death-trigger") {
     return sentenceFragment(`${synthesisPrefix}既然${name}报${roleName}，死亡触发和死后信息要先讲清，不然身份会挡掉压力`);
   }
@@ -1174,7 +1174,32 @@ function publicRolePressureContextLine(state, targetName, targetId, evidenceCoun
   if (mode === "outsider-risk") {
     return sentenceFragment(`${synthesisPrefix}既然${name}报${roleName}，风险边界要说清，不能只靠外来者身份挡压`);
   }
-  return sentenceFragment(`${synthesisPrefix}既然${name}报${roleName}，信息链就要和票型对上，不能只给身份名`);
+  if (claimNominationSynthesis) {
+    return sentenceFragment(`${claimNominationSynthesis}，既然${name}报${roleName}，先请${name}解释身份和提名压力`);
+  }
+  return sentenceFragment(`身份线和票型互相咬住，既然${name}报${roleName}，信息链要和票型对上，这条让${name}把身份和票型对上，再解释投票理由`);
+}
+
+function playerSafePublicEvidenceContract(evidenceContract = null) {
+  if (!evidenceContract) return null;
+  const naturalize = (text) => `${text ?? ""}`
+    .replace(/([0-9]+)\s*号公聊提到[：:]\s*/gu, "$1号刚才说，")
+    .replace(/（先复核）/gu, "")
+    .replace(/公开身份口径/gu, "公开身份")
+    .replace(/身份口径|身份说法/gu, "身份")
+    .replace(/公开口径/gu, "公开说法")
+    .replace(/私下口径/gu, "私下说法")
+    .replace(/口径/gu, "说法")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return {
+    ...evidenceContract,
+    ...(typeof evidenceContract.text === "string" ? { text: naturalize(evidenceContract.text) } : {}),
+    ...(typeof evidenceContract.spokenText === "string" ? { spokenText: naturalize(evidenceContract.spokenText) } : {}),
+    ...(Array.isArray(evidenceContract.summaries)
+      ? { summaries: evidenceContract.summaries.map(naturalize) }
+      : {}),
+  };
 }
 
 function publicRolePressureContextPriorityFragment(rolePressureLine) {
@@ -1665,6 +1690,7 @@ function ensureTargetMentionInPublicLine(line, targetName, maxChars = 160) {
   const directed = value
     .replace(/接下来先问你/g, `接下来先问${target}`)
     .replace(/我会问你/g, `我会问${target}`)
+    .replace(/先问你/g, `先问${target}`)
     .replace(/问你：/g, `问${target}：`)
     .replace(/提名前先看\s+你：/g, `提名前先看 ${target}：`);
   if (directed !== value && directed.includes(target)) {
@@ -2776,6 +2802,8 @@ function publishPublicSpeech(
     );
     composed = {
       ...composed,
+      evilPlanLine,
+      evilClaimCoverLine,
       line: dedupePublicEvilPlanBeforeVerification(ensurePublicRolePressureInLine(
         ensurePublicTimingPressureInLine(
           specializePublicSpecificFollowUpInLine(
@@ -2932,6 +2960,173 @@ function publishPublicSpeech(
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
   polishedLine = sanitizePlayerVisibleText ? sanitizePlayerVisibleText(polishedLine) : polishedLine;
   polishedLine = dedupePublicEvidenceSynthesis(polishedLine);
+  if (applySpeechBudget) {
+    const finalTargetName = composed.focusId && statementTargetLabel ? statementTargetLabel(state, composed.focusId) : "";
+    const priorTargetName = priorDaySpeech?.focusId && statementTargetLabel
+      ? statementTargetLabel(state, priorDaySpeech.focusId)
+      : "";
+    const generatedContinuityLine = publicCrossDayStanceLineForComposed(state, aiPlayer, composed);
+    const finalContinuityLine =
+      polishedLine.match(/[^。！？；]*(?:昨天|天前|新起线|今天转)[^。！？；]*[。！？；]?/u)?.[0]?.trim() ||
+      (/(?:昨天|天前|新起线|今天转)/u.test(generatedContinuityLine) ? generatedContinuityLine : "") ||
+      (priorTargetName && finalTargetName
+        ? priorDaySpeech.focusId === composed.focusId
+          ? `昨天先看${priorTargetName}，今天继续看这条。`
+          : `昨天先看${priorTargetName}，今天转${finalTargetName}。`
+        : composed.crossDayStance && finalTargetName
+          ? composed.crossDayStance.continuity === "shift"
+            ? `昨天另看一条，今天转${finalTargetName}。`
+            : `昨天先看${finalTargetName}，今天继续看这条。`
+          : "");
+    const finalEvidenceAnchor = composed.evidenceContract?.spokenText
+      ? publicEvidenceAnchorLine(composed.evidenceContract).replace(/[。！？；]+$/u, "")
+      : "";
+    const finalScriptPressureAnchor = `${composed.scriptPressureLine ?? ""}`.replace(/[。！？；]+$/u, "").trim();
+    const finalRolePressureAnchor = `${composed.rolePressureLine ?? ""}`.replace(/[。！？；]+$/u, "").trim();
+    const finalTimingPressureAnchor = `${composed.timingPressureLine ?? ""}`.replace(/[。！？；]+$/u, "").trim();
+    const finalPersonaPressureAnchor = `${composed.personaPressureLine ?? ""}`.replace(/[。！？；]+$/u, "").trim();
+    const finalEvilClaimCoverLine = `${composed.evilClaimCoverLine ?? ""}`.trim();
+    const finalEvilPlanLine = `${composed.evilPlanLine ?? ""}`.trim();
+    const finalPressureAnchor = finalRolePressureAnchor || finalScriptPressureAnchor || finalPersonaPressureAnchor;
+    const finalEventPressureAnchor =
+      finalTimingPressureAnchor ||
+      (finalRolePressureAnchor && finalScriptPressureAnchor ? finalScriptPressureAnchor : finalPressureAnchor);
+    const finalTargetEvidenceLine = finalPressureAnchor
+      ? `${finalPressureAnchor}。`
+      : finalTargetName
+        ? `我先看${finalTargetName}${finalEvidenceAnchor ? `，${finalEvidenceAnchor}` : ""}。`
+        : finalEvidenceAnchor
+          ? `${finalEvidenceAnchor}。`
+          : "";
+    const finalTableStateLine =
+      polishedLine.match(/[^。！？；]*(?:死了|死人|出局|遗言|在台上|票型你们自己看|能验证的部分)[^。！？；]*[。！？；]?/u)?.[0]?.trim() ||
+      (aiPlayer.alive === false
+        ? "我已经死了，能说的我直接说。"
+        : aiPlayer.beenNominatedToday
+        ? `我现在在台上，${finalEventPressureAnchor || `${finalTargetName ? `先看${finalTargetName}` : "先听回应"}${finalEvidenceAnchor ? `：${finalEvidenceAnchor}` : ""}`}。`
+        : debateBeat === "defense"
+          ? `我先回应质疑：${finalEventPressureAnchor || `${finalTargetName ? `先看${finalTargetName}` : "先说这条"}${finalEvidenceAnchor ? `：${finalEvidenceAnchor}` : ""}`}。`
+          : debateBeat === "nomination-pressure"
+            ? `提名前，${finalEventPressureAnchor || `${finalTargetName ? `我先看${finalTargetName}` : "先说这条"}${finalEvidenceAnchor ? `：${finalEvidenceAnchor}` : ""}`}。`
+            : debateBeat === "vote-intent"
+              ? `投票前，${finalEventPressureAnchor || `${finalTargetName ? `我先看${finalTargetName}` : "先说这条"}${finalEvidenceAnchor ? `：${finalEvidenceAnchor}` : ""}`}。`
+              : "");
+    polishedLine = applySpeechBudget(polishedLine, {
+      audience: "public",
+      maxSentences: 2,
+      maxChars: 115,
+      minPriorityFragments: composed.claimDisclosureRationale ? 3 : 2,
+      priorityFragments: [
+        {
+          key: "claim",
+          text: finalEvilClaimCoverLine,
+          appendText: finalEvilClaimCoverLine,
+          priority: 6,
+        },
+        {
+          key: "state",
+          text: finalEvilPlanLine,
+          appendText: finalEvilPlanLine,
+          priority: 6,
+        },
+        {
+          key: "claim",
+          text: publicClaimDisclosureSpeechLine(composed.claimDisclosureRationale),
+          appendText: publicClaimDisclosureSpeechLine(composed.claimDisclosureRationale),
+          priority: 5,
+        },
+        {
+          key: "continuity",
+          text: finalContinuityLine,
+          appendText: finalContinuityLine,
+          priority: 5,
+        },
+        {
+          key: "state",
+          text: finalEvilPlanLine || (composed.claimDisclosureRationale && finalContinuityLine) ? "" : finalTableStateLine,
+          appendText: finalEvilPlanLine || (composed.claimDisclosureRationale && finalContinuityLine) ? "" : finalTableStateLine,
+          priority: 5,
+        },
+        {
+          key: "target",
+          text: finalTargetEvidenceLine || finalTargetName,
+          appendText: finalTargetEvidenceLine || (finalTargetName ? `我先看${finalTargetName}。` : ""),
+          priority: 4,
+        },
+        {
+          key: "evidence",
+          text: finalTargetEvidenceLine,
+          appendText: finalTargetEvidenceLine,
+          priority: 3,
+        },
+        {
+          key: "question",
+          text: thoughtFrame?.questionToAsk ?? "",
+          appendText: publicSpecificFollowUpQuestionFragment(thoughtFrame?.questionToAsk, finalTargetName, polishedLine),
+          priority: 2,
+        },
+      ],
+    });
+    const finalClaimLine = composed.claimDisclosureRationale
+      ? sanitizePlayerVisibleText(publicClaimDisclosureSpeechLine(composed.claimDisclosureRationale))
+      : "";
+    if (finalClaimLine && finalContinuityLine) {
+      const claimBody = publicPressureLeadBody(finalClaimLine);
+      const continuityBody = publicPressureLeadBody(finalContinuityLine).replace(/^记忆连续性：/u, "");
+      const claimContinuityLine = `${claimBody}，${continuityBody}。`;
+      const claimContinuityWithEvidence = `${claimContinuityLine}${finalTargetEvidenceLine}`;
+      if (finalTargetEvidenceLine && claimContinuityWithEvidence.length <= 115) {
+        polishedLine = claimContinuityWithEvidence;
+      } else if (claimContinuityLine.length <= 115) {
+        polishedLine = claimContinuityLine;
+      }
+    } else if (finalContinuityLine && !/(?:昨天|天前|新起线|今天转)/u.test(polishedLine)) {
+      const continuitySentences = polishedLine.match(/[^。！？；]+[。！？；]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+      const withoutTail = continuitySentences.length >= 2 ? continuitySentences.slice(0, -1) : continuitySentences;
+      const withContinuity = [...withoutTail, finalContinuityLine].join("");
+      if (withContinuity.length <= 115) {
+        polishedLine = withContinuity;
+      }
+    }
+    if (finalTargetName && !polishedLine.includes(finalTargetName)) {
+      const finalSentences = polishedLine.match(/[^。！？；]+[。！？；]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+      const lastIndex = finalSentences.length - 1;
+      if (lastIndex >= 0) {
+        const lastBody = finalSentences[lastIndex].replace(/^这点还不够：/u, "").replace(/[。！？；]+$/u, "").trim();
+        const targetedLast = `我先看${finalTargetName}，${lastBody}。`;
+        const targetedLine = [...finalSentences.slice(0, lastIndex), targetedLast].join("");
+        if (targetedLine.length <= 115) {
+          polishedLine = targetedLine;
+        }
+      }
+    }
+    const finalEventLead = aiPlayer.alive === false
+      ? { text: "我已经死了，能说的我直接说：", pattern: /我已经死了|死人|出局|遗言/u }
+      : debateBeat === "defense"
+        ? { text: "我先回应质疑：", pattern: /回应|质疑|反问|不是在硬保|不是乱打/u }
+        : debateBeat === "nomination-pressure"
+          ? { text: "提名前，", pattern: /提名|上台|流程压力|正式压力|提名前/u }
+          : debateBeat === "vote-intent"
+            ? { text: "投票前，", pattern: /投票|票型|跟票|反票/u }
+            : null;
+    if (finalEventLead && !finalEventLead.pattern.test(polishedLine)) {
+      const eventSentences = polishedLine.match(/[^。！？；]+[。！？；]?/gu)?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+      const eventIndex = Math.max(0, eventSentences.length - 1);
+      const eventBody = (eventSentences[eventIndex] || finalTargetEvidenceLine || "先说这条")
+        .replace(/[。！？；]+$/u, "")
+        .trim();
+      const eventSentence = `${finalEventLead.text}${eventBody}。`;
+      const withEvent = [...eventSentences.slice(0, eventIndex), eventSentence].join("");
+      if (withEvent.length <= 115) {
+        polishedLine = withEvent;
+      } else {
+        const compactEventBody = (finalTargetEvidenceLine || eventBody).replace(/[。！？；]+$/u, "").trim();
+        const compactEventSentence = `${finalEventLead.text}${compactEventBody}。`;
+        const claimLead = finalClaimLine && `${finalClaimLine}${compactEventSentence}`.length <= 115 ? finalClaimLine : "";
+        polishedLine = `${claimLead}${compactEventSentence}`;
+      }
+    }
+  }
   if (polishedLine !== composed.line) {
     composed = {
       ...composed,
@@ -2956,7 +3151,7 @@ function publishPublicSpeech(
     focusId: composed.focusId,
     private: false,
     debateBeat,
-    evidenceContract: composed.evidenceContract ?? null,
+    evidenceContract: playerSafePublicEvidenceContract(composed.evidenceContract),
     decisionRationale: composed.decisionRationale ?? null,
     claimDisclosureRationale: composed.claimDisclosureRationale ?? null,
     crossDayStance: composed.crossDayStance ?? null,
