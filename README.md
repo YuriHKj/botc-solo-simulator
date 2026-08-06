@@ -18,6 +18,8 @@
 
 ### Evidence claim boundaries
 
+- **Hosted Unity 2022.3 C# compile evidence** (`npm run test:unity-csharp-smoke`) certifies only: Unity 2022.3.62f3 imports and compiles the C# project on a GitHub-hosted runner for the tested revision.
+- **Does not certify:** local Roslyn smoke compilation; cached Unity Library or prior build output; a different commit, workflow run, or attempt; public distribution eligibility.
 - **Fixed-seed replay-invariant evidence** (`npm run test:ai-flagship-replay`) certifies only: completion; deterministic identity; legality; bounded v1 information safety; repetition; cross-day stance continuity; nomination justification; stance-to-vote alignment.
 - **Does not certify:** general natural-language quality; known sentence-density or scripted-future-action warning families; behavior/generalization on unseen seeds.
 
