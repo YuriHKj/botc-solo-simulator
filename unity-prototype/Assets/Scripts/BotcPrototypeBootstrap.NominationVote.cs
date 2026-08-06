@@ -8,6 +8,14 @@ namespace BotcSolo.UnityPrototype
 {
     public sealed partial class BotcPrototypeBootstrap
     {
+        private Button nominationVoteYesButton;
+        private Button nominationVoteNoButton;
+        private Button nominationTimelineButton;
+        private Button nominationDismissButton;
+        private Button voteReplayButton;
+        private Button voteCloseButton;
+        private Image voteStatusPlateImage;
+        private string publicCeremonySignalKey = "";
 
         private void BuildPhaseAssistPanel()
         {
@@ -60,10 +68,10 @@ namespace BotcSolo.UnityPrototype
             nominationDebateCardRoot = AddPanel("Nomination Debate Cards", nominationDebatePanel, Vector2.zero, Vector2.one, new Vector2(24f, 68f), new Vector2(-318f, -58f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
             nominationDebateResponseInput = AddInputField("Nomination Debate Response Input", nominationDebatePanel, new Vector2(28f, 18f), new Vector2(1030f, 56f), "输入你的互辩回应");
             nominationDebateResponseButton = AddButton("回应", nominationDebatePanel, new Vector2(1124f, 36f), new Vector2(128f, 36f), SubmitNominationDebateResponse);
-            AddToolActionButton("赞", "投赞成", nominationDebatePanel, new Vector2(1386f, 190f), new Vector2(196f, 48f), () => ResolveNominationDebateToVote(true));
-            AddToolActionButton("弃", "不投票", nominationDebatePanel, new Vector2(1386f, 134f), new Vector2(196f, 48f), () => ResolveNominationDebateToVote(false));
-            AddToolActionButton("线", "看时间线", nominationDebatePanel, new Vector2(1386f, 82f), new Vector2(196f, 34f), () => ShowInfoDrawer("timeline"), true);
-            AddToolActionButton("收", "收起", nominationDebatePanel, new Vector2(1386f, 42f), new Vector2(196f, 34f), () => nominationDebatePanel.gameObject.SetActive(false), true);
+            nominationVoteYesButton = AddToolActionButton("赞", "投赞成", nominationDebatePanel, new Vector2(1386f, 190f), new Vector2(196f, 48f), () => ResolveNominationDebateToVote(true));
+            nominationVoteNoButton = AddToolActionButton("弃", "不投票", nominationDebatePanel, new Vector2(1386f, 134f), new Vector2(196f, 48f), () => ResolveNominationDebateToVote(false));
+            nominationTimelineButton = AddToolActionButton("线", "看时间线", nominationDebatePanel, new Vector2(1386f, 82f), new Vector2(196f, 34f), () => ShowInfoDrawer("timeline"), true);
+            nominationDismissButton = AddToolActionButton("收", "收起", nominationDebatePanel, new Vector2(1386f, 42f), new Vector2(196f, 34f), () => nominationDebatePanel.gameObject.SetActive(false), true);
             nominationDebatePanel.gameObject.SetActive(false);
         }
 
@@ -77,20 +85,26 @@ namespace BotcSolo.UnityPrototype
             centerShade.raycastTarget = false;
             AddFrame(centerShade.transform, "Vote Center Shade Frame", 0.8f, new Color(0.92f, 0.62f, 0.28f, 0.22f));
             voteTitle = AddText("Vote Title", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-270f, 226f), new Vector2(270f, 270f), "投票仪式", 30, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var statusPlate = AddImage("Vote Status Plate", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-212f, -286f), new Vector2(212f, -176f), new Color(0.005f, 0.010f, 0.014f, 0.76f));
+            var statusPlate = AddImage("Vote Status Plate", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-212f, -364f), new Vector2(212f, -250f), new Color(0.005f, 0.010f, 0.014f, 0.82f));
+            voteStatusPlateImage = statusPlate;
             statusPlate.raycastTarget = false;
             AddFrame(statusPlate.transform, "Vote Status Plate Frame", 0.7f, new Color(0.92f, 0.62f, 0.28f, 0.38f));
-            voteBody = AddText("Vote Body", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-194f, -280f), new Vector2(194f, -188f), "", 18, TextAnchor.MiddleCenter, FontStyle.Bold);
-            statusPlate.gameObject.SetActive(false);
-            voteBody.gameObject.SetActive(false);
+            voteBody = AddText("Vote Body", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-194f, -354f), new Vector2(194f, -260f), "", 17, TextAnchor.MiddleCenter, FontStyle.Bold);
+            statusPlate.gameObject.SetActive(true);
+            voteBody.gameObject.SetActive(true);
             voteAnimationRoot = AddPanel("Vote Animation Root", votePanel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-520f, -350f), new Vector2(520f, 350f), new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
             voteAnimationRowsRoot = AddPanel("Vote Animation Rows", votePanel, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0f)).GetComponent<RectTransform>();
-            var replayButton = AddToolActionButton("播", "重播", votePanel, Vector2.zero, new Vector2(104f, 36f), () => RestartVoteAnimation(), true);
-            var closeButton = AddToolActionButton("关", "关闭", votePanel, Vector2.zero, new Vector2(104f, 36f), CloseVotePanel, true);
-            PlaceVoteChromeButton(replayButton, new Vector2(-118f, 26f), new Vector2(104f, 36f));
-            PlaceVoteChromeButton(closeButton, new Vector2(-118f, -20f), new Vector2(104f, 36f));
+            voteReplayButton = AddToolActionButton("播", "重播", votePanel, Vector2.zero, new Vector2(104f, 36f), () => RestartVoteAnimation(), true);
+            voteCloseButton = AddToolActionButton("关", "关闭", votePanel, Vector2.zero, new Vector2(104f, 36f), CloseVotePanel, true);
+            PlaceVoteChromeButton(voteReplayButton, new Vector2(-118f, 26f), new Vector2(104f, 36f));
+            PlaceVoteChromeButton(voteCloseButton, new Vector2(-118f, -20f), new Vector2(104f, 36f));
+            voteStatusPlateImage.transform.SetAsLastSibling();
+            voteBody.transform.SetAsLastSibling();
+            voteReplayButton.transform.SetAsLastSibling();
+            voteCloseButton.transform.SetAsLastSibling();
             votePanel.gameObject.SetActive(false);
         }
+
 
         private void PlaceVoteChromeButton(Button button, Vector2 centerOffset, Vector2 size)
         {
@@ -107,6 +121,7 @@ namespace BotcSolo.UnityPrototype
             RenderGrimoire();
             ApplyBottomDockVisibility();
             ApplyModalBackdropVisibility();
+            RestoreSocialCeremonySurfaces();
         }
 
 
@@ -136,7 +151,9 @@ namespace BotcSolo.UnityPrototype
             var showNomination = clock != null && (clock.active || vm?.dayStage == "nomination");
             var showDebate = debate != null && debate.active;
             var voteOpen = votePanel != null && votePanel.gameObject.activeSelf;
-            var visible = gameplayEntered && !voteOpen && !showDebate && !GameplayOverlayOpen() && (showPublic || showNomination);
+            var stageOwned = (stageDialoguePanel != null && stageDialoguePanel.gameObject.activeSelf)
+                || (phaseTransitionRoot != null && phaseTransitionRoot.gameObject.activeSelf);
+            var visible = gameplayEntered && !stageOwned && !voteOpen && !showDebate && !GameplayOverlayOpen() && (showPublic || showNomination);
             phaseAssistPanel.gameObject.SetActive(visible);
             ApplyBottomDockVisibility();
             ApplyFocusChromeVisibility();
@@ -145,6 +162,7 @@ namespace BotcSolo.UnityPrototype
                 SetPublicSpeechInputVisible(false);
                 SetPhaseAssistProgressVisible(false);
                 if (phaseAssistSignalRoot != null) phaseAssistSignalRoot.gameObject.SetActive(false);
+                publicCeremonySignalKey = "";
                 return;
             }
 
@@ -185,7 +203,7 @@ namespace BotcSolo.UnityPrototype
                 var hasExecutionCandidate = vm?.executionCandidate != null && vm.executionCandidate.active;
                 if (vm?.phaseAdvance != null && vm.phaseAdvance.targetStage == "night" && (hasExecutionCandidate || closed))
                 {
-                    SetPhaseAssistButtons(FirstNonEmpty(vm.phaseAdvance.label, "Night"), "Nominate", "Pass", true, true, true);
+                    SetPhaseAssistButtons(FirstNonEmpty(vm.phaseAdvance.label, "进入夜晚"), "你提名", "空过", true, true, true);
                     RenderPhaseAssistSignalStrip(conversation, clock, debate);
                     return;
                 }
@@ -204,24 +222,59 @@ namespace BotcSolo.UnityPrototype
             {
                 var speaker = FirstNonEmpty(conversation.speakerName, NameForPlayerId(conversation.speakerId), "AI");
                 var focus = FirstNonEmpty(conversation.focusName, NameForPlayerId(conversation.focusId), "全桌");
-                phaseAssistTitleText.text = $"公聊 · {speaker} -> {focus}";
+                phaseAssistTitleText.text = $"公聊仪式 · {speaker} → {focus}";
             }
             if (phaseAssistHintText != null)
             {
                 var latestLine = FirstNonEmpty(vm?.dialogueText, publicSpeechStatus, "先听一轮公聊，再决定是否追问或开启提名。");
-                var actionHint = string.IsNullOrWhiteSpace(publicSpeechStatus)
-                    ? "下一步：AI 接话、开提名窗，或输入你的发言。"
-                    : publicSpeechStatus;
-                phaseAssistHintText.text = ClampTextBlock($"{Ellipsize(latestLine, 64)}\n{actionHint}", 2, 74);
+                var question = CurrentPublicQuestion(conversation);
+                phaseAssistHintText.text = ClampTextBlock($"桌上问题：{question}\n最新发言：{Ellipsize(latestLine, 54)}", 2, 74);
             }
             SetPhaseAssistButtons("AI 接话", "开提名窗", "你发言", true, true, true);
-            if (phaseAssistSignalRoot != null) phaseAssistSignalRoot.gameObject.SetActive(false);
+            RenderPublicCeremonySignal(conversation);
+        }
+
+
+        private void RenderPublicCeremonySignal(PublicConversationViewModel conversation)
+        {
+            if (phaseAssistSignalRoot == null) return;
+            var speaker = FirstNonEmpty(conversation?.speakerName, NameForPlayerId(conversation?.speakerId), "等待发言");
+            var focus = FirstNonEmpty(conversation?.focusName, NameForPlayerId(conversation?.focusId), "全桌");
+            var question = CurrentPublicQuestion(conversation);
+            var signalKey = $"{speaker}|{focus}|{question}";
+            if (phaseAssistSignalRoot.gameObject.activeSelf
+                && publicCeremonySignalKey == signalKey
+                && phaseAssistSignalRoot.childCount > 0) return;
+            publicCeremonySignalKey = signalKey;
+            phaseAssistSignalRoot.gameObject.SetActive(true);
+            ClearChildren(phaseAssistSignalRoot);
+            AddFrame(phaseAssistSignalRoot, "Public Ceremony Signal Frame", 0.55f, new Color(1f, 0.78f, 0.40f, 0.16f));
+            AddPhaseAssistSignalChip(phaseAssistSignalRoot, "发言", Ellipsize(speaker, 7), 10f, 96f, new Color(0.28f, 0.50f, 0.82f, 0.60f));
+            AddPhaseAssistSignalChip(phaseAssistSignalRoot, "关注", Ellipsize(focus, 7), 106f, 96f, new Color(0.82f, 0.48f, 0.18f, 0.62f));
+            AddPhaseAssistSignalChip(phaseAssistSignalRoot, "问题", Ellipsize(question, 24), 202f, 260f, new Color(0.42f, 0.62f, 0.42f, 0.54f));
+        }
+
+
+        private string CurrentPublicQuestion(PublicConversationViewModel conversation)
+        {
+            var step = conversation?.lastStep;
+            return CeremonyFallback(
+                FirstNonEmpty(step?.question, step?.followUp, step?.reason),
+                "当前没有追加问题，先听清这一轮发言。"
+            );
+        }
+
+
+        private static string CeremonyFallback(string value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         }
 
 
         private void RenderPhaseAssistSignalStrip(PublicConversationViewModel conversation, NominationClockViewModel clock, NominationDebateViewModel debate)
         {
             if (phaseAssistSignalRoot == null) return;
+            publicCeremonySignalKey = "";
             phaseAssistSignalRoot.gameObject.SetActive(true);
             ClearChildren(phaseAssistSignalRoot);
             AddFrame(phaseAssistSignalRoot, "Phase Assist Signal Frame", 0.55f, new Color(1f, 0.78f, 0.40f, 0.16f));
@@ -314,6 +367,12 @@ namespace BotcSolo.UnityPrototype
             if (phaseAssistPrimaryLabel != null) phaseAssistPrimaryLabel.text = primary;
             if (phaseAssistSecondaryLabel != null) phaseAssistSecondaryLabel.text = secondary;
             if (phaseAssistTertiaryLabel != null) phaseAssistTertiaryLabel.text = tertiary;
+            SetSocialCeremonyPrimaryAction(
+                phaseAssistPrimaryButton,
+                phaseAssistPrimaryButton,
+                phaseAssistSecondaryButton,
+                phaseAssistTertiaryButton
+            );
         }
 
 
@@ -473,13 +532,14 @@ namespace BotcSolo.UnityPrototype
                 && debate.active
                 && (votePanel == null || !votePanel.gameObject.activeSelf)
                 && !GameplayOverlayOpen()
-                && (stageDialoguePanel == null || !stageDialoguePanel.gameObject.activeSelf);
+                && (stageDialoguePanel == null || !stageDialoguePanel.gameObject.activeSelf)
+                && (phaseTransitionRoot == null || !phaseTransitionRoot.gameObject.activeSelf);
             nominationDebatePanel.gameObject.SetActive(visible);
             ApplyBottomDockVisibility();
             ApplyFocusChromeVisibility();
             if (!visible) return;
             nominationDebatePanel.SetAsLastSibling();
-            if (nominationDebateTitleText != null) nominationDebateTitleText.text = $"提名互辩 · {debate.nominatorName} → {debate.nomineeName}";
+            if (nominationDebateTitleText != null) nominationDebateTitleText.text = $"提名仪式 · ① {debate.nominatorName} → ② {debate.nomineeName}";
             if (nominationDebateStatusText != null) nominationDebateStatusText.text = BuildNominationDebateStatus(debate);
             if (nominationDebateBodyText != null)
             {
@@ -489,7 +549,13 @@ namespace BotcSolo.UnityPrototype
             RenderNominationDebateFocusStrip(debate);
             RenderNominationDebateDuelRail(debate);
             RenderNominationDebateCards(debate);
-            var canRespond = debate.canHumanRespond;
+            ConfigureNominationDebateBeat(debate);
+        }
+
+
+        private void ConfigureNominationDebateBeat(NominationDebateViewModel debate)
+        {
+            var canRespond = debate != null && debate.canHumanRespond;
             if (nominationDebateResponseInput != null)
             {
                 nominationDebateResponseInput.gameObject.SetActive(canRespond);
@@ -499,6 +565,18 @@ namespace BotcSolo.UnityPrototype
                 }
             }
             if (nominationDebateResponseButton != null) nominationDebateResponseButton.gameObject.SetActive(canRespond);
+            if (nominationVoteYesButton != null) nominationVoteYesButton.gameObject.SetActive(!canRespond);
+            if (nominationVoteNoButton != null) nominationVoteNoButton.gameObject.SetActive(!canRespond);
+            if (nominationTimelineButton != null) nominationTimelineButton.gameObject.SetActive(true);
+            if (nominationDismissButton != null) nominationDismissButton.gameObject.SetActive(true);
+            SetSocialCeremonyPrimaryAction(
+                canRespond ? nominationDebateResponseButton : nominationVoteYesButton,
+                nominationDebateResponseButton,
+                nominationVoteYesButton,
+                nominationVoteNoButton,
+                nominationTimelineButton,
+                nominationDismissButton
+            );
         }
 
 
@@ -637,7 +715,7 @@ namespace BotcSolo.UnityPrototype
             AddNominationDebateSeatCard(
                 nominationDebateCardRoot,
                 new Vector2(0f, 86f),
-                "提名者",
+                "① 提名者",
                 FirstNonEmpty(debate.nominatorName, NameForPlayerId(debate.nominatorId), "未知"),
                 "提出指控",
                 new Color(0.18f, 0.085f, 0.040f, 0.90f)
@@ -645,7 +723,7 @@ namespace BotcSolo.UnityPrototype
             AddNominationDebateSeatCard(
                 nominationDebateCardRoot,
                 new Vector2(226f, 86f),
-                "被提名者",
+                "② 被提名者",
                 FirstNonEmpty(debate.nomineeName, NameForPlayerId(debate.nomineeId), "未知"),
                 debate.canHumanRespond ? "等待你回应" : "等待辩解",
                 new Color(0.26f, 0.035f, 0.044f, 0.90f)
@@ -655,7 +733,7 @@ namespace BotcSolo.UnityPrototype
             var reasonCard = AddPanel("Nomination Debate Reason Card", nominationDebateCardRoot, Vector2.zero, Vector2.zero, new Vector2(0f, 14f), new Vector2(452f, 76f), new Color(0.16f, 0.10f, 0.040f, 0.74f));
             AddFrame(reasonCard.transform, "Nomination Debate Reason Frame", 0.7f, new Color(0.92f, 0.62f, 0.28f, 0.24f));
             AddImage("Nomination Debate Reason Accent", reasonCard.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.68f, 0.36f, 0.12f, 0.78f));
-            AddText("Nomination Debate Reason Title", reasonCard.transform, Vector2.zero, Vector2.one, new Vector2(16f, 38f), new Vector2(-16f, -6f), "提名理由", 13, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.96f);
+            AddText("Nomination Debate Reason Title", reasonCard.transform, Vector2.zero, Vector2.one, new Vector2(16f, 38f), new Vector2(-16f, -6f), "① 提名理由", 13, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.96f);
             AddText("Nomination Debate Reason Body", reasonCard.transform, Vector2.zero, Vector2.one, new Vector2(16f, 10f), new Vector2(-16f, -28f), Ellipsize(FirstNonEmpty(debate.reason, "等待提名者补充理由。"), 46), 12, TextAnchor.UpperLeft, FontStyle.Normal).color = new Color(0.96f, 0.90f, 0.78f, 0.90f);
 
             var showRationaleCards = false;
@@ -669,7 +747,7 @@ namespace BotcSolo.UnityPrototype
             var lineTitleY = hasRationaleCards ? 56f : 132f;
             var linePanel = AddPanel("Nomination Debate Line Panel", nominationDebateCardRoot, Vector2.zero, Vector2.zero, new Vector2(476f, 14f), new Vector2(1176f, linePanelTop), new Color(0.20f, 0.125f, 0.055f, 0.60f));
             AddFrame(linePanel.transform, "Nomination Debate Line Panel Frame", 0.7f, new Color(0.92f, 0.62f, 0.28f, 0.20f));
-            AddText("Nomination Debate Line Title", linePanel.transform, Vector2.zero, Vector2.one, new Vector2(14f, lineTitleY), new Vector2(-250f, -6f), "互辩记录", 14, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.96f);
+            AddText("Nomination Debate Line Title", linePanel.transform, Vector2.zero, Vector2.one, new Vector2(14f, lineTitleY), new Vector2(-250f, -6f), "② 双方回应", 14, TextAnchor.UpperLeft, FontStyle.Bold).color = new Color(1f, 0.82f, 0.44f, 0.96f);
             AddText("Nomination Debate Line Status", linePanel.transform, Vector2.zero, Vector2.one, new Vector2(420f, lineTitleY), new Vector2(-14f, -7f), BuildNominationDebateStatus(debate), 11, TextAnchor.UpperRight, FontStyle.Bold).color = new Color(0.98f, 0.88f, 0.68f, 0.76f);
 
             var maxVisibleLines = hasRationaleCards ? 1 : 3;
@@ -796,9 +874,9 @@ namespace BotcSolo.UnityPrototype
         {
             if (debate == null) return "";
             var day = debate.day > 0 ? $"第 {debate.day} 天" : "今日";
-            if (debate.canHumanRespond) return $"{day} · 等待你回应";
-            if (string.Equals(debate.nextAction, "vote", StringComparison.OrdinalIgnoreCase)) return $"{day} · 准备投票";
-            return $"{day} · 互辩进行中";
+            if (debate.canHumanRespond) return $"{day} · ② 等待你回应";
+            if (string.Equals(debate.nextAction, "vote", StringComparison.OrdinalIgnoreCase)) return $"{day} · ③ 请投票";
+            return $"{day} · ② 双方回应中";
         }
 
 
@@ -868,15 +946,21 @@ namespace BotcSolo.UnityPrototype
             ApplyVoteChromeVisibility();
             RenderGrimoire();
             ApplyBottomDockVisibility();
+            ApplyVoteResultPrimaryAction();
             RestartVoteAnimation();
         }
 
 
         private void UpdateVotePanelText()
         {
-            if (voteTitle != null) voteTitle.text = vm.voteCeremony == null ? "投票仪式" : $"投票仪式 · 第 {vm.voteCeremony.day} 天";
+            if (voteTitle != null)
+            {
+                voteTitle.text = vm?.voteCeremony == null
+                    ? "投票仪式"
+                    : $"投票仪式 · {vm.voteCeremony.nominatorName} → {vm.voteCeremony.nomineeName}";
+            }
             if (voteBody == null) return;
-            var vote = vm.voteCeremony;
+            var vote = vm?.voteCeremony;
             if (vote == null)
             {
                 voteBody.text = "暂无投票\n先进入提名";
@@ -888,21 +972,55 @@ namespace BotcSolo.UnityPrototype
             if (key != voteAnimationKey)
             {
                 voteAnimationKey = key;
-                voteAnimationStartTime = Time.time;
-                voteAnimationStep = -1;
+                voteAnimationStartTime = Time.realtimeSinceStartup;
+                voteAnimationStep = UiMotionDisabled() ? voters.Length : -1;
             }
-            var visible = Mathf.Clamp(voteAnimationStep, 0, voters.Length);
-            var shownYes = voters.Take(visible).Count((entry) => entry.vote);
-            var status = visible >= voters.Length ? (vote.passed ? "通过" : "未通过") : $"询问 {visible}/{voters.Length}";
-            voteBody.text = $"{shownYes}/{vote.threshold} 赞成\n{status}\n{VoteCurrentLine(voters, visible)}";
+            var visible = UiMotionDisabled() ? voters.Length : Mathf.Clamp(voteAnimationStep, 0, voters.Length);
+            voteBody.gameObject.SetActive(true);
+            voteBody.text = BuildVoteResultSummary(vote);
             RenderVoteTokenCeremony(visible, false);
+        }
+
+
+        private string BuildVoteResultSummary(VoteCeremonyViewModel vote)
+        {
+            if (vote == null) return "暂无投票";
+            var result = FirstNonEmpty(vote.resultText, vote.passed ? "本轮通过" : "本轮未通过");
+            return $"门槛：{vote.threshold} 票 · {VoteHumanChoiceLabel(vote)}\n"
+                + $"本轮：{vote.yesVotes}/{vote.threshold} · {result}\n"
+                + VotePendingExecutionLabel();
+        }
+
+
+        private string VoteHumanChoiceLabel(VoteCeremonyViewModel vote)
+        {
+            var human = (vm?.players ?? Array.Empty<PlayerViewModel>()).FirstOrDefault((player) => player != null && player.human);
+            var record = (vote?.voters ?? Array.Empty<VoteViewModel>())
+                .FirstOrDefault((entry) => entry != null && entry.voterId == human?.id);
+            return record == null ? "你的选择：未记录" : $"你的选择：{VoteDecisionLabel(record)}";
+        }
+
+
+        private string VotePendingExecutionLabel()
+        {
+            var candidate = vm?.executionCandidate;
+            if (candidate == null || !candidate.active) return "待处决：当前无人";
+            var name = FirstNonEmpty(candidate.nomineeName, NameForPlayerId(candidate.nomineeId), "候选人");
+            return $"待处决：{name} · {candidate.yesVotes}/{candidate.threshold}";
+        }
+
+
+        private void ApplyVoteResultPrimaryAction()
+        {
+            SetSocialCeremonyPrimaryAction(voteCloseButton, voteCloseButton, voteReplayButton);
         }
 
         private void RestartVoteAnimation()
         {
-            voteAnimationKey = VoteAnimationKey(vm.voteCeremony);
-            voteAnimationStartTime = Time.time;
-            voteAnimationStep = -1;
+            var voters = vm?.voteCeremony?.voters ?? Array.Empty<VoteViewModel>();
+            voteAnimationKey = VoteAnimationKey(vm?.voteCeremony);
+            voteAnimationStartTime = Time.realtimeSinceStartup;
+            voteAnimationStep = UiMotionDisabled() ? voters.Length : -1;
             UpdateVotePanelText();
         }
 
@@ -912,7 +1030,9 @@ namespace BotcSolo.UnityPrototype
             if (votePanel == null || !votePanel.gameObject.activeSelf || vm.voteCeremony == null) return;
             var voters = vm.voteCeremony.voters ?? Array.Empty<VoteViewModel>();
             if (voters.Length == 0) return;
-            var nextStep = Mathf.Clamp(Mathf.FloorToInt((Time.time - voteAnimationStartTime) / 0.42f) + 1, 0, voters.Length);
+            var nextStep = UiMotionDisabled()
+                ? voters.Length
+                : Mathf.Clamp(Mathf.FloorToInt((Time.realtimeSinceStartup - voteAnimationStartTime) / 0.42f) + 1, 0, voters.Length);
             if (nextStep == voteAnimationStep) return;
             voteAnimationStep = nextStep;
             UpdateVotePanelText();
@@ -978,16 +1098,19 @@ namespace BotcSolo.UnityPrototype
             var asked = Mathf.Clamp(visibleCount, 0, voters.Length);
             var shownYes = voters.Take(asked).Count((entry) => entry.vote);
             var finalRevealed = asked >= voters.Length;
-            var livePassed = shownYes >= vote.threshold;
+            var displayedYes = finalRevealed ? vote.yesVotes : shownYes;
+            var livePassed = finalRevealed ? vote.passed : shownYes >= vote.threshold;
             var passedText = finalRevealed
-                ? livePassed ? $"满 {vote.threshold} 票通过" : $"未满 {vote.threshold} 票"
+                ? FirstNonEmpty(vote.resultText, vote.passed ? "本轮通过" : "本轮未通过")
                 : $"已问 {asked}/{voters.Length}";
             var currentLine = VoteCurrentLine(voters, visibleCount);
-            var countLabel = AddText("Vote Center Count", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-260f, 34f), center + new Vector2(260f, 82f), $"{shownYes}/{vote.threshold} 赞成", 32, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var countLabel = AddText("Vote Center Count", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-260f, 34f), center + new Vector2(260f, 82f), $"{displayedYes}/{vote.threshold} 赞成", 32, TextAnchor.MiddleCenter, FontStyle.Bold);
             countLabel.color = livePassed ? new Color(1f, 0.38f, 0.30f, 1f) : new Color(0.42f, 0.62f, 1f, 1f);
-            var thresholdText = livePassed ? "已过线" : $"差 {Mathf.Max(0, vote.threshold - shownYes)} 票";
+            var thresholdText = livePassed ? "已过线" : $"差 {Mathf.Max(0, vote.threshold - displayedYes)} 票";
             AddText("Vote Center Status", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-300f, -12f), center + new Vector2(300f, 28f), $"{passedText} · {thresholdText} · {currentLine}", 22, TextAnchor.MiddleCenter, FontStyle.Bold).color = new Color(1f, 0.90f, 0.62f, 0.98f);
             AddText("Vote Center Nomination", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-230f, 88f), center + new Vector2(230f, 124f), $"{vote.nominatorName} 提名了 {vote.nomineeName}", 22, TextAnchor.MiddleCenter, FontStyle.Bold);
+            RenderVoteTallyRail(vote, voters, visibleCount, center);
+            RenderVoteProgressStrip(vote, voters, visibleCount, center);
         }
 
         private void RenderVoteActiveVoterSpotlight(Vector2 center, Vector2 position, float tokenSize, float rootWidth, float rootHeight, bool revealed, bool raised, bool abstain)
@@ -1041,10 +1164,10 @@ namespace BotcSolo.UnityPrototype
         {
             if (voteAnimationRoot == null || vote == null || voters == null || voters.Length == 0) return;
             var asked = Mathf.Clamp(visibleCount, 0, voters.Length);
-            var yes = voters.Take(asked).Count((entry) => entry.vote);
+            var yes = asked >= voters.Length ? vote.yesVotes : voters.Take(asked).Count((entry) => entry.vote);
             var no = asked - yes;
             var pending = Mathf.Max(0, voters.Length - asked);
-            var rail = AddPanel("Vote Tally Rail", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-240f, -150f), center + new Vector2(240f, -44f), new Color(0.004f, 0.008f, 0.012f, 0.80f));
+            var rail = AddPanel("Vote Tally Rail", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-240f, -180f), center + new Vector2(240f, -80f), new Color(0.004f, 0.008f, 0.012f, 0.80f));
             AddFrame(rail.transform, "Vote Tally Rail Frame", 0.65f, new Color(0.92f, 0.62f, 0.28f, 0.32f));
             AddVoteTallyChip(rail.transform, "已问", $"{asked}/{voters.Length}", 10f, new Color(0.050f, 0.085f, 0.11f, 0.78f), new Color(0.68f, 0.86f, 0.96f, 0.28f));
             AddVoteTallyChip(rail.transform, "举手", yes.ToString(), 124f, new Color(0.17f, 0.095f, 0.030f, 0.78f), new Color(1f, 0.72f, 0.28f, 0.30f));
@@ -1190,7 +1313,7 @@ namespace BotcSolo.UnityPrototype
         private void RenderVoteProgressStrip(VoteCeremonyViewModel vote, VoteViewModel[] voters, int visibleCount, Vector2 center)
         {
             if (voteAnimationRoot == null || vote == null || voters == null || voters.Length == 0) return;
-            var strip = AddPanel("Vote Progress Strip", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-244f, -158f), center + new Vector2(244f, -104f), new Color(0.004f, 0.008f, 0.012f, 0.42f));
+            var strip = AddPanel("Vote Progress Strip", voteAnimationRoot, Vector2.zero, Vector2.zero, center + new Vector2(-244f, -246f), center + new Vector2(244f, -192f), new Color(0.004f, 0.008f, 0.012f, 0.42f));
             AddFrame(strip.transform, "Vote Progress Strip Frame", 0.6f, new Color(0.92f, 0.62f, 0.28f, 0.22f));
             AddText("Vote Progress Label", strip.transform, Vector2.zero, Vector2.one, new Vector2(14f, 28f), new Vector2(-250f, -6f), "投票顺序", 12, TextAnchor.MiddleLeft, FontStyle.Bold);
 

@@ -9,6 +9,8 @@ namespace BotcSolo.UnityPrototype
 {
     public sealed partial class BotcPrototypeBootstrap
     {
+        private Button stageDialogueContinueButton;
+        private bool stageDialogueReturnsToVoteCeremony;
 
         private void BuildStageDialoguePanel()
         {
@@ -47,7 +49,6 @@ namespace BotcSolo.UnityPrototype
             AddText("Stage Dialogue Route Label", routeRibbon.transform, Vector2.zero, Vector2.one, new Vector2(12f, 1f), new Vector2(-374f, -1f), "路径", 9, TextAnchor.MiddleLeft, FontStyle.Bold).color = new Color(0.82f, 0.90f, 0.94f, 0.70f);
             stageDialogueRouteText = AddText("Stage Dialogue Route Text", routeRibbon.transform, Vector2.zero, Vector2.one, new Vector2(52f, 1f), new Vector2(-12f, -1f), "", 11, TextAnchor.MiddleLeft, FontStyle.Bold);
             stageDialogueRouteText.color = new Color(1f, 0.92f, 0.74f, 0.96f);
-            routeRibbon.gameObject.SetActive(false);
             var speechCard = AddPanel("Stage Dialogue Speech Card", stageDialoguePanel, Vector2.zero, Vector2.one, new Vector2(34f, 34f), new Vector2(-170f, -64f), new Color(0.20f, 0.120f, 0.050f, 0.50f));
             AddFrame(speechCard.transform, "Stage Dialogue Speech Card Frame", 0.75f, new Color(0.70f, 0.82f, 0.92f, 0.18f));
             AddImage("Stage Dialogue Speech Accent", speechCard.transform, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.96f, 0.64f, 0.24f, 0.50f));
@@ -86,10 +87,22 @@ namespace BotcSolo.UnityPrototype
             var sourceButton = AddToolActionButton("源", "来源", stageDialoguePanel, new Vector2(1328f, 146f), new Vector2(118f, 34f), OpenStageDialogueSource, true);
             sourceButton.gameObject.SetActive(false);
             stageDialogueSourceText = ToolButtonLabel(sourceButton);
-            var continueButton = AddToolActionButton("▶", "继续", stageDialoguePanel, new Vector2(1248f, 78f), new Vector2(118f, 38f), AdvanceStageDialogue, true);
-            stageDialogueContinueText = ToolButtonLabel(continueButton);
-            AddToolActionButton("收", "收起", stageDialoguePanel, new Vector2(1248f, 28f), new Vector2(118f, 34f), () => HideStageDialogue(), true);
+            stageDialogueContinueButton = AddToolActionButton("▶", "继续", stageDialoguePanel, new Vector2(1248f, 78f), new Vector2(118f, 38f), AdvanceStageDialogue, true);
+            stageDialogueContinueText = ToolButtonLabel(stageDialogueContinueButton);
+            var dismissButton = AddToolActionButton("收", "收起", stageDialoguePanel, new Vector2(1248f, 28f), new Vector2(118f, 34f), () => HideStageDialogue(), true);
+            dismissButton.gameObject.SetActive(false);
+            SetSocialCeremonyPrimaryAction(stageDialogueContinueButton, stageDialogueContinueButton, sourceButton);
             stageDialoguePanel.gameObject.SetActive(false);
+        }
+
+
+        private void SetSocialCeremonyPrimaryAction(Button primary, params Button[] controls)
+        {
+            foreach (var button in controls ?? Array.Empty<Button>())
+            {
+                if (button != null) SetButtonSuggested(button, false);
+            }
+            if (primary != null && primary.gameObject.activeInHierarchy) SetButtonSuggested(primary, true);
         }
 
 
@@ -143,7 +156,7 @@ namespace BotcSolo.UnityPrototype
             phaseTransitionRouteConnectorB = AddImage("Phase Transition Route Connector B", phaseTransitionRouteRoot, Vector2.zero, Vector2.zero, new Vector2(404f, 22f), new Vector2(424f, 25f), new Color(1f, 0.76f, 0.34f, 0.28f));
             phaseTransitionCueStageText = AddPhaseTransitionRouteChip("Stage", "当前", new Vector2(16f, 6f), new Vector2(178f, 42f));
             phaseTransitionCueActionText = AddPhaseTransitionRouteChip("Action", "下一步", new Vector2(206f, 6f), new Vector2(400f, 42f));
-            phaseTransitionCueStateText = AddPhaseTransitionRouteChip("State", "同步", new Vector2(428f, 6f), new Vector2(588f, 42f));
+            phaseTransitionCueStateText = AddPhaseTransitionRouteChip("State", "桌面", new Vector2(428f, 6f), new Vector2(588f, 42f));
             SetRaycastTargetsExceptButtons(phaseTransitionRouteRoot);
 
             phaseTransitionRoot.gameObject.SetActive(false);
@@ -172,7 +185,12 @@ namespace BotcSolo.UnityPrototype
                 return;
             }
             var normalizedStage = NormalizePhaseTransitionStage(stage);
-            if (!pending) HideStageDialogue();
+            if (!pending)
+            {
+                stageDialogueReturnsToVoteCeremony = false;
+                HideStageDialogue();
+            }
+            SuspendSocialCeremonySurfaces();
             if (phaseTransitionRoutine != null)
             {
                 queuedPhaseTransitionStage = normalizedStage;
@@ -196,6 +214,7 @@ namespace BotcSolo.UnityPrototype
             }
             queuedPhaseTransitionStage = "";
             queuedPhaseTransitionPending = false;
+            SuspendSocialCeremonySurfaces();
             ApplyPhaseTransitionVisuals(NormalizePhaseTransitionStage(stage), false);
             phaseTransitionRoot.gameObject.SetActive(true);
             phaseTransitionRoot.SetAsLastSibling();
@@ -233,6 +252,31 @@ namespace BotcSolo.UnityPrototype
                 QueuePhaseNarration(stage);
                 FlushPostPhaseNarration();
             }
+            RestoreSocialCeremonySurfaces();
+        }
+
+
+        private void SuspendSocialCeremonySurfaces()
+        {
+            if (phaseAssistPanel != null) phaseAssistPanel.gameObject.SetActive(false);
+            if (nominationDebatePanel != null) nominationDebatePanel.gameObject.SetActive(false);
+            ApplyBottomDockVisibility();
+            ApplyFocusChromeVisibility();
+        }
+
+
+        private void RestoreSocialCeremonySurfaces()
+        {
+            if (!gameplayEntered || vm == null) return;
+            if (stageDialoguePanel != null && stageDialoguePanel.gameObject.activeSelf) return;
+            if (phaseTransitionRoot != null && phaseTransitionRoot.gameObject.activeSelf) return;
+            if (votePanel != null && votePanel.gameObject.activeSelf) return;
+            if (GameplayOverlayOpen()) return;
+            RenderNominationDebatePanel();
+            RenderPhaseAssistPanel();
+            ApplyBottomDockVisibility();
+            ApplyFocusChromeVisibility();
+            ApplyModalBackdropVisibility();
         }
 
 
@@ -324,6 +368,7 @@ namespace BotcSolo.UnityPrototype
             stageDialogueFocusPlayerId = "";
             stageDialogueSpeakerPlayerId = "";
             stageDialogueTargetPlayerId = "";
+            stageDialogueReturnsToVoteCeremony = false;
             hasQueuedPhaseTransitionAfterDialogue = false;
             queuedPhaseTransitionAfterDialogueStage = "";
             queuedPhaseTransitionAfterDialoguePending = false;
@@ -412,7 +457,7 @@ namespace BotcSolo.UnityPrototype
             }
             if (phaseTransitionCueActionText != null)
             {
-                phaseTransitionCueActionText.text = pending ? "等待核心同步" : $"下一步：{PhaseTransitionNextAction(stage)}";
+                phaseTransitionCueActionText.text = pending ? "等待全桌就位" : $"下一步：{PhaseTransitionNextAction(stage)}";
                 phaseTransitionCueActionText.color = new Color(0.98f, 0.91f, 0.78f, 0.94f);
             }
             if (phaseTransitionCueStateText != null)
@@ -809,7 +854,7 @@ namespace BotcSolo.UnityPrototype
             var body = $"{FirstNonEmpty(vote.nominatorName, "提名者")} 提名 {FirstNonEmpty(vote.nomineeName, "被提名者")}。\n"
                 + $"票数：{vote.yesVotes}/{vote.threshold}，{FirstNonEmpty(vote.resultText, vote.passed ? "通过" : "未通过")}。\n"
                 + $"举手：{yesLine}\n"
-                + "投票标记已同步到魔典；需要回放时可打开投票仪式。";
+                + "票面已经落定；需要时可重看投票仪式。";
             QueueStageDialogue("说书人", body, "投票结果", vote.nominatorId, vote.nomineeId);
         }
 
@@ -822,8 +867,8 @@ namespace BotcSolo.UnityPrototype
             if (string.IsNullOrWhiteSpace(action.lastActionId) || string.IsNullOrWhiteSpace(action.lastActionType)) return;
             if (!ShouldNarrateActionStatus(action.lastActionType)) return;
             var ok = !string.Equals(action.status, "error", StringComparison.OrdinalIgnoreCase);
-            var title = ok ? "行动已同步" : "行动同步失败";
-            var message = FirstNonEmpty(action.message, ok ? "本次行动已处理。" : "请检查同步状态。");
+            var title = ok ? "桌面回执" : "这一步没有落定";
+            var message = FirstNonEmpty(action.message, ok ? "本次行动已处理。" : "请回到当前步骤再试一次。");
             QueueStageDialogue("说书人", $"{ActionStatusDisplayName(action.lastActionType)}：{message}", title, "", action.selectedPlayerId);
         }
 
@@ -1107,6 +1152,7 @@ namespace BotcSolo.UnityPrototype
 
         private void PrepareStageDialogue(string speaker, string body, string tag, string speakerId = "", string targetId = "")
         {
+            SuspendSocialCeremonySurfaces();
             stageDialoguePanel.gameObject.SetActive(true);
             ApplyBottomDockVisibility();
             stageDialoguePages.Clear();
@@ -1118,6 +1164,8 @@ namespace BotcSolo.UnityPrototype
             stageDialogueTargetPlayerId = FirstNonEmpty(targetId, PlayerIdFromDialogueTargetHeading(speaker));
             stageDialogueFocusPlayerId = PlayerIdFromDialogueHeading(speaker);
             stageDialogueSourceMode = StageDialogueSourceMode(tag);
+            stageDialogueReturnsToVoteCeremony = stageDialogueReturnsToVoteCeremony
+                || (!string.IsNullOrWhiteSpace(tag) && tag.Contains("投票结果"));
             dialoguePulseStartTime = Time.realtimeSinceStartup;
             ConfigureStageDialogueChrome(speaker, tag);
             RenderGrimoire();
@@ -1130,6 +1178,7 @@ namespace BotcSolo.UnityPrototype
             var safeTag = FirstNonEmpty(tag, "发言");
             stageDialogueBaseTag = safeTag;
             if (stageDialogueSpeakerText != null) stageDialogueSpeakerText.text = Ellipsize(safeSpeaker, 26);
+            SetSocialCeremonyPrimaryAction(stageDialogueContinueButton, stageDialogueContinueButton);
             UpdateStageDialogueTag();
             if (stageDialogueSourceText != null) stageDialogueSourceText.text = StageDialogueSourceLabel(stageDialogueSourceMode);
             RenderStageDialoguePortrait(safeSpeaker);
@@ -1268,12 +1317,7 @@ namespace BotcSolo.UnityPrototype
             UpdateStageDialogueTag();
             if (stageDialogueMetaText != null)
             {
-                var page = stageDialoguePages.Count > 1 ? $"第 {stageDialoguePageIndex + 1}/{stageDialoguePages.Count} 段 · " : "";
-                var queued = stageDialogueQueue.Count > 0 ? $" · 后续 {stageDialogueQueue.Count} 条" : "";
-                var hint = stageDialogueTyping
-                    ? "点击继续可直接显示整句"
-                    : stageDialoguePageIndex + 1 < stageDialoguePages.Count ? "点击继续查看下一段" : "读完后可收起";
-                stageDialogueMetaText.text = $"{page}{hint}{queued}";
+                stageDialogueMetaText.text = $"议题：{Ellipsize(StageDialoguePendingQuestion(), 58)}";
             }
             UpdateStageDialogueContextRail();
             UpdateStageDialogueRouteRibbon();
@@ -1284,6 +1328,26 @@ namespace BotcSolo.UnityPrototype
                     ? "跳过"
                     : stageDialoguePageIndex + 1 < stageDialoguePages.Count || stageDialogueQueue.Count > 0 ? "继续" : "完成";
             }
+            SetSocialCeremonyPrimaryAction(stageDialogueContinueButton, stageDialogueContinueButton);
+        }
+
+
+        private string StageDialoguePendingQuestion()
+        {
+            var step = vm?.publicConversation?.lastStep;
+            if (stageDialogueSourceMode == "public" || stageDialogueSourceMode == "timeline")
+            {
+                return FirstNonEmpty(
+                    step?.question,
+                    step?.followUp,
+                    step?.reason,
+                    "当前没有追加问题，先听完这段发言。"
+                );
+            }
+            if (stageDialogueSourceMode == "nomination") return "听完双方陈述，再处理当前提名。";
+            if (stageDialogueReturnsToVoteCeremony) return "这轮票面如何，谁暂在处决席？";
+            if (stageDialogueSourceMode == "private") return "这条私下信息会怎样影响你的判断？";
+            return "听完这条桌面消息，再继续。";
         }
 
         private void UpdateStageDialogueContextRail()
@@ -1601,6 +1665,8 @@ namespace BotcSolo.UnityPrototype
 
         private void HideStageDialogue(bool clearQueue = true)
         {
+            var returnToVoteCeremony = stageDialogueReturnsToVoteCeremony && vm?.voteCeremony != null;
+            stageDialogueReturnsToVoteCeremony = false;
             if (clearQueue) stageDialogueQueue.Clear();
             stageDialogueSpeakerPlayerId = "";
             stageDialogueTargetPlayerId = "";
@@ -1629,6 +1695,14 @@ namespace BotcSolo.UnityPrototype
                 StartQueuedPhaseTransitionAfterDialogue();
                 ScheduleProactiveWhisperRenderAfterDialogue();
             }
+            if (returnToVoteCeremony
+                && (phaseTransitionRoot == null || !phaseTransitionRoot.gameObject.activeSelf)
+                && string.IsNullOrWhiteSpace(queuedPhaseTransitionAfterDialogueStage))
+            {
+                OpenVotePanel();
+                return;
+            }
+            RestoreSocialCeremonySurfaces();
         }
 
 
@@ -1700,7 +1774,8 @@ namespace BotcSolo.UnityPrototype
         {
             var value = tag ?? "";
             if (value.Contains("私聊")) return "private";
-            if (value.Contains("公聊") || value.Contains("时间") || value.Contains("发言")) return "timeline";
+            if (value.Contains("公聊") || value.Contains("发言")) return "public";
+            if (value.Contains("时间")) return "timeline";
             if (value.Contains("复盘")) return "recap";
             if (value.Contains("提名")) return "nomination";
             return "events";
@@ -1710,6 +1785,7 @@ namespace BotcSolo.UnityPrototype
         private static string StageDialogueSourceLabel(string mode)
         {
             if (mode == "private") return "私聊";
+            if (mode == "public") return "公聊";
             if (mode == "timeline") return "时间线";
             if (mode == "recap") return "复盘";
             if (mode == "nomination") return "投票";
